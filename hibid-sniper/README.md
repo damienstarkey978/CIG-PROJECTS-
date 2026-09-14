@@ -6,61 +6,63 @@ that max — either continuously (proxy) or only in the final seconds
 (snipe) — and rides out HiBid's "soft close" time extensions until the lot
 actually closes. It never bids past the max you set.
 
-## The easy path: deploy it as a hosted web app
+## Deploy it as a hosted web app — no terminal at all
 
-This turns it into a real web app with a URL, no terminal needed after the
-one-time login step below.
+Two steps, both in a browser, neither is something an AI can do for you
+(they need your identity/your password):
 
-**1. One-time, on any computer with a real browser (does the HiBid login):**
+**1. Deploy from GitHub:**
 
-```bash
-git clone <this repo> && cd hibid-sniper
-npm install
-npm run inspect -- https://hibid.com/some/real/lot/url
-```
+- Go to [railway.app](https://railway.app), sign in, **New Project → Deploy from GitHub repo**, pick this repo, branch `claude/hibid-auction-sniper-bot-5j08km`. It finds the `Dockerfile` automatically and builds it — nothing to configure.
 
-A real browser window opens. Log in to HiBid by hand, then press Enter in
-the terminal. This saves `data/auth.json` — your logged-in session.
+**2. Set two secrets:**
 
-Then turn that file into one line you can paste into a hosting dashboard:
+- In the project's **Variables** tab, add `HIBID_EMAIL` and `HIBID_PASSWORD` — your real HiBid login. These go straight into Railway's own secret storage, never through me, never in any chat.
+- Deploy. Railway gives you a public `https://...` URL. The app logs into HiBid itself on startup using those two variables.
 
-```bash
-base64 -w0 data/auth.json   # Mac: base64 -i data/auth.json
-```
+**That URL is your app.** Open it on your phone, tap Share → Add to Home
+Screen, and it behaves like an installed app. Tap **+**, paste a lot URL,
+set your max bid and mode, done.
 
-Copy the long string it prints.
-
-**2. Deploy, all in the browser, no terminal:**
-
-- Go to [railway.app](https://railway.app), sign in, **New Project → Deploy from GitHub repo**, pick this repo/branch. It finds the `Dockerfile` automatically and builds it.
-- In the project's **Variables** tab, add one variable: `HIBID_AUTH_STATE_B64` = the string you copied above.
-- Deploy. Railway gives you a public `https://...` URL.
-
-**3. That URL is your app.** Open it on your phone, tap Share → Add to
-Home Screen, and it behaves like an installed app. Tap **+**, paste a lot
-URL, set your max bid and mode, done.
-
-Sessions expire eventually (HiBid will just start requiring login again).
-When the dashboard shows login/auth errors, repeat step 1 and update the
-`HIBID_AUTH_STATE_B64` variable in Railway with the new value.
+**If login fails:** the CSS selectors the bot uses to find HiBid's login
+form (`src/bot/selectors.ts`) are educated guesses, not verified against
+the live site, because this was built somewhere with no network path to
+hibid.com. If it fails, open Railway's **Deployments → logs** (a webpage,
+no terminal), copy the error, send it to me. I'll push a fix to the same
+branch and Railway redeploys automatically since it's watching that
+branch — you won't need to touch anything else.
 
 (Render.com, Fly.io, or any host that builds a `Dockerfile` and lets you
 set env vars works the same way — Railway's just the fewest clicks.)
 
-## The manual path: running it yourself instead
+## Prefer a captured session instead of storing your password?
+
+Skip `HIBID_EMAIL`/`HIBID_PASSWORD` and set `HIBID_AUTH_STATE_B64` instead.
+On a computer with a real browser:
+
+```bash
+git clone <this repo> && cd hibid-sniper && npm install
+npm run inspect -- https://hibid.com/some/real/lot/url   # log in by hand when it opens
+base64 -w0 data/auth.json   # Mac: base64 -i data/auth.json
+```
+
+Paste that output as `HIBID_AUTH_STATE_B64` in Railway. This avoids
+scripted login (and its unverified selectors) entirely, at the cost of
+that one local step, and needs repeating whenever the session expires.
+
+## Running it yourself instead of hosting it
 
 If you'd rather not use a hosting service, run it on a computer that's
 on and connected whenever auctions you're watching are closing:
 
 ```bash
 npm install
-cp .env.example .env   # fill in PORT if you want something other than 4310
+cp .env.example .env   # fill in HIBID_EMAIL/HIBID_PASSWORD or PORT
 npm run build && npm start
 ```
 
 Open `http://localhost:4310` on your phone (same network) or through a
-tunnel (Tailscale/ngrok) if not. It reuses `data/auth.json` from the
-inspect step above the same way.
+tunnel (Tailscale/ngrok) if not.
 
 ## Why "soft close" changes the strategy
 
