@@ -1,0 +1,27 @@
+{
+  "name": "hibid-sniper",
+  "version": "1.0.0",
+  "description": "Personal auto-bid / auction sniper bot for HiBid, with a phone-app-style dashboard.",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "dev": "ts-node src/server.ts",
+    "inspect": "ts-node src/bot/inspect.ts",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "playwright": "^1.47.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.9",
+    "@types/ws": "^8.5.12",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  }
+}

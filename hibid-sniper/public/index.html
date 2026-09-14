@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>HiBid Sniper</title>
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>HiBid Sniper</h1>
+    <p id="conn-status">Connecting…</p>
+  </header>
+
+  <main>
+    <div id="empty" class="empty hidden">No lots yet. Tap + to add one.</div>
+    <div id="lot-list"></div>
+  </main>
+
+  <button class="fab" id="add-btn" aria-label="Add lot">+</button>
+
+  <div class="sheet-backdrop hidden" id="sheet-backdrop">
+    <div class="sheet">
+      <h2>Add a lot to watch</h2>
+      <form id="add-form">
+        <div class="field">
+          <label for="url">Lot URL</label>
+          <input id="url" name="url" type="url" placeholder="https://hibid.com/..." required />
+        </div>
+        <div class="field">
+          <label for="label">Label (optional)</label>
+          <input id="label" name="label" type="text" placeholder="e.g. Vintage lawn tractor" />
+        </div>
+        <div class="field">
+          <label for="maxBid">Your max bid ($)</label>
+          <input id="maxBid" name="maxBid" type="number" min="1" step="0.01" required />
+        </div>
+        <div class="field">
+          <label for="mode">Mode</label>
+          <select id="mode" name="mode">
+            <option value="proxy">Proxy — auto-rebid whenever outbid, up to your max</option>
+            <option value="snipe">Snipe — hold off, then bid in the last few seconds</option>
+          </select>
+        </div>
+        <div class="field" id="snipe-seconds-field">
+          <label for="snipeSeconds">Seconds before close to start bidding</label>
+          <input id="snipeSeconds" name="snipeSeconds" type="number" min="1" value="8" />
+        </div>
+        <div class="sheet-actions">
+          <button type="button" class="secondary" id="cancel-btn">Cancel</button>
+          <button type="submit" class="primary">Start watching</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
