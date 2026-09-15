@@ -1,89 +1,94 @@
 # HiBid Sniper
 
-Personal auto-bid bot for HiBid auctions, with a phone-app-style dashboard.
-For each lot you set a max bid; the bot watches it and bids for you up to
-that max — either continuously (proxy) or only in the final seconds
-(snipe) — and rides out HiBid's "soft close" time extensions until the lot
-actually closes. It never bids past the max you set.
+Personal auto-bid bot for HiBid auctions, with a phone-app-style
+dashboard. For each lot you set a max bid; the bot watches it and bids
+for you up to that max — either continuously (proxy) or only in the
+final seconds (snipe) — and rides out HiBid's "soft close" time
+extensions until the lot actually closes. It never bids past the max you
+set. Deployed on Fly.io, deploys itself via GitHub Actions on every push.
 
-## Deploy it as a hosted web app — no terminal at all
+## Status
 
-Two steps, both in a browser, neither is something an AI can do for you
-(they need your identity/your password):
+- App: `hibid-sniper` on Fly.io, region `iad`.
+- Deploys automatically on push to this branch via `.github/workflows/hibid-sniper-deploy.yml` (Fly's remote builders — no local build or `fly deploy` needed once `FLY_API_TOKEN` is set as a repo secret).
+- `DEMO_MODE=true` runs the whole app — dashboard, engine, proxy/snipe bidding logic — against a simulated auction, no browser or network required. Good for confirming the app itself is healthy independent of HiBid calibration.
+- Real bidding (`DEMO_MODE=false` or unset) needs `src/bot/selectors.ts` and `src/bot/login.ts` calibrated against the live site — see below. Nothing in this repo has ever touched real hibid.com; every Claude sandbox that's worked on it has been network-blocked from that domain.
 
-**1. Deploy from GitHub:**
+## One-time setup
 
-- Go to [railway.app](https://railway.app), sign in, **New Project → Deploy from GitHub repo**, pick this repo, branch `claude/hibid-auction-sniper-bot-5j08km`. It finds the `Dockerfile` automatically and builds it — nothing to configure.
+In the repo's GitHub settings → Secrets and variables → Actions, add:
 
-**2. Set two secrets:**
+- `FLY_API_TOKEN` — from `fly tokens create deploy` (or Fly dashboard → Tokens) on a machine logged into your Fly account.
 
-- In the project's **Variables** tab, add `HIBID_EMAIL` and `HIBID_PASSWORD` — your real HiBid login. These go straight into Railway's own secret storage, never through me, never in any chat.
-- Deploy. Railway gives you a public `https://...` URL. The app logs into HiBid itself on startup using those two variables.
+In the Fly app's secrets (`fly secrets set NAME=value`, or the Fly dashboard):
 
-**That URL is your app.** Open it on your phone, tap Share → Add to Home
-Screen, and it behaves like an installed app. Tap **+**, paste a lot URL,
-set your max bid and mode, done.
+- `DASHBOARD_PASSWORD` — required, since Fly gives every app a public URL by default.
+- Either `HIBID_EMAIL` + `HIBID_PASSWORD` (scripted login, depends on `login.ts` selectors being correct), or `HIBID_AUTH_STATE_B64` (a captured session, see below — more reliable, avoids scripted login entirely).
+- `DEMO_MODE=true` if you want the app running now while HiBid calibration is still in progress.
 
-**If login fails:** the CSS selectors the bot uses to find HiBid's login
-form (`src/bot/selectors.ts`) are educated guesses, not verified against
-the live site, because this was built somewhere with no network path to
-hibid.com. If it fails, open Railway's **Deployments → logs** (a webpage,
-no terminal), copy the error, send it to me. I'll push a fix to the same
-branch and Railway redeploys automatically since it's watching that
-branch — you won't need to touch anything else.
+After that, every push to this branch redeploys automatically.
 
-(Render.com, Fly.io, or any host that builds a `Dockerfile` and lets you
-set env vars works the same way — Railway's just the fewest clicks.)
+## Calibrating against the real site
 
-## Prefer a captured session instead of storing your password?
-
-Skip `HIBID_EMAIL`/`HIBID_PASSWORD` and set `HIBID_AUTH_STATE_B64` instead.
-On a computer with a real browser:
-
-```bash
-git clone <this repo> && cd hibid-sniper && npm install
-npm run inspect -- https://hibid.com/some/real/lot/url   # log in by hand when it opens
-base64 -w0 data/auth.json   # Mac: base64 -i data/auth.json
-```
-
-Paste that output as `HIBID_AUTH_STATE_B64` in Railway. This avoids
-scripted login (and its unverified selectors) entirely, at the cost of
-that one local step, and needs repeating whenever the session expires.
-
-## Running it yourself instead of hosting it
-
-If you'd rather not use a hosting service, run it on a computer that's
-on and connected whenever auctions you're watching are closing:
+This has to happen on a machine with real internet access — any Claude
+sandbox is blocked from hibid.com specifically.
 
 ```bash
 npm install
-cp .env.example .env   # fill in HIBID_EMAIL/HIBID_PASSWORD or PORT
-npm run build && npm start
+npx playwright install chromium   # one-time, only needed for this local step
+npm run inspect -- https://hibid.com/some/real/lot/url
+npm run inspect -- --search "some query"
 ```
 
-Open `http://localhost:4310` on your phone (same network) or through a
-tunnel (Tailscale/ngrok) if not.
+Each opens a real browser window. Log in by hand if prompted, press
+Enter in the terminal — this saves `data/auth.json`. It also dumps the
+rendered page to `inspect-output/` and prints the JSON API responses the
+page makes while loading, which is often a more reliable source for
+price/countdown than scraping the DOM.
+
+Use what you find to fix:
+- `src/bot/selectors.ts` — lot page price/timer/bid controls, and search-results card selectors
+- `src/bot/login.ts` (`loginSelectors` in `selectors.ts`) — the login form
+
+To deploy a captured session instead of storing a password on Fly:
+
+```bash
+base64 -w0 data/auth.json   # Mac: base64 -i data/auth.json
+```
+
+Set that as `HIBID_AUTH_STATE_B64` — the app decodes it back to
+`data/auth.json` on boot. Whenever the session expires, repeat this and
+update the secret.
+
+## Architecture
+
+- `src/bot/engine.ts` — the actual polling/bidding loop (`startEngine`/`stopEngine`/`watchLot`/`unwatchLot`). Any failure from the lot source (missing browser, bad selectors, network error) is caught per-lot and turned into an `error` status + retry, never an uncaught throw — that's what crashed the process on Fly before.
+- `src/bot/scraper.ts` (`LiveSource`) — real Playwright driver against hibid.com.
+- `src/bot/demoSource.ts` (`DemoSource`) — simulated auction, used when `DEMO_MODE=true`.
+- `src/bot/manager.ts` — lot CRUD + persistence (`data/lots.json`).
+- `src/bot/login.ts` — shared logged-in browser context, saved/restored session.
+- `src/bot/browseFetch.ts` + `browseParse.ts` — HiBid search/browse, so lots can be found from inside the app instead of only pasted by URL.
+- `src/auth/passwordGate.ts` — simple cookie-session password gate in front of the whole dashboard.
 
 ## Why "soft close" changes the strategy
 
 If a bid lands in HiBid's final moments, it extends that lot's clock so
-other bidders can respond — a single last-second bid usually just triggers
-an extension rather than winning. **Proxy mode** (default) is built for
-that: it holds your max and only bids the minimum needed to stay in front,
-through as many extensions as it takes. **Snipe mode** holds off bidding
-until `snipeSeconds` before the scheduled close, then behaves like proxy
-mode from that point on, including through extensions.
+other bidders can respond — a single last-second bid usually just
+triggers an extension rather than winning. **Proxy mode** (default) is
+built for that: it holds your max and only bids the minimum needed to
+stay in front, through as many extensions as it takes. **Snipe mode**
+holds off bidding until `snipeSeconds` before the scheduled close, then
+behaves like proxy mode from that point on, including through
+extensions.
 
 Automated bidding tools likely aren't something HiBid's terms of service
 explicitly welcome — this runs on your own account, at your own risk.
 
-## If bidding stops working
+## Running it locally instead
 
-`src/bot/selectors.ts` has best-guess CSS selectors for the price, timer,
-and bid button, since this was built without live access to hibid.com to
-verify them. If the dashboard log shows bid/parsing errors, that's almost
-certainly why. Fastest fix: run `npm run inspect -- <the lot url>` again —
-it dumps the real page to `data/inspect-dump.html` and prints the API
-responses the page makes — and send me what you find; I'll update the
-selectors (or wire up a direct API call, which is more reliable than DOM
-scraping if you find a clean JSON endpoint).
+```bash
+npm install
+npx playwright install chromium   # only if DEMO_MODE=false
+cp .env.example .env
+npm run build && npm start
+```

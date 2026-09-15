@@ -1,13 +1,11 @@
 import { randomUUID } from "crypto";
 import { loadLots, saveLots } from "./store";
-import { LotWatcher } from "./lotWatcher";
+import { watchLot, unwatchLot, startEngine } from "./engine";
+import { config } from "./config";
 import { Lot, NewLotInput } from "./types";
-
-const TERMINAL_STATUSES = new Set(["won", "lost"]);
 
 export class Manager {
   private lots: Map<string, Lot> = new Map();
-  private watchers: Map<string, LotWatcher> = new Map();
   private onChange: (lot: Lot) => void;
 
   constructor(onChange: (lot: Lot) => void) {
@@ -29,25 +27,25 @@ export class Manager {
     this.onChange(lot);
   };
 
-  async add(input: NewLotInput): Promise<Lot> {
+  add(input: NewLotInput): Lot {
     const lot: Lot = {
       id: randomUUID(),
       url: input.url,
       label: input.label?.trim() || input.url,
       maxBid: input.maxBid,
       mode: input.mode ?? "proxy",
-      snipeSeconds: input.snipeSeconds ?? Number(process.env.DEFAULT_SNIPE_SECONDS ?? 8),
+      snipeSeconds: input.snipeSeconds ?? config.defaultSnipeSeconds,
       status: "watching",
       currentPrice: null,
       minNextBid: null,
       endTime: null,
       lastChecked: null,
       paused: false,
-      log: [{ ts: Date.now(), message: "Added." }],
+      log: [],
     };
     this.lots.set(lot.id, lot);
     this.persist();
-    await this.startWatcher(lot);
+    watchLot(lot, this.handleUpdate);
     return lot;
   }
 
@@ -63,26 +61,14 @@ export class Manager {
   }
 
   remove(id: string): boolean {
-    this.watchers.get(id)?.stop();
-    this.watchers.delete(id);
+    unwatchLot(id);
     const existed = this.lots.delete(id);
     this.persist();
     return existed;
   }
 
-  private async startWatcher(lot: Lot) {
-    if (TERMINAL_STATUSES.has(lot.status)) return;
-    const watcher = new LotWatcher(lot, this.handleUpdate);
-    this.watchers.set(lot.id, watcher);
-    await watcher.start();
-  }
-
-  /** Resume watching every non-finished lot loaded from disk on boot. */
-  async startAll() {
-    for (const lot of this.lots.values()) {
-      if (!TERMINAL_STATUSES.has(lot.status)) {
-        await this.startWatcher(lot);
-      }
-    }
+  /** Resumes watching every lot loaded from disk. Never throws. */
+  async startAll(): Promise<void> {
+    await startEngine(this.list(), this.handleUpdate);
   }
 }

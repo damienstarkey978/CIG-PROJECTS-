@@ -13,8 +13,7 @@ export function loadLots(): Lot[] {
   ensureDataDir();
   if (!fs.existsSync(LOTS_FILE)) return [];
   try {
-    const raw = fs.readFileSync(LOTS_FILE, "utf-8");
-    return JSON.parse(raw) as Lot[];
+    return JSON.parse(fs.readFileSync(LOTS_FILE, "utf-8")) as Lot[];
   } catch {
     return [];
   }

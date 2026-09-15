@@ -1,5 +1,6 @@
 node_modules
 dist
 data
+inspect-output
 .env
 .git

@@ -3,4 +3,5 @@ dist/
 .env
 data/auth.json
 data/lots.json
+inspect-output/
 *.log
