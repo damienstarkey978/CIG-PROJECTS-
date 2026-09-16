@@ -4,7 +4,7 @@
   "terminals": [
     {
       "name": "dashboard",
-      "command": "cd hibid-sniper && DEMO_MODE=true PORT=8080 npm start",
+      "command": "cd hibid-sniper && { [ -d node_modules ] || npm ci; } && { [ -f dist/server.js ] || npm run build; } && DEMO_MODE=true PORT=8080 npm start",
       "description": "HiBid Sniper dashboard + bidding engine on port 8080. DEMO_MODE=true runs against a simulated auction, so no browser or hibid.com access is needed. For real bidding, unset DEMO_MODE and provide the HiBid secrets described in hibid-sniper/README.md."
     }
   ],
