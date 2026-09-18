@@ -137,7 +137,8 @@ function upsertLot(lot) {
 }
 
 function connectWs() {
-  const ws = new WebSocket(`ws://${location.host}`);
+  const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${wsProto}//${location.host}`);
   ws.onopen = () => (connStatus.textContent = "Live");
   ws.onclose = () => {
     connStatus.textContent = "Disconnected — retrying…";

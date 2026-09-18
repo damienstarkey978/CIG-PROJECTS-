@@ -4,12 +4,13 @@ import express from "express";
 import { WebSocketServer, WebSocket } from "ws";
 import { Manager } from "./bot/manager";
 import { Lot } from "./bot/types";
-import { fetchSearchResultsHtml } from "./bot/browseFetch";
-import { parseSearchResults } from "./bot/browseParse";
+import { searchHiBid } from "./bot/browseFetch";
 import { config } from "./bot/config";
+import { hasSavedSession, restoreAuthStateFromEnv } from "./bot/login";
 import { passwordGate, handleLogin, isAuthorizedRequest } from "./auth/passwordGate";
 
 dotenv.config();
+restoreAuthStateFromEnv();
 
 const app = express();
 app.use(express.json());
@@ -60,12 +61,21 @@ app.get("/api/search", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
   if (!q) return res.status(400).json({ error: "q is required" });
   try {
-    const html = await fetchSearchResultsHtml(q);
-    const results = await parseSearchResults(html);
+    const results = await searchHiBid(q);
     res.json(results);
   } catch (err: any) {
     res.status(502).json({ error: err.message ?? String(err) });
   }
+});
+
+/** Health check — never depends on the browser. Exempt from password gate. */
+app.get("/api/health", (_req, res) => {
+  res.json({
+    ok: true,
+    demoMode: config.demoMode,
+    hasDashboardPassword: !!config.dashboardPassword,
+    hasHiBidSession: !!process.env.HIBID_AUTH_STATE_B64 || hasSavedSession(),
+  });
 });
 
 const server = app.listen(config.port, () => {

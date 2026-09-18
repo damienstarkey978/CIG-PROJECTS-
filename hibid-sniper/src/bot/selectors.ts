@@ -1,39 +1,65 @@
 /**
- * CALIBRATION FILE — nothing in this file has been checked against the
- * real hibid.com. Every Claude session that's worked on this project has
- * been network-blocked from hibid.com, so these are educated guesses
- * based on how auction-lot pages are commonly structured, not verified
- * selectors. Run `npm run inspect -- <a real lot URL>` on a machine with
- * real internet access and use what it captures in `inspect-output/` to
- * correct these.
+ * CSS selectors calibrated against live hibid.com on 2026-09-18
+ * (Playwright Chromium from this environment; verified on
+ * https://hibid.com/florida/lot/320694969).
+ *
+ * Prefer GraphQL lotState (see graphql.ts) for price/timer/status — the
+ * DOM is a fallback when GraphQL fails. HiBid is Angular 16 SSR; there is
+ * no data-testid on these controls and no transfer-state JSON in the HTML.
  */
 export const selectors = {
-  currentPrice: "[data-testid='current-bid'], .current-bid, .lot-current-price",
-  minNextBid: "[data-testid='next-bid'], .next-bid, .lot-min-bid",
-  countdown: "[data-testid='lot-countdown'], .lot-countdown, .countdown-timer",
-  countdownEndTimeAttr: "data-end-time",
-  youAreWinning: ".you-are-winning, .high-bidder-you, [data-testid='you-are-winning']",
-  lotClosed: ".lot-closed, .auction-ended, [data-testid='lot-closed']",
-  bidAmountInput: "input[name='bidAmount'], input#bidAmount, [data-testid='bid-input']",
-  placeBidButton: "button[data-testid='place-bid'], button.place-bid, button#placeBidButton",
-  confirmBidButton: "button[data-testid='confirm-bid'], button.confirm-bid",
+  // Lot page — observed
+  lotTitle: "h1 .text-transform-none, h1",
+  currentPrice: "span.lot-high-bid",
+  minNextBid: "span.TileDisplayMinBid",
+  countdown: "div.lot-time-left-container span.lot-time-left",
+  // Absolute close time lives on the INNER span's title= attribute, not data-end-time
+  countdownEndTimeAttr: "title",
+  countdownInner: "div.lot-time-left-container span.lot-time-left > span[title]",
+  softClose: "span.lot-linked-soft-close, .lot-linked-soft-close-container",
 
-  // Search / browse results page — used by browseParse.ts
-  searchResultCard: "[data-testid='lot-card'], .lot-card, .auction-lot-tile",
-  searchResultTitle: ".lot-title, .item-title",
-  searchResultLink: "a",
-  searchResultPrice: ".current-bid, .lot-current-price",
-  searchResultThumb: "img",
+  // data-status is BuyerBidStatus lowercased with underscores removed (nobid, winning, outbid, …)
+  bidStatus: "[data-status]",
+  youAreWinning: '[data-status="winning"], .bid-status-winning',
+  youAreOutbid: '[data-status="outbid"], .bid-status-outbid',
+  lotClosed: "span.lot-time-left:has-text('Bidding Closed'), [data-status='won'], [data-status='passed']",
+
+  // Public lot page has NO free-form bid amount <input> — the Bid button shows min next bid.
+  // Custom / max amount is entered in a confirm panel after clicking Bid (logged-in).
+  bidAmountInput:
+    "input[name='bidAmount'], input#bidAmount, input[formcontrolname='bidAmount'], input[placeholder*='Max' i], input[placeholder*='Bid' i]",
+  placeBidButton: "app-lot-buttons button.app-button, .lot-bid-text-container",
+  confirmBidButton:
+    "button:has-text('Confirm'), button:has-text('Place Bid'), button[data-testid='confirm-bid'], button.confirm-bid",
+
+  // Search / browse results — observed on /lots SSR
+  searchResultCard: "app-lot-tile.lot-tile, app-top-pick, .lot-tile",
+  searchResultTitle: ".lot-number-lead, .lot-info, .lot-title",
+  searchResultLink: "a.lot-preview-link, a.lot-link, a.top-pick-focused, a",
+  searchResultPrice: "span.lot-high-bid, .TileDisplayMinBid, .lot-bid-text, strong",
+  searchResultThumb: ".lot-thumbnail img, img.lot-thumbnail, img",
 };
 
+/**
+ * Login is a two-step modal opened from "Sign In" on any page — there is no
+ * reliable /login route (Cloudflare 403 on /login from many networks; app
+ * 404 on /account/login). Step 1: email/username + Continue. Step 2: password
+ * + Log In. Cloudflare Turnstile may appear — scripted login can fail; prefer
+ * a captured session (HIBID_AUTH_STATE_B64 / data/auth.json).
+ */
 export const loginSelectors = {
-  loginUrl: "https://hibid.com/login",
-  emailInput: "input[name='email'], input#email, input[type='email']",
-  passwordInput: "input[name='password'], input#password, input[type='password']",
-  submitButton: "button[type='submit']",
-  loggedInIndicator: "[data-testid='account-menu'], .account-menu, .user-menu",
+  homeUrl: "https://hibid.com/",
+  openSignIn: 'a:has-text("Sign In"), button:has-text("Sign In")',
+  emailInput: "#username-input, input[name='username'], input[placeholder*='Email' i]",
+  continueButton: 'button:has-text("Continue")',
+  passwordInput: 'input[type="password"], input[name="password"], input[placeholder="Password" i]',
+  submitButton: 'button:has-text("Log In"), button[type="submit"]',
+  // After login the header usually swaps Sign In for an account / Sign Out control
+  loggedInIndicator: 'a:has-text("Sign Out"), button:has-text("Sign Out"), [data-testid="account-menu"]',
+  cookieAgree: 'button:has-text("Agree and Close")',
 };
 
+/** Browse/search URL — observed: /lots?query=…&status=OPEN (not /search?q=). */
 export function searchUrl(query: string): string {
-  return `https://hibid.com/search?q=${encodeURIComponent(query)}`;
+  return `https://hibid.com/lots?query=${encodeURIComponent(query)}&status=OPEN`;
 }

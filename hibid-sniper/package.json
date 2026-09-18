@@ -9,7 +9,9 @@
     "start": "node dist/server.js",
     "dev": "ts-node src/server.ts",
     "inspect": "ts-node src/bot/inspect.ts",
-    "setup:browser": "playwright install chromium"
+    "setup:browser": "playwright install chromium",
+    "test:failure": "ts-node scripts/test-failure-isolation.ts",
+    "test:graphql": "ts-node scripts/smoke-graphql.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
