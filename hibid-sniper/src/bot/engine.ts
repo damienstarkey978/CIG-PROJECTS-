@@ -87,8 +87,14 @@ async function maybeBid(lot: Lot, onUpdate: OnUpdate) {
   }
 
   try {
+    // LiveSource may submit lot.maxBid as a HiBid native proxy ceiling on
+    // MAX_BIDDING auctions (amount is still the min-next floor check above).
     await source.placeBid(lot, amount);
-    log(lot, onUpdate, `Placed bid: $${amount}.`);
+    log(
+      lot,
+      onUpdate,
+      `Placed bid (engine floor $${amount}, max $${lot.maxBid}). Soft-close extensions stay covered while under max.`
+    );
   } catch (err: any) {
     lot.status = "error";
     log(lot, onUpdate, `Bid attempt failed: ${err.message ?? err}`);

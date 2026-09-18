@@ -5,90 +5,114 @@ dashboard. For each lot you set a max bid; the bot watches it and bids
 for you up to that max — either continuously (proxy) or only in the
 final seconds (snipe) — and rides out HiBid's "soft close" time
 extensions until the lot actually closes. It never bids past the max you
-set. Deployed on Fly.io, deploys itself via GitHub Actions on every push.
+set. Deployed on Fly.io when `FLY_API_TOKEN` is configured.
 
-## Status
+## Reality check (ToS)
 
-- App: `hibid-sniper` on Fly.io, region `iad`.
-- Deploys automatically on push to this branch via `.github/workflows/hibid-sniper-deploy.yml` (Fly's remote builders — no local build or `fly deploy` needed once `FLY_API_TOKEN` is set as a repo secret).
-- `DEMO_MODE=true` runs the whole app — dashboard, engine, proxy/snipe bidding logic — against a simulated auction, no browser or network required. Good for confirming the app itself is healthy independent of HiBid calibration.
-- Real bidding (`DEMO_MODE=false` or unset) needs `src/bot/selectors.ts` and `src/bot/login.ts` calibrated against the live site — see below. Nothing in this repo has ever touched real hibid.com; every Claude sandbox that's worked on it has been network-blocked from that domain.
+HiBid's terms of service likely do **not** explicitly bless automated
+bidding tools. This runs on your own account, at your own risk. Soft
+close exists specifically to defeat eBay-style one-shot sniping — this
+bot is built around that, but using it may still violate HiBid's rules.
+
+## Status (calibrated 2026-09-18)
+
+This environment **can** reach hibid.com via Playwright Chromium.
+Plain `curl` is Cloudflare-blocked. Live calibration was done against
+`https://hibid.com/florida/lot/320694969` and GraphQL `POST /graphql`.
+
+What actually works on the real site:
+
+| Concern | Reality |
+|---|---|
+| Price / timer / status | GraphQL `lotState` (`highBid`, `minBid`, `timeLeftSeconds`, `buyerBidStatus`, `softCloseSeconds`, `biddingExtended`) |
+| Bidding | GraphQL `bid` mutation; on `MAX_BIDDING` auctions the amount **is** your proxy ceiling |
+| Login | Two-step modal from **Sign In** (`#username-input` → Continue → password → Log In). `/login` is not a usable route. Turnstile may block scripted login — prefer a captured session |
+| Search | GraphQL `lotSearch`, or `/lots?query=…&status=OPEN` |
+| Soft close | Per-lot; observed 300s on the calibration lot |
+
+`DEMO_MODE=true` still runs the whole app against a simulated auction with
+no browser — useful to confirm the dashboard itself is healthy.
+
+## Where your credentials actually go
+
+Nothing sensitive is committed to the repo.
+
+| Secret | Where it lives | Used for |
+|---|---|---|
+| `DASHBOARD_PASSWORD` | Fly secret / `.env` | Password gate in front of the public dashboard |
+| `HIBID_AUTH_STATE_B64` | Fly secret / `.env` | Preferred HiBid login — base64 of Playwright `data/auth.json`. Decoded to `data/auth.json` on boot (gitignored) |
+| `HIBID_EMAIL` + `HIBID_PASSWORD` | Fly secret / `.env` | Fallback scripted login only. **Never pasted into chat.** May fail on Turnstile |
+| `FLY_API_TOKEN` | GitHub Actions repo secret | Lets CI run `flyctl deploy` |
 
 ## One-time setup
 
-In the repo's GitHub settings → Secrets and variables → Actions, add:
-
-- `FLY_API_TOKEN` — from `fly tokens create deploy` (or Fly dashboard → Tokens) on a machine logged into your Fly account.
-
-In the Fly app's secrets (`fly secrets set NAME=value`, or the Fly dashboard):
-
-- `DASHBOARD_PASSWORD` — required, since Fly gives every app a public URL by default.
-- Either `HIBID_EMAIL` + `HIBID_PASSWORD` (scripted login, depends on `login.ts` selectors being correct), or `HIBID_AUTH_STATE_B64` (a captured session, see below — more reliable, avoids scripted login entirely).
-- `DEMO_MODE=true` if you want the app running now while HiBid calibration is still in progress.
-
-After that, every push to this branch redeploys automatically.
-
-## Calibrating against the real site
-
-This has to happen on a machine with real internet access — any Claude
-sandbox is blocked from hibid.com specifically.
+### 1. Fly app + GitHub deploy token
 
 ```bash
-npm install
-npx playwright install chromium   # one-time, only needed for this local step
-npm run inspect -- https://hibid.com/some/real/lot/url
-npm run inspect -- --search "some query"
+# on a machine logged into Fly
+fly apps create hibid-sniper   # if it doesn't exist yet
+fly tokens create deploy
 ```
 
-Each opens a real browser window. Log in by hand if prompted, press
-Enter in the terminal — this saves `data/auth.json`. It also dumps the
-rendered page to `inspect-output/` and prints the JSON API responses the
-page makes while loading, which is often a more reliable source for
-price/countdown than scraping the DOM.
+Add the token as repo secret `FLY_API_TOKEN`. Without it, the GitHub
+Actions workflow cannot deploy (previous runs failed with an empty token).
 
-Use what you find to fix:
-- `src/bot/selectors.ts` — lot page price/timer/bid controls, and search-results card selectors
-- `src/bot/login.ts` (`loginSelectors` in `selectors.ts`) — the login form
-
-To deploy a captured session instead of storing a password on Fly:
+### 2. Fly secrets
 
 ```bash
-base64 -w0 data/auth.json   # Mac: base64 -i data/auth.json
+fly secrets set DASHBOARD_PASSWORD='pick-a-strong-password' -a hibid-sniper
+fly secrets set DEMO_MODE=true -a hibid-sniper   # until HiBid session is ready
+# after capturing a session (below):
+# fly secrets set HIBID_AUTH_STATE_B64="$(base64 -w0 data/auth.json)" DEMO_MODE=false -a hibid-sniper
 ```
 
-Set that as `HIBID_AUTH_STATE_B64` — the app decodes it back to
-`data/auth.json` on boot. Whenever the session expires, repeat this and
-update the secret.
+### 3. Capture a HiBid session (recommended over password)
+
+```bash
+cd hibid-sniper
+npm install && npx playwright install chromium
+npm run inspect -- https://hibid.com/florida/lot/320694969
+# log in by hand in the browser, press Enter — writes data/auth.json
+base64 -w0 data/auth.json   # macOS: base64 -i data/auth.json | tr -d '\n'
+```
+
+Set that string as `HIBID_AUTH_STATE_B64`. Refresh the secret when the
+session expires.
+
+Every push to `claude/hibid-auction-sniper-bot-5j08km` under `hibid-sniper/`
+redeploys via `.github/workflows/hibid-sniper-deploy.yml`.
 
 ## Architecture
 
-- `src/bot/engine.ts` — the actual polling/bidding loop (`startEngine`/`stopEngine`/`watchLot`/`unwatchLot`). Any failure from the lot source (missing browser, bad selectors, network error) is caught per-lot and turned into an `error` status + retry, never an uncaught throw — that's what crashed the process on Fly before.
-- `src/bot/scraper.ts` (`LiveSource`) — real Playwright driver against hibid.com.
-- `src/bot/demoSource.ts` (`DemoSource`) — simulated auction, used when `DEMO_MODE=true`.
-- `src/bot/manager.ts` — lot CRUD + persistence (`data/lots.json`).
-- `src/bot/login.ts` — shared logged-in browser context, saved/restored session.
-- `src/bot/browseFetch.ts` + `browseParse.ts` — HiBid search/browse, so lots can be found from inside the app instead of only pasted by URL.
-- `src/auth/passwordGate.ts` — simple cookie-session password gate in front of the whole dashboard.
+- `src/bot/graphql.ts` — calibrated GraphQL client (`lotState`, `lotSearch`, `bid`)
+- `src/bot/scraper.ts` (`LiveSource`) — GraphQL-first, DOM fallback, Playwright for CF cookies
+- `src/bot/demoSource.ts` — simulated auction when `DEMO_MODE=true`
+- `src/bot/engine.ts` — proxy/snipe loop; per-lot errors never crash the process
+- `src/bot/login.ts` — session restore + two-step scripted login
+- `src/bot/selectors.ts` — DOM fallbacks calibrated against live HTML
+- `src/auth/passwordGate.ts` — cookie-session gate for the public URL
 
-## Why "soft close" changes the strategy
+## Soft close
 
-If a bid lands in HiBid's final moments, it extends that lot's clock so
-other bidders can respond — a single last-second bid usually just
-triggers an extension rather than winning. **Proxy mode** (default) is
-built for that: it holds your max and only bids the minimum needed to
-stay in front, through as many extensions as it takes. **Snipe mode**
-holds off bidding until `snipeSeconds` before the scheduled close, then
-behaves like proxy mode from that point on, including through
-extensions.
+A bid in HiBid's final moments extends that lot's clock. **Proxy mode**
+holds your max and re-bids (on `MAX_BIDDING` auctions: submits your max
+once as HiBid's native proxy ceiling). **Snipe mode** waits until
+`snipeSeconds` before close, then behaves like proxy — including through
+extensions. A single one-shot last-second bid is not enough on this site.
 
-Automated bidding tools likely aren't something HiBid's terms of service
-explicitly welcome — this runs on your own account, at your own risk.
-
-## Running it locally instead
+## Running locally
 
 ```bash
 npm install
 npx playwright install chromium   # only if DEMO_MODE=false
 cp .env.example .env
+# set DASHBOARD_PASSWORD and either DEMO_MODE=true or a HiBid session
 npm run build && npm start
 ```
+
+## Failure isolation
+
+If the browser binary is missing, a selector/GraphQL call fails, or the
+network blips, that lot is marked `error` and retried — the HTTP server,
+WebSocket dashboard, and every other lot keep running. `/api/health`
+always answers without touching the browser.

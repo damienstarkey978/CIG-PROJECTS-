@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - claude/hibid-auction-sniper-bot-5j08km
+      - cursor/hibid-real-calibration-ede1
     paths:
       - "hibid-sniper/**"
       - ".github/workflows/hibid-sniper-deploy.yml"
@@ -22,6 +23,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Require FLY_API_TOKEN
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::error::FLY_API_TOKEN repo secret is empty. Create a deploy token with 'fly tokens create deploy' and add it as a GitHub Actions secret named FLY_API_TOKEN."
+            exit 1
+          fi
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - run: flyctl deploy --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

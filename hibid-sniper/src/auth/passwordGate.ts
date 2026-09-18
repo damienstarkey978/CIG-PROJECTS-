@@ -60,7 +60,7 @@ export function isAuthorizedRequest(req: { headers: { cookie?: string } }): bool
 
 export function passwordGate(req: Request, res: Response, next: NextFunction) {
   if (!config.dashboardPassword) return next();
-  if (req.path === "/login") return next();
+  if (req.path === "/login" || req.path === "/api/health") return next();
   if (isAuthorizedCookie(req.headers.cookie)) return next();
 
   if (req.path.startsWith("/api/")) {

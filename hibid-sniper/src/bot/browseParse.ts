@@ -11,14 +11,8 @@ function parseMoney(text: string | null): number | null {
 }
 
 /**
- * Parses raw search-results HTML (from browseFetch.ts) into a list of
- * candidate lots. Spins up a throwaway headless page just to use
- * Playwright's DOM query API against static HTML — cheap, and reuses the
- * same selector set as scraper.ts instead of a separate HTML parser
- * dependency. `selectors.searchResult*` are unverified guesses; if this
- * comes back empty against a real search page, that's the first place to
- * fix (see README's "if bidding stops working" section — same idea
- * applies to browsing).
+ * DOM fallback parser for search-results HTML. Primary path is GraphQL
+ * (browseFetch.searchHiBid). Kept for inspect tooling / offline dumps.
  */
 export async function parseSearchResults(html: string, baseUrl = "https://hibid.com"): Promise<SearchResult[]> {
   const browser = await chromium.launch({ headless: true });

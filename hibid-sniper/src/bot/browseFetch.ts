@@ -1,21 +1,24 @@
-import { getLoggedInContext } from "./login";
-import { searchUrl } from "./selectors";
+import { ensureWarmOrigin } from "./login";
+import { endTimeFromLotState, searchLots } from "./graphql";
+import { lotUrlFromId } from "./lotId";
+import { SearchResult } from "./types";
 
 /**
- * Loads a HiBid search-results page through the shared logged-in
- * context and returns its rendered HTML. HiBid's Angular app won't
- * return useful content to a plain fetch(), so this goes through a real
- * page like scraper.ts does. The URL pattern here is a guess (see
- * selectors.ts) — unverified against the real site.
+ * Search open lots via HiBid GraphQL lotSearch (calibrated 2026-09-18).
+ * Falls back is unnecessary here — if GraphQL is down, surface the error
+ * to the API caller; browsing is optional relative to paste-a-URL watching.
  */
-export async function fetchSearchResultsHtml(query: string): Promise<string> {
-  const context = await getLoggedInContext();
-  const page = await context.newPage();
-  try {
-    await page.goto(searchUrl(query), { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(1000); // let the SPA finish rendering results
-    return await page.content();
-  } finally {
-    await page.close().catch(() => {});
-  }
+export async function searchHiBid(query: string): Promise<SearchResult[]> {
+  const context = await ensureWarmOrigin();
+  const hits = await searchLots(context, query);
+  return hits.map((h) => ({
+    title: h.lotNumber ? `Lot ${h.lotNumber} — ${h.lead ?? ""}`.trim() : h.lead ?? `Lot ${h.id}`,
+    url: lotUrlFromId(h.id),
+    currentPrice: h.highBid,
+    endTime: endTimeFromLotState({
+      timeLeftTitle: h.timeLeftTitle,
+      timeLeftSeconds: h.timeLeftSeconds,
+    }),
+    thumbnailUrl: null,
+  }));
 }
