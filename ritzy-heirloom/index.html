@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Ritzy Heirloom | Antiques &amp; Vintage Treasures</title>
+<meta name="description" content="The Ritzy Heirloom is an antique store offering vintage furniture, jewelry, glassware, and one of a kind treasures with a story.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='12' fill='%231f3a33'/><text x='32' y='44' font-family='Georgia,serif' font-size='34' text-anchor='middle' fill='%23c9a45c'>RH</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green: #1f3a33;
+    --green-deep: #142621;
+    --gold: #c9a45c;
+    --gold-soft: #e6d3a3;
+    --cream: #f7f1e5;
+    --paper: #fbf8f1;
+    --ink: #2a2622;
+    --muted: #6b635a;
+    --serif: "Cormorant Garamond", Georgia, serif;
+    --sans: "Jost", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; font-family: var(--sans); font-weight: 300; color: var(--ink); background: var(--paper); line-height: 1.7; }
+  img { max-width: 100%; display: block; }
+  a { color: inherit; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
+
+  /* Nav */
+  header.nav { position: sticky; top: 0; z-index: 10; background: rgba(20, 38, 33, .96); backdrop-filter: blur(6px); border-bottom: 1px solid rgba(201,164,92,.35); }
+  header.nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { font-family: var(--serif); font-size: 1.45rem; color: var(--gold-soft); text-decoration: none; letter-spacing: .04em; }
+  .brand span { color: var(--gold); font-style: italic; }
+  nav ul { list-style: none; display: flex; gap: 28px; margin: 0; padding: 0; }
+  nav a { color: var(--cream); text-decoration: none; font-size: .82rem; letter-spacing: .18em; text-transform: uppercase; }
+  nav a:hover { color: var(--gold); }
+  .menu-btn { display: none; background: none; border: 1px solid var(--gold); color: var(--gold); padding: 6px 12px; font: inherit; font-size: .8rem; letter-spacing: .15em; cursor: pointer; }
+
+  /* Hero */
+  .hero { position: relative; background: radial-gradient(ellipse at top, #2c4f45 0%, var(--green) 45%, var(--green-deep) 100%); color: var(--cream); text-align: center; padding: 110px 0 120px; overflow: hidden; }
+  .hero::before, .hero::after { content: ""; position: absolute; left: 50%; transform: translateX(-50%); width: min(720px, 90%); height: 1px; background: linear-gradient(90deg, transparent, var(--gold), transparent); }
+  .hero::before { top: 48px; }
+  .hero::after { bottom: 48px; }
+  .eyebrow { font-size: .8rem; letter-spacing: .35em; text-transform: uppercase; color: var(--gold); margin: 0 0 18px; }
+  .hero h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(3rem, 9vw, 6.2rem); line-height: 1; margin: 0; letter-spacing: .02em; }
+  .hero h1 em { color: var(--gold); }
+  .ornament { display: block; margin: 26px auto; width: 180px; height: 24px; }
+  .hero p.lead { font-family: var(--serif); font-size: clamp(1.2rem, 2.6vw, 1.55rem); font-style: italic; max-width: 620px; margin: 0 auto 38px; color: var(--gold-soft); }
+  .btn { display: inline-block; padding: 14px 34px; border: 1px solid var(--gold); color: var(--green-deep); background: var(--gold); text-decoration: none; font-size: .8rem; letter-spacing: .22em; text-transform: uppercase; font-weight: 500; transition: background .2s, color .2s; }
+  .btn:hover { background: transparent; color: var(--gold); }
+  .btn.ghost { background: transparent; color: var(--gold); margin-left: 12px; }
+  .btn.ghost:hover { background: var(--gold); color: var(--green-deep); }
+
+  /* Sections */
+  section { padding: 96px 0; }
+  .section-title { text-align: center; margin-bottom: 56px; }
+  .section-title h2 { font-family: var(--serif); font-weight: 400; font-size: clamp(2.2rem, 5vw, 3.2rem); margin: 0; color: var(--green); }
+  .section-title .eyebrow { color: #a3813f; }
+
+  .about { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; }
+  .frame { aspect-ratio: 4 / 5; border: 1px solid var(--gold); padding: 14px; }
+  .frame > div { height: 100%; background: linear-gradient(160deg, #3a5a50, var(--green-deep)); display: grid; place-items: center; color: var(--gold-soft); font-family: var(--serif); font-style: italic; font-size: 1.2rem; text-align: center; padding: 20px; }
+  .about h2 { font-family: var(--serif); font-weight: 400; font-size: clamp(2rem, 4.5vw, 2.9rem); color: var(--green); margin: 0 0 20px; line-height: 1.15; }
+  .about p { color: var(--muted); font-size: 1.05rem; }
+  .signature { font-family: var(--serif); font-style: italic; font-size: 1.5rem; color: var(--green); margin-top: 24px; }
+
+  .collections { background: var(--cream); border-top: 1px solid #e8dcc2; border-bottom: 1px solid #e8dcc2; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+  .card { background: var(--paper); border: 1px solid #e3d5b6; padding: 38px 30px; text-align: center; transition: transform .25s, box-shadow .25s; }
+  .card:hover { transform: translateY(-4px); box-shadow: 0 14px 30px rgba(31,58,51,.12); }
+  .card svg { width: 46px; height: 46px; stroke: var(--gold); fill: none; stroke-width: 1.4; margin-bottom: 16px; }
+  .card h3 { font-family: var(--serif); font-weight: 600; font-size: 1.5rem; margin: 0 0 8px; color: var(--green); }
+  .card p { margin: 0; color: var(--muted); font-size: .96rem; }
+
+  .quote { background: var(--green); color: var(--cream); text-align: center; padding: 84px 0; }
+  .quote blockquote { font-family: var(--serif); font-style: italic; font-size: clamp(1.6rem, 3.6vw, 2.4rem); max-width: 800px; margin: 0 auto; line-height: 1.35; }
+  .quote cite { display: block; margin-top: 18px; font-family: var(--sans); font-style: normal; font-size: .8rem; letter-spacing: .3em; text-transform: uppercase; color: var(--gold); }
+
+  .visit { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; }
+  .info h3 { font-family: var(--serif); font-weight: 600; font-size: 1.4rem; color: var(--green); margin: 0 0 6px; }
+  .info p { margin: 0 0 28px; color: var(--muted); }
+  .hours { width: 100%; border-collapse: collapse; margin-bottom: 28px; }
+  .hours td { padding: 8px 0; border-bottom: 1px dotted #d8c9a6; color: var(--muted); }
+  .hours td:last-child { text-align: right; color: var(--ink); }
+  .map { border: 1px solid var(--gold); padding: 10px; min-height: 360px; }
+  .map iframe { width: 100%; height: 100%; min-height: 340px; border: 0; filter: sepia(.25) saturate(.8); }
+
+  .contact { background: var(--cream); border-top: 1px solid #e8dcc2; }
+  form { max-width: 640px; margin: 0 auto; display: grid; gap: 18px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  label { display: block; font-size: .75rem; letter-spacing: .2em; text-transform: uppercase; color: var(--green); margin-bottom: 6px; font-weight: 500; }
+  input, textarea, select { width: 100%; padding: 13px 14px; border: 1px solid #d8c9a6; background: var(--paper); font: inherit; color: var(--ink); }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201,164,92,.2); }
+  textarea { min-height: 150px; resize: vertical; }
+  form .btn { justify-self: center; cursor: pointer; border: 1px solid var(--gold); }
+  .note { text-align: center; color: var(--muted); font-size: .9rem; margin-top: 8px; }
+
+  footer { background: var(--green-deep); color: var(--gold-soft); text-align: center; padding: 48px 0 36px; }
+  footer .brand { font-size: 1.8rem; }
+  .social { display: flex; justify-content: center; gap: 18px; margin: 18px 0; }
+  .social a { width: 40px; height: 40px; border: 1px solid var(--gold); border-radius: 50%; display: grid; place-items: center; color: var(--gold); text-decoration: none; transition: background .2s; }
+  .social a:hover { background: var(--gold); color: var(--green-deep); }
+  .social svg { width: 18px; height: 18px; fill: currentColor; }
+  footer small { color: #8e9a8f; letter-spacing: .08em; }
+
+  @media (max-width: 820px) {
+    nav ul { display: none; position: absolute; top: 64px; left: 0; right: 0; flex-direction: column; gap: 0; background: var(--green-deep); border-bottom: 1px solid rgba(201,164,92,.35); }
+    nav ul.open { display: flex; }
+    nav li a { display: block; padding: 16px 20px; border-top: 1px solid rgba(201,164,92,.15); }
+    .menu-btn { display: block; }
+    .about, .visit { grid-template-columns: 1fr; gap: 40px; }
+    .grid { grid-template-columns: 1fr 1fr; }
+    section { padding: 72px 0; }
+  }
+  @media (max-width: 560px) {
+    .grid, .row { grid-template-columns: 1fr; }
+    .btn.ghost { margin: 14px 0 0; }
+    .hero { padding: 90px 0 100px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a href="#top" class="brand">The Ritzy <span>Heirloom</span></a>
+    <button class="menu-btn" aria-label="Open menu" aria-expanded="false">Menu</button>
+    <nav>
+      <ul>
+        <li><a href="#about">Our Story</a></li>
+        <li><a href="#collections">Collections</a></li>
+        <li><a href="#visit">Visit</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Antiques &middot; Vintage &middot; Curiosities</p>
+      <h1>The Ritzy <em>Heirloom</em></h1>
+      <svg class="ornament" viewBox="0 0 180 24" aria-hidden="true">
+        <g fill="none" stroke="#c9a45c" stroke-width="1">
+          <line x1="0" y1="12" x2="66" y2="12"/><line x1="114" y1="12" x2="180" y2="12"/>
+          <path d="M90 2 L100 12 L90 22 L80 12 Z"/><path d="M90 7 L95 12 L90 17 L85 12 Z" fill="#c9a45c"/>
+          <circle cx="72" cy="12" r="2.5"/><circle cx="108" cy="12" r="2.5"/>
+        </g>
+      </svg>
+      <p class="lead">Timeless treasures with a story to tell. Find the piece that was always meant to be yours.</p>
+      <a href="#visit" class="btn">Visit the Shop</a>
+      <a href="#contact" class="btn ghost">Get in Touch</a>
+    </div>
+  </section>
+
+  <section id="about">
+    <div class="wrap about">
+      <div class="frame"><div>Add a photo of the storefront or a favorite piece here</div></div>
+      <div>
+        <p class="eyebrow" style="color:#a3813f">Our Story</p>
+        <h2>Where yesterday's elegance finds a new home</h2>
+        <p>The Ritzy Heirloom was born from a lifelong love of beautiful old things: the weight of a crystal decanter, the patina on a walnut dresser, the sparkle of a vintage brooch passed down through generations.</p>
+        <p>Every piece in our shop is hand selected for its character, craftsmanship, and history. Whether you're a seasoned collector or just starting your own story, we'd love to help you find something special.</p>
+        <p class="signature">Come browse, stay a while.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="collections" class="collections">
+    <div class="wrap">
+      <div class="section-title">
+        <p class="eyebrow">What You'll Find</p>
+        <h2>Our Collections</h2>
+      </div>
+      <div class="grid">
+        <div class="card">
+          <svg viewBox="0 0 48 48"><path d="M8 20h32v16H8z"/><path d="M12 36v6M36 36v6M8 20c0-6 4-10 16-10s16 4 16 10"/><path d="M8 28h32"/></svg>
+          <h3>Furniture</h3>
+          <p>Dressers, chairs, tables, and statement pieces from every era.</p>
+        </div>
+        <div class="card">
+          <svg viewBox="0 0 48 48"><circle cx="24" cy="28" r="12"/><path d="M18 16l6-10 6 10"/><circle cx="24" cy="28" r="5"/></svg>
+          <h3>Jewelry</h3>
+          <p>Brooches, rings, and costume pieces full of old world sparkle.</p>
+        </div>
+        <div class="card">
+          <svg viewBox="0 0 48 48"><path d="M16 6h16l-3 14a5 5 0 0 1-10 0z"/><path d="M24 25v13M16 42h16"/></svg>
+          <h3>Glass &amp; China</h3>
+          <p>Depression glass, crystal, fine china, and serving pieces.</p>
+        </div>
+        <div class="card">
+          <svg viewBox="0 0 48 48"><rect x="8" y="8" width="32" height="32"/><rect x="13" y="13" width="22" height="22"/><path d="M13 30l7-8 5 5 4-4 6 7"/></svg>
+          <h3>Art &amp; Decor</h3>
+          <p>Framed art, mirrors, lamps, and accents with real character.</p>
+        </div>
+        <div class="card">
+          <svg viewBox="0 0 48 48"><path d="M10 10h22a6 6 0 0 1 6 6v22H16a6 6 0 0 1-6-6z"/><path d="M16 18h16M16 24h16M16 30h10"/></svg>
+          <h3>Books &amp; Ephemera</h3>
+          <p>Old books, postcards, maps, and paper treasures.</p>
+        </div>
+        <div class="card">
+          <svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="16"/><path d="M24 14v10l7 5"/></svg>
+          <h3>Collectibles</h3>
+          <p>Clocks, toys, tins, and curiosities you won't find anywhere else.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="quote">
+    <div class="wrap">
+      <blockquote>"Every heirloom was once something new. We help it find its next chapter."</blockquote>
+      <cite>The Ritzy Heirloom</cite>
+    </div>
+  </div>
+
+  <section id="visit">
+    <div class="wrap">
+      <div class="section-title">
+        <p class="eyebrow">Come See Us</p>
+        <h2>Visit the Shop</h2>
+      </div>
+      <div class="visit">
+        <div class="info">
+          <h3>Address</h3>
+          <p>123 Main Street<br>Your Town, ST 00000</p>
+          <h3>Hours</h3>
+          <table class="hours">
+            <tr><td>Monday</td><td>Closed</td></tr>
+            <tr><td>Tuesday to Friday</td><td>10am to 5pm</td></tr>
+            <tr><td>Saturday</td><td>10am to 6pm</td></tr>
+            <tr><td>Sunday</td><td>12pm to 4pm</td></tr>
+          </table>
+          <h3>Call or Email</h3>
+          <p><a href="tel:+10000000000">(000) 000-0000</a><br><a href="mailto:hello@theritzyheirloom.com">hello@theritzyheirloom.com</a></p>
+        </div>
+        <div class="map">
+          <iframe title="Map to The Ritzy Heirloom" loading="lazy" src="https://www.google.com/maps?q=123+Main+Street&output=embed"></iframe>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="contact" class="contact">
+    <div class="wrap">
+      <div class="section-title">
+        <p class="eyebrow">Say Hello</p>
+        <h2>Looking for Something?</h2>
+      </div>
+      <form action="https://formspree.io/f/YOUR_FORM_ID" method="POST">
+        <div class="row">
+          <div><label for="name">Name</label><input id="name" name="name" required></div>
+          <div><label for="email">Email</label><input id="email" name="email" type="email" required></div>
+        </div>
+        <div>
+          <label for="topic">I'm interested in</label>
+          <select id="topic" name="topic">
+            <option>Finding a specific item</option>
+            <option>Selling or consigning a piece</option>
+            <option>An estate or appraisal question</option>
+            <option>Something else</option>
+          </select>
+        </div>
+        <div><label for="message">Message</label><textarea id="message" name="message" required></textarea></div>
+        <button type="submit" class="btn">Send Message</button>
+        <p class="note">We'll get back to you within a day or two.</p>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a href="#top" class="brand">The Ritzy <span>Heirloom</span></a>
+    <div class="social">
+      <a href="https://www.facebook.com/" aria-label="Facebook"><svg viewBox="0 0 24 24"><path d="M14 8h3V4h-3c-2.8 0-4 1.8-4 4.5V11H7v4h3v9h4v-9h3l1-4h-4V8.8c0-.5.3-.8 1-.8z"/></svg></a>
+      <a href="https://www.instagram.com/" aria-label="Instagram"><svg viewBox="0 0 24 24"><path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 8.2a3.2 3.2 0 1 1 0-6.4 3.2 3.2 0 0 1 0 6.4zM17.3 5.5a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4zM12 2.2c-2.7 0-3 0-4 .1C4.5 2.4 2.4 4.5 2.3 8c-.1 1-.1 1.3-.1 4s0 3 .1 4c.1 3.5 2.2 5.6 5.7 5.7 1 .1 1.3.1 4 .1s3 0 4-.1c3.5-.1 5.6-2.2 5.7-5.7.1-1 .1-1.3.1-4s0-3-.1-4C21.6 4.5 19.5 2.4 16 2.3c-1-.1-1.3-.1-4-.1zm0 1.8c2.7 0 3 0 4 .1 2.5.1 3.8 1.3 3.9 3.9.1 1 .1 1.3.1 4s0 3-.1 4c-.1 2.5-1.3 3.8-3.9 3.9-1 .1-1.3.1-4 .1s-3 0-4-.1C5.5 19.8 4.2 18.6 4.1 16c-.1-1-.1-1.3-.1-4s0-3 .1-4C4.2 5.5 5.4 4.2 8 4.1c1-.1 1.3-.1 4-.1z"/></svg></a>
+    </div>
+    <small>&copy; <span id="year"></span> The Ritzy Heirloom. All rights reserved.</small>
+  </div>
+</footer>
+
+<script>
+  document.getElementById('year').textContent = new Date().getFullYear();
+  const btn = document.querySelector('.menu-btn');
+  const menu = document.querySelector('nav ul');
+  btn.addEventListener('click', () => {
+    const open = menu.classList.toggle('open');
+    btn.setAttribute('aria-expanded', open);
+  });
+  menu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => {
+    menu.classList.remove('open');
+    btn.setAttribute('aria-expanded', false);
+  }));
+</script>
+</body>
+</html>
