@@ -34,6 +34,10 @@
   header.nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
   .brand { font-family: var(--serif); font-size: 1.45rem; color: var(--gold-soft); text-decoration: none; letter-spacing: .04em; }
   .brand span { color: var(--gold); font-style: italic; }
+  .brand-logo { display: block; background: var(--paper); padding: 6px 16px; border-radius: 4px; }
+  .brand-logo img { height: 38px; width: auto; display: block; }
+  footer .brand-logo { display: inline-block; padding: 14px 26px; }
+  footer .brand-logo img { height: 60px; }
   nav ul { list-style: none; display: flex; gap: 28px; margin: 0; padding: 0; }
   nav a { color: var(--cream); text-decoration: none; font-size: .82rem; letter-spacing: .18em; text-transform: uppercase; }
   nav a:hover { color: var(--gold); }
@@ -126,7 +130,7 @@
 
 <header class="nav">
   <div class="wrap">
-    <a href="#top" class="brand">The Ritzy <span>Heirloom</span></a>
+    <a href="#top" class="brand-logo"><img src="assets/logo.png" alt="The Ritzy Heirloom"></a>
     <button class="menu-btn" aria-label="Open menu" aria-expanded="false">Menu</button>
     <nav>
       <ul>
@@ -142,8 +146,9 @@
 <main id="top">
   <section class="hero">
     <div class="wrap">
-      <p class="eyebrow">Antiques &middot; Vintage &middot; Curiosities</p>
+      <p class="eyebrow">Antiques &middot; Vintage Jewelry &middot; Fine Art</p>
       <h1>The Ritzy <em>Heirloom</em></h1>
+      <p class="eyebrow" style="margin-top:14px; color:var(--cream); opacity:.75;">Neptune Beach, Florida</p>
       <svg class="ornament" viewBox="0 0 180 24" aria-hidden="true">
         <g fill="none" stroke="#c9a45c" stroke-width="1">
           <line x1="0" y1="12" x2="66" y2="12"/><line x1="114" y1="12" x2="180" y2="12"/>
@@ -227,7 +232,7 @@
       <div class="visit">
         <div class="info">
           <h3>Address</h3>
-          <p>123 Main Street<br>Your Town, ST 00000</p>
+          <p>Neptune Beach, Florida</p>
           <h3>Hours</h3>
           <table class="hours">
             <tr><td>Monday</td><td>Closed</td></tr>
@@ -239,7 +244,7 @@
           <p><a href="tel:+10000000000">(000) 000-0000</a><br><a href="mailto:hello@theritzyheirloom.com">hello@theritzyheirloom.com</a></p>
         </div>
         <div class="map">
-          <iframe title="Map to The Ritzy Heirloom" loading="lazy" src="https://www.google.com/maps?q=123+Main+Street&output=embed"></iframe>
+          <iframe title="Map to The Ritzy Heirloom" loading="lazy" src="https://www.google.com/maps?q=Neptune+Beach,+FL&output=embed"></iframe>
         </div>
       </div>
     </div>
@@ -275,7 +280,7 @@
 
 <footer>
   <div class="wrap">
-    <a href="#top" class="brand">The Ritzy <span>Heirloom</span></a>
+    <a href="#top" class="brand-logo"><img src="assets/logo.png" alt="The Ritzy Heirloom"></a>
     <div class="social">
       <a href="https://www.facebook.com/" aria-label="Facebook"><svg viewBox="0 0 24 24"><path d="M14 8h3V4h-3c-2.8 0-4 1.8-4 4.5V11H7v4h3v9h4v-9h3l1-4h-4V8.8c0-.5.3-.8 1-.8z"/></svg></a>
       <a href="https://www.instagram.com/" aria-label="Instagram"><svg viewBox="0 0 24 24"><path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 8.2a3.2 3.2 0 1 1 0-6.4 3.2 3.2 0 0 1 0 6.4zM17.3 5.5a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4zM12 2.2c-2.7 0-3 0-4 .1C4.5 2.4 2.4 4.5 2.3 8c-.1 1-.1 1.3-.1 4s0 3 .1 4c.1 3.5 2.2 5.6 5.7 5.7 1 .1 1.3.1 4 .1s3 0 4-.1c3.5-.1 5.6-2.2 5.7-5.7.1-1 .1-1.3.1-4s0-3-.1-4C21.6 4.5 19.5 2.4 16 2.3c-1-.1-1.3-.1-4-.1zm0 1.8c2.7 0 3 0 4 .1 2.5.1 3.8 1.3 3.9 3.9.1 1 .1 1.3.1 4s0 3-.1 4c-.1 2.5-1.3 3.8-3.9 3.9-1 .1-1.3.1-4 .1s-3 0-4-.1C5.5 19.8 4.2 18.6 4.1 16c-.1-1-.1-1.3-.1-4s0-3 .1-4C4.2 5.5 5.4 4.2 8 4.1c1-.1 1.3-.1 4-.1z"/></svg></a>
