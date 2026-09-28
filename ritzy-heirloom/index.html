@@ -12,12 +12,12 @@
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --green: #1c2f4d;
-    --green-deep: #101f36;
-    --gold: #c9a45c;
-    --gold-soft: #e6d3a3;
-    --cream: #f7f1e5;
-    --paper: #fbf8f1;
+    --green: #2f8f8a;
+    --green-deep: #1c5f5c;
+    --gold: #e0895a;
+    --gold-soft: #f6d3ac;
+    --cream: #fbf3e6;
+    --paper: #fffcf6;
     --ink: #2a2622;
     --muted: #6b635a;
     --serif: "Cormorant Garamond", Georgia, serif;
@@ -45,7 +45,7 @@
   .menu-btn { display: none; background: none; border: 1px solid var(--gold); color: var(--gold); padding: 6px 12px; font: inherit; font-size: .8rem; letter-spacing: .15em; cursor: pointer; }
 
   /* Hero */
-  .hero { position: relative; background: radial-gradient(ellipse at top, #2a4270 0%, var(--green) 45%, var(--green-deep) 100%); color: var(--cream); text-align: center; padding: 110px 0 120px; overflow: hidden; }
+  .hero { position: relative; background: radial-gradient(ellipse at top, #5cc4bd 0%, var(--green) 45%, var(--green-deep) 100%); color: var(--cream); text-align: center; padding: 110px 0 120px; overflow: hidden; }
   .hero::before, .hero::after { content: ""; position: absolute; left: 50%; transform: translateX(-50%); width: min(720px, 90%); height: 1px; background: linear-gradient(90deg, transparent, var(--gold), transparent); }
   .hero::before { top: 48px; }
   .hero::after { bottom: 48px; }
@@ -63,18 +63,18 @@
   section { padding: 96px 0; }
   .section-title { text-align: center; margin-bottom: 56px; }
   .section-title h2 { font-family: var(--serif); font-weight: 400; font-size: clamp(2.2rem, 5vw, 3.2rem); margin: 0; color: var(--green); }
-  .section-title .eyebrow { color: #a3813f; }
+  .section-title .eyebrow { color: #c96b3e; }
 
   .about { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; }
   .frame { aspect-ratio: 4 / 5; border: 1px solid var(--gold); padding: 14px; }
-  .frame > div { height: 100%; background: linear-gradient(160deg, #2a4270, var(--green-deep)); display: grid; place-items: center; color: var(--gold-soft); font-family: var(--serif); font-style: italic; font-size: 1.2rem; text-align: center; padding: 20px; }
+  .frame > div { height: 100%; background: linear-gradient(160deg, #5cc4bd, var(--green-deep)); display: grid; place-items: center; color: var(--gold-soft); font-family: var(--serif); font-style: italic; font-size: 1.2rem; text-align: center; padding: 20px; }
   .about h2 { font-family: var(--serif); font-weight: 400; font-size: clamp(2rem, 4.5vw, 2.9rem); color: var(--green); margin: 0 0 20px; line-height: 1.15; }
   .about p { color: var(--muted); font-size: 1.05rem; }
   .signature { font-family: var(--serif); font-style: italic; font-size: 1.5rem; color: var(--green); margin-top: 24px; }
 
-  .collections { background: var(--cream); border-top: 1px solid #e8dcc2; border-bottom: 1px solid #e8dcc2; }
+  .collections { background: var(--cream); border-top: 1px solid #dcefe9; border-bottom: 1px solid #dcefe9; }
   .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
-  .card { background: var(--paper); border: 1px solid #e3d5b6; padding: 38px 30px; text-align: center; transition: transform .25s, box-shadow .25s; }
+  .card { background: var(--paper); border: 1px solid #d9ecE6; padding: 38px 30px; text-align: center; transition: transform .25s, box-shadow .25s; }
   .card:hover { transform: translateY(-4px); box-shadow: 0 14px 30px rgba(31,58,51,.12); }
   .card svg { width: 46px; height: 46px; stroke: var(--gold); fill: none; stroke-width: 1.4; margin-bottom: 16px; }
   .card h3 { font-family: var(--serif); font-weight: 600; font-size: 1.5rem; margin: 0 0 8px; color: var(--green); }
@@ -88,16 +88,16 @@
   .info h3 { font-family: var(--serif); font-weight: 600; font-size: 1.4rem; color: var(--green); margin: 0 0 6px; }
   .info p { margin: 0 0 28px; color: var(--muted); }
   .hours { width: 100%; border-collapse: collapse; margin-bottom: 28px; }
-  .hours td { padding: 8px 0; border-bottom: 1px dotted #d8c9a6; color: var(--muted); }
+  .hours td { padding: 8px 0; border-bottom: 1px dotted #cfe6e0; color: var(--muted); }
   .hours td:last-child { text-align: right; color: var(--ink); }
   .map { border: 1px solid var(--gold); padding: 10px; min-height: 360px; }
   .map iframe { width: 100%; height: 100%; min-height: 340px; border: 0; filter: sepia(.25) saturate(.8); }
 
-  .contact { background: var(--cream); border-top: 1px solid #e8dcc2; }
+  .contact { background: var(--cream); border-top: 1px solid #dcefe9; }
   form { max-width: 640px; margin: 0 auto; display: grid; gap: 18px; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
   label { display: block; font-size: .75rem; letter-spacing: .2em; text-transform: uppercase; color: var(--green); margin-bottom: 6px; font-weight: 500; }
-  input, textarea, select { width: 100%; padding: 13px 14px; border: 1px solid #d8c9a6; background: var(--paper); font: inherit; color: var(--ink); }
+  input, textarea, select { width: 100%; padding: 13px 14px; border: 1px solid #cfe6e0; background: var(--paper); font: inherit; color: var(--ink); }
   input:focus, textarea:focus, select:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201,164,92,.2); }
   textarea { min-height: 150px; resize: vertical; }
   form .btn { justify-self: center; cursor: pointer; border: 1px solid var(--gold); }
@@ -109,7 +109,7 @@
   .social a { width: 40px; height: 40px; border: 1px solid var(--gold); border-radius: 50%; display: grid; place-items: center; color: var(--gold); text-decoration: none; transition: background .2s; }
   .social a:hover { background: var(--gold); color: var(--green-deep); }
   .social svg { width: 18px; height: 18px; fill: currentColor; }
-  footer small { color: #8e9a8f; letter-spacing: .08em; }
+  footer small { color: #a8ddd6; letter-spacing: .08em; }
 
   @media (max-width: 820px) {
     nav ul { display: none; position: absolute; top: 64px; left: 0; right: 0; flex-direction: column; gap: 0; background: var(--green-deep); border-bottom: 1px solid rgba(201,164,92,.35); }
@@ -151,9 +151,9 @@
       <h1>The Ritzy <em>Heirloom</em></h1>
       <p class="eyebrow" style="margin-top:14px; color:var(--cream); opacity:.75;">Neptune Beach, Florida</p>
       <svg class="ornament" viewBox="0 0 180 24" aria-hidden="true">
-        <g fill="none" stroke="#c9a45c" stroke-width="1">
+        <g fill="none" stroke="#e0895a" stroke-width="1">
           <line x1="0" y1="12" x2="66" y2="12"/><line x1="114" y1="12" x2="180" y2="12"/>
-          <path d="M90 2 L100 12 L90 22 L80 12 Z"/><path d="M90 7 L95 12 L90 17 L85 12 Z" fill="#c9a45c"/>
+          <path d="M90 2 L100 12 L90 22 L80 12 Z"/><path d="M90 7 L95 12 L90 17 L85 12 Z" fill="#e0895a"/>
           <circle cx="72" cy="12" r="2.5"/><circle cx="108" cy="12" r="2.5"/>
         </g>
       </svg>
@@ -167,7 +167,7 @@
     <div class="wrap about">
       <div class="frame"><div>Add a photo of the storefront or a favorite piece here</div></div>
       <div>
-        <p class="eyebrow" style="color:#a3813f">Our Story</p>
+        <p class="eyebrow" style="color:#c96b3e">Our Story</p>
         <h2>Browse. Discover. Take a little history home.</h2>
         <p>The Ritzy Heirloom is a beautifully designed boutique shop filled with antiques, vintage finds, fine art, European and English pieces, antique French fabrics and wallpapers, and one-of-a-kind treasures.</p>
         <p>Each piece is chosen for its beauty, character, craftsmanship and history, creating a collection that feels elevated yet inviting.</p>
