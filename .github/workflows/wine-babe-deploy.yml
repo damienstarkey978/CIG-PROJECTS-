@@ -1,0 +1,20 @@
+name: Deploy Wine Babe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "wine-babe-site/**"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency: wine-babe-deploy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: cd wine-babe-site && flyctl deploy --remote-only -a wine-babe
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
