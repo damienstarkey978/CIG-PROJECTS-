@@ -296,6 +296,11 @@ footer {
   color: var(--muted);
 }
 
+.wine__stats {
+  margin: 1rem 0 0;
+  font-size: 0.95rem;
+}
+
 .claims {
   padding: 0 1.25rem 4.5rem;
 }
