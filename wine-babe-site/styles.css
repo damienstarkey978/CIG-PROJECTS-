@@ -306,33 +306,6 @@ footer {
   background: url("/images/heart.png") center / contain no-repeat;
 }
 
-.gifting {
-  padding-top: 1rem;
-  padding-bottom: 4rem;
-}
-
-.gifting__stage {
-  display: grid;
-  gap: 0.6rem;
-  margin: 0 0 2.5rem;
-}
-
-
-
-.gifting__stage figure img {
-  height: 22rem;
-}
-
-.gifting__stage figure {
-  margin: 0;
-}
-
-
-
-
-
-
-
 .club {
   text-align: center;
   padding: 0 0 5rem;
@@ -505,12 +478,6 @@ footer {
     font-size: 1rem;
   }
 
-  .gifting__stage figure img {
-    height: 20rem;
-  }
-
-
-
   .terms {
     font-size: 0.88rem;
   }
@@ -545,12 +512,6 @@ footer {
   .claims ul {
     grid-template-columns: 1fr 1fr 1fr;
   }
-
-  .gifting__stage {
-    grid-template-columns: 1fr 1fr;
-    padding: 0 1.5rem;
-  }
-
 
 }
 
