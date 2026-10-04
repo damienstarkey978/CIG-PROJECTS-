@@ -306,6 +306,22 @@ footer {
   background: url("/images/heart.png") center / contain no-repeat;
 }
 
+.gifting {
+  padding: 1rem 1.25rem 4rem;
+}
+
+.gifting__bag {
+  margin: 0 auto;
+  width: min(28rem, 100%);
+}
+
+.gifting__bag img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1086 / 1448;
+  object-fit: contain;
+}
+
 .club {
   text-align: center;
   padding: 0 0 5rem;
