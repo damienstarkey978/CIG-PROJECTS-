@@ -248,11 +248,32 @@ footer {
   margin: 0;
 }
 
-.wine img {
+.wine img,
+.wine-serve img,
+.claims__graphic img {
   width: 100%;
-  max-height: 36rem;
-  object-fit: cover;
-  object-position: center;
+  height: auto;
+  object-fit: contain;
+}
+
+.wine-serve {
+  margin: 0 auto 4rem;
+  padding: 0 1.25rem;
+  width: min(46rem, 100%);
+}
+
+.wine-serve figcaption {
+  margin: 0.85rem 0 0;
+  text-align: center;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.claims__graphic {
+  margin: 0 auto;
+  width: min(36rem, 100%);
 }
 
 .wine h3 {
@@ -443,11 +464,6 @@ footer {
   .wine {
     margin-bottom: 3.5rem;
   }
-
-  .wine img {
-    max-height: 30rem;
-  }
-
 
   .club {
     padding-bottom: 3.5rem;
