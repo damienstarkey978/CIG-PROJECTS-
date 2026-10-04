@@ -423,6 +423,10 @@ footer {
 }
 
 @media (max-width: 799px) {
+  .mast .lockup__img {
+    width: 5rem;
+  }
+
   .hero {
     min-height: 0;
   }
@@ -462,6 +466,10 @@ footer {
 @media (max-width: 520px) {
   .lockup--small .lockup__img {
     width: 6.75rem;
+  }
+
+  .mast .lockup__img {
+    width: 4.5rem;
   }
 
   .mast nav {
