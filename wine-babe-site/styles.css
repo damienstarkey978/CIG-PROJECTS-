@@ -1,0 +1,556 @@
+:root {
+  --cream: #f3ebe3;
+  --paper: #faf4ee;
+  --blush: #e7b7b8;
+  --blush-deep: #c98b8e;
+  --gold: #c4a36a;
+  --ink: #141210;
+  --muted: #5c564f;
+  --serif: "Cormorant Garamond", "Iowan Old Style", Palatino, serif;
+  --script: "Allura", "Segoe Script", cursive;
+  --sans: "Outfit", "Avenir Next", sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: 4.5rem;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-weight: 300;
+  line-height: 1.55;
+  background:
+    radial-gradient(120% 80% at 80% -10%, rgba(231, 183, 184, 0.35), transparent 55%),
+    radial-gradient(90% 60% at 0% 100%, rgba(196, 163, 106, 0.12), transparent 50%),
+    var(--cream);
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+a,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: inherit;
+}
+
+.skip {
+  position: absolute;
+  left: -999px;
+  top: 0;
+}
+
+.skip:focus {
+  left: 1rem;
+  z-index: 20;
+  background: var(--paper);
+  padding: 0.5rem 1rem;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.lockup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-decoration: none;
+}
+
+.lockup__img {
+  display: block;
+  width: 9.5rem;
+  height: auto;
+}
+
+.lockup--hero .lockup__img {
+  width: min(34rem, 82vw);
+  animation: lockup-in 1.1s ease both;
+}
+
+.mast {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.7rem max(1.25rem, env(safe-area-inset-right)) 0.7rem max(1.25rem, env(safe-area-inset-left));
+  padding-top: calc(0.7rem + env(safe-area-inset-top));
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.mast nav {
+  display: flex;
+  gap: 0.9rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.mast nav a {
+  text-decoration: none;
+  padding: 0.7rem 0.25rem;
+}
+
+.mast nav a:hover {
+  color: var(--blush-deep);
+}
+
+.hero {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.hero__intro {
+  text-align: center;
+  padding: 1.5rem 1.25rem 1.75rem;
+}
+
+.hero h1 {
+  margin: 1.15rem 0 0;
+  font-family: var(--sans);
+  font-weight: 400;
+  font-size: clamp(0.95rem, 2.2vw, 1.15rem);
+  letter-spacing: 0.04em;
+}
+
+.hero__cta-wrap {
+  margin: 1.35rem 0 0;
+}
+
+.cta {
+  display: inline-block;
+  padding: 1rem 1.6rem;
+  background: var(--ink);
+  color: var(--paper);
+  text-decoration: none;
+  font-size: 0.8rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.cta:hover {
+  background: #2a2420;
+}
+
+.hero__media {
+  margin: 0;
+  min-height: 52dvh;
+  overflow: hidden;
+}
+
+.hero__media img {
+  width: 100%;
+  height: 100%;
+  min-height: 52dvh;
+  object-fit: cover;
+  object-position: 50% 40%;
+  animation: drift 22s ease-in-out alternate infinite;
+}
+
+.story,
+.section-head,
+.wine__copy,
+.club,
+footer {
+  width: min(40rem, calc(100% - 2.5rem));
+  margin-inline: auto;
+}
+
+.story {
+  padding: 5.5rem 0 4rem;
+  text-align: center;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.story h2,
+.section-head h2,
+.wine h3,
+.club h2,
+.terms h2 {
+  font-family: var(--serif);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+}
+
+.story h2 {
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  margin: 0.7rem 0 1rem;
+}
+
+.lede {
+  margin: 0;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.wines {
+  padding-bottom: 2rem;
+}
+
+.section-head {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.section-head h2,
+.club h2 {
+  font-size: clamp(2.1rem, 5vw, 3.4rem);
+  margin: 0.45rem 0 0.8rem;
+}
+
+.section-head p:last-child {
+  color: var(--muted);
+  margin: 0;
+}
+
+.wine {
+  display: grid;
+  gap: 1.75rem;
+  margin: 0 0 4.5rem;
+  padding: 0 1.25rem;
+}
+
+.wine figure {
+  margin: 0;
+}
+
+.wine img {
+  width: 100%;
+  max-height: 36rem;
+  object-fit: cover;
+  object-position: center;
+}
+
+.wine h3 {
+  font-size: 2rem;
+  margin: 0.15rem 0 0.35rem;
+}
+
+.script {
+  font-family: var(--script);
+  color: var(--gold);
+  font-size: 2rem;
+  margin: 0;
+  line-height: 1;
+}
+
+.meta {
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.claims {
+  padding: 0 1.25rem 4.5rem;
+}
+
+.claims ul {
+  list-style: none;
+  margin: 0 auto;
+  padding: 0;
+  width: min(52rem, 100%);
+  display: grid;
+  gap: 0.85rem 2rem;
+}
+
+.claims li {
+  font-size: 0.8rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding-left: 1.4rem;
+  position: relative;
+}
+
+.claims li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.2rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  background: url("/images/heart.png") center / contain no-repeat;
+}
+
+.gifting {
+  padding-top: 1rem;
+  padding-bottom: 4rem;
+}
+
+.gifting__stage {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0 0 2.5rem;
+}
+
+
+
+.gifting__stage figure img {
+  height: 22rem;
+}
+
+.gifting__stage figure {
+  margin: 0;
+}
+
+
+
+
+
+
+
+.club {
+  text-align: center;
+  padding: 0 0 5rem;
+}
+
+.club p {
+  color: var(--muted);
+}
+
+#club-form {
+  display: flex;
+  margin: 1.6rem auto 0;
+  width: min(28rem, 100%);
+  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+#club-form input[type="email"] {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  min-width: 0;
+  padding: 1rem 1.2rem;
+  font: inherit;
+  font-size: 1rem;
+  outline: none;
+}
+
+#club-form button {
+  border: 0;
+  background: transparent;
+  min-width: 3.25rem;
+  padding: 0 1.2rem;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.club__note {
+  font-size: 0.85rem;
+}
+
+footer {
+  text-align: center;
+  padding: 0 0 calc(4rem + env(safe-area-inset-bottom));
+}
+
+
+.legal {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.legal a {
+  text-underline-offset: 0.2em;
+}
+
+.terms {
+  margin-top: 3rem;
+  text-align: left;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.terms h2 {
+  font-size: 1.2rem;
+}
+
+@keyframes lockup-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.6rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes drift {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.06);
+  }
+}
+
+@media (max-width: 799px) {
+  .hero {
+    min-height: 0;
+  }
+
+  .hero__media,
+  .hero__media img {
+    min-height: 0;
+  }
+
+  .hero__media img {
+    aspect-ratio: 4 / 3;
+    object-position: 50% 45%;
+  }
+
+  .story {
+    padding: 3.5rem 0 3rem;
+  }
+
+  .section-head {
+    margin-bottom: 2rem;
+  }
+
+  .wine {
+    margin-bottom: 3.5rem;
+  }
+
+  .wine img {
+    max-height: 30rem;
+  }
+
+
+  .club {
+    padding-bottom: 3.5rem;
+  }
+}
+
+@media (max-width: 520px) {
+  .lockup--small .lockup__img {
+    width: 6.75rem;
+  }
+
+  .mast nav {
+    gap: 0.5rem;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+  }
+
+  .lockup--hero .lockup__img {
+    width: 84vw;
+  }
+
+  .hero__intro {
+    padding: 1.25rem 1.25rem 1.5rem;
+  }
+
+  .hero__cta-wrap {
+    margin-top: 1.15rem;
+  }
+
+  .cta {
+    display: block;
+    width: 100%;
+    max-width: 22rem;
+    margin-inline: auto;
+    text-align: center;
+    font-size: 0.78rem;
+  }
+
+  .lede {
+    font-size: 1rem;
+  }
+
+  .gifting__stage figure img {
+    height: 20rem;
+  }
+
+
+
+  .terms {
+    font-size: 0.88rem;
+  }
+}
+
+@media (min-width: 800px) {
+  .mast {
+    padding: 1.2rem 2.5rem;
+  }
+
+  .mast nav {
+    gap: 1.25rem;
+  }
+
+  .hero__intro {
+    padding-top: 2rem;
+  }
+
+  .wine {
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+    width: min(68rem, calc(100% - 4rem));
+    margin-inline: auto;
+    gap: 3rem;
+  }
+
+  .wine--solo {
+    grid-template-columns: minmax(0, 28rem);
+    justify-content: center;
+  }
+
+  .claims ul {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .gifting__stage {
+    grid-template-columns: 1fr 1fr;
+    padding: 0 1.5rem;
+  }
+
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .lockup--hero .lockup__img,
+  .hero__media img {
+    animation: none;
+  }
+}
