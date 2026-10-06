@@ -61,8 +61,8 @@ export const MANIFESTS: ConnectorManifest[] = [
     kind: "jobs",
     provider: "csv",
     label: "CSV import",
-    description: "Load jobs, subs and contacts from any software's export.",
-    status: "planned",
+    description: "Load jobs, subs and contacts from any software's export. Use the Import tab.",
+    status: "ready",
     fields: [],
   },
   {

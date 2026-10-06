@@ -52,7 +52,7 @@
   }
 
   // ---- shell ----
-  const TABS = [["inbox", "Inbox"], ["tasks", "Tasks"], ["leads", "Leads"], ["contacts", "Contacts"], ["texts", "Texts"], ["settings", "Settings"], ["connectors", "Connectors"], ["demo", "Demo"]];
+  const TABS = [["inbox", "Inbox"], ["tasks", "Tasks"], ["leads", "Leads"], ["contacts", "Contacts"], ["texts", "Texts"], ["settings", "Settings"], ["import", "Import"], ["connectors", "Connectors"], ["demo", "Demo"]];
 
   async function render() {
     if (!token) return loginView();
@@ -186,6 +186,33 @@
           body.append(card);
         }
       }
+    },
+
+    async import(body) {
+      body.append(h("div", { class: "card muted" }, "Load contacts, subs, vendors or jobs from a CSV exported from Buildertrend, QuickBooks, a spreadsheet, anything. Column names are matched automatically. Preview first: nothing is saved until you press Import. Running it again never creates duplicates."));
+      const kind = h("select", {}, [["contacts", "Contacts (clients, subs, vendors)"], ["jobs", "Jobs"]].map(([v, l]) => h("option", { value: v }, l)));
+      const type = h("select", {}, [["sub", "Subs"], ["client", "Clients"], ["vendor", "Vendors"], ["other", "Mixed or unknown"]].map(([v, l]) => h("option", { value: v }, l)));
+      const typeRow = h("div", {}, h("label", {}, "Everyone in this file is a"), type);
+      kind.addEventListener("change", () => { typeRow.hidden = kind.value === "jobs"; });
+      const file = h("input", { type: "file", accept: ".csv,.tsv,.txt" });
+      const out = h("div", {});
+      const run = async (dryRun) => {
+        out.replaceChildren();
+        const f = file.files[0];
+        if (!f) return out.append(h("div", { class: "err" }, "Choose a file first."));
+        try {
+          const r = await api(`/t/${slug}/import/${kind.value}`, { method: "POST", body: { csv: await f.text(), defaultType: type.value, dryRun } });
+          out.append(h("div", { class: "card" },
+            h("b", {}, r.dryRun ? "Preview (nothing saved)" : "Imported"),
+            h("div", {}, `${r.created} new, ${r.updated} updated, ${r.unchanged} already there, ${r.skipped} blank rows skipped`),
+            h("div", { class: "muted" }, "Columns used: " + Object.entries(r.columns.recognized).filter(([, v]) => v).map(([k, v]) => `${v} as ${k}`).join(", ")),
+            r.columns.ignored.length ? h("div", { class: "muted" }, "Ignored columns: " + r.columns.ignored.join(", ")) : null,
+            ...r.warnings.slice(0, 20).map((w) => h("div", { class: "muted" }, w)),
+            r.warnings.length > 20 ? h("div", { class: "muted" }, `...and ${r.warnings.length - 20} more warnings`) : null));
+        } catch (e) { out.append(h("div", { class: "err" }, e.message)); }
+      };
+      body.append(h("div", { class: "card" }, h("label", {}, "What are you loading?"), kind, typeRow, h("label", {}, "File (CSV)"), file,
+        h("p", { class: "row" }, h("button", { class: "btn ghost", onclick: () => run(true) }, "Preview"), h("button", { class: "btn", onclick: () => run(false) }, "Import"))), out);
     },
 
     async demo(body) {

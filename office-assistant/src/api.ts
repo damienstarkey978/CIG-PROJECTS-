@@ -9,6 +9,8 @@ import { db } from "./lib/db";
 import { toE164 } from "./lib/phone";
 import { findScenario, SCENARIOS } from "./sim/scenarios";
 import { simulateCall } from "./sim/simulate";
+import { importContacts, type ImportContactType } from "./import/contacts";
+import { importJobs } from "./import/jobs";
 import { getTenantBySlug, saveConnector, type Tenant } from "./tenants";
 
 export const TEMPLATE_KEYS = ["lead_callback", "ack_sub_vendor", "ack_client", "generic"] as const;
@@ -51,7 +53,7 @@ async function tenantOf(req: Request, res: Response): Promise<Tenant | null> {
 
 export function apiRouter(): Router {
   const r = Router();
-  r.use(express.json({ limit: "100kb" }));
+  r.use(express.json({ limit: "3mb" })); // CSV imports arrive as text in the body
   r.use(requireAdmin);
 
   r.get("/meta", (_req, res) => {
@@ -219,6 +221,31 @@ export function apiRouter(): Router {
     if (m.kind === "telephony" && m.provider === "quo") split.secrets.signingKeys ??= [];
     await saveConnector(t.id, m.kind, m.provider, split.config, split.secrets);
     res.json({ ok: true });
+  }));
+
+  const ImportBody = z.object({
+    csv: z.string().min(1),
+    defaultType: z.enum(["client", "sub", "vendor", "prospect", "other"]).default("other"),
+    dryRun: z.boolean().default(true),
+  });
+
+  r.post("/t/:slug/import/:kind", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t) return;
+    const body = ImportBody.safeParse(req.body);
+    if (!body.success) return void res.status(400).json({ error: "Send the file text as csv" });
+    try {
+      const result =
+        req.params.kind === "contacts"
+          ? await importContacts(t.id, body.data.csv, { defaultType: body.data.defaultType as ImportContactType, dryRun: body.data.dryRun })
+          : req.params.kind === "jobs"
+            ? await importJobs(t.id, body.data.csv, { dryRun: body.data.dryRun })
+            : null;
+      if (!result) return void res.status(404).json({ error: "Import contacts or jobs" });
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
   }));
 
   // Only allowed on the demo phone, so a simulated call can never text a real number.
