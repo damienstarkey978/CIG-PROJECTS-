@@ -17,7 +17,8 @@
     "eval:pull": "tsx scripts/pullEvalSet.ts",
     "eval:run": "tsx scripts/runEval.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts"
+    "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts",
+    "eval:import-export": "tsx scripts/importQuoExport.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
@@ -25,6 +26,7 @@
     "dotenv": "^18.0.5",
     "express": "^5.2.1",
     "pg": "^8.23.1",
+    "read-excel-file": "^9.3.10",
     "zod": "^4.6.5"
   },
   "devDependencies": {

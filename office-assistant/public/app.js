@@ -202,19 +202,27 @@
     },
 
     async import(body) {
-      body.append(h("div", { class: "card muted" }, "Load contacts, subs, vendors or jobs from a CSV exported from Buildertrend, QuickBooks, a spreadsheet, anything. Column names are matched automatically. Preview first: nothing is saved until you press Import. Running it again never creates duplicates."));
+      body.append(h("div", { class: "card muted" }, "Load contacts, subs, vendors or jobs from a CSV or Excel file exported from Buildertrend, QuickBooks, a spreadsheet, anything. Column names are matched automatically. Preview first: nothing is saved until you press Import. Running it again never creates duplicates."));
       const kind = h("select", {}, [["contacts", "Contacts (clients, subs, vendors)"], ["jobs", "Jobs"]].map(([v, l]) => h("option", { value: v }, l)));
       const type = h("select", {}, [["sub", "Subs"], ["client", "Clients"], ["vendor", "Vendors"], ["other", "Mixed or unknown"]].map(([v, l]) => h("option", { value: v }, l)));
       const typeRow = h("div", {}, h("label", {}, "Everyone in this file is a"), type);
       kind.addEventListener("change", () => { typeRow.hidden = kind.value === "jobs"; });
-      const file = h("input", { type: "file", accept: ".csv,.tsv,.txt" });
+      const file = h("input", { type: "file", accept: ".csv,.tsv,.txt,.xlsx" });
       const out = h("div", {});
+      const fileBody = async (f, defaultType, dryRun) => {
+        if (/\.xlsx$/i.test(f.name)) {
+          const bytes = new Uint8Array(await f.arrayBuffer());
+          let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+          return { xlsxBase64: btoa(bin), defaultType, dryRun };
+        }
+        return { csv: await f.text(), defaultType, dryRun };
+      };
       const run = async (dryRun) => {
         out.replaceChildren();
         const f = file.files[0];
         if (!f) return out.append(h("div", { class: "err" }, "Choose a file first."));
         try {
-          const r = await api(`/t/${slug}/import/${kind.value}`, { method: "POST", body: { csv: await f.text(), defaultType: type.value, dryRun } });
+          const r = await api(`/t/${slug}/import/${kind.value}`, { method: "POST", body: await fileBody(f, type.value, dryRun) });
           out.append(h("div", { class: "card" },
             h("b", {}, r.dryRun ? "Preview (nothing saved)" : "Imported"),
             h("div", {}, `${r.created} new, ${r.updated} updated, ${r.unchanged} already there, ${r.skipped} blank rows skipped`),
@@ -224,7 +232,7 @@
             r.warnings.length > 20 ? h("div", { class: "muted" }, `...and ${r.warnings.length - 20} more warnings`) : null));
         } catch (e) { out.append(h("div", { class: "err" }, e.message)); }
       };
-      body.append(h("div", { class: "card" }, h("label", {}, "What are you loading?"), kind, typeRow, h("label", {}, "File (CSV)"), file,
+      body.append(h("div", { class: "card" }, h("label", {}, "What are you loading?"), kind, typeRow, h("label", {}, "File (CSV or Excel .xlsx)"), file,
         h("p", { class: "row" }, h("button", { class: "btn ghost", onclick: () => run(true) }, "Preview"), h("button", { class: "btn", onclick: () => run(false) }, "Import"))), out);
     },
 

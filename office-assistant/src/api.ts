@@ -77,7 +77,7 @@ async function tenantOf(req: Request, res: Response): Promise<Tenant | null> {
 
 export function apiRouter(): Router {
   const r = Router();
-  r.use(express.json({ limit: "3mb" })); // CSV imports arrive as text in the body
+  r.use(express.json({ limit: "8mb" })); // CSV imports arrive as text in the body
 
   r.post("/login", wrap(async (req, res) => {
     const body = z.object({ email: z.string().min(3), password: z.string().min(1) }).safeParse(req.body);
@@ -337,7 +337,8 @@ export function apiRouter(): Router {
   }));
 
   const ImportBody = z.object({
-    csv: z.string().min(1),
+    csv: z.string().min(1).optional(),
+    xlsxBase64: z.string().min(1).optional(),
     defaultType: z.enum(["client", "sub", "vendor", "prospect", "other"]).default("other"),
     dryRun: z.boolean().default(true),
   });
@@ -346,13 +347,14 @@ export function apiRouter(): Router {
     const t = await tenantOf(req, res);
     if (!t || !allow(res, "owner")) return;
     const body = ImportBody.safeParse(req.body);
-    if (!body.success) return void res.status(400).json({ error: "Send the file text as csv" });
+    if (!body.success || (!body.data.csv && !body.data.xlsxBase64)) return void res.status(400).json({ error: "Send the file as csv text or xlsxBase64" });
+    const input: string | Buffer = body.data.xlsxBase64 ? Buffer.from(body.data.xlsxBase64, "base64") : body.data.csv!;
     try {
       const result =
         req.params.kind === "contacts"
-          ? await importContacts(t.id, body.data.csv, { defaultType: body.data.defaultType as ImportContactType, dryRun: body.data.dryRun })
+          ? await importContacts(t.id, input, { defaultType: body.data.defaultType as ImportContactType, dryRun: body.data.dryRun })
           : req.params.kind === "jobs"
-            ? await importJobs(t.id, body.data.csv, { dryRun: body.data.dryRun })
+            ? await importJobs(t.id, input, { dryRun: body.data.dryRun })
             : null;
       if (!result) return void res.status(404).json({ error: "Import contacts or jobs" });
       res.json(result);

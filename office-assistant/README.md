@@ -77,7 +77,19 @@ These need accounts and money, so they are not automated:
    `PNEYAAmj7S` is the WCI line (904) 717-1729. The tenant starts in shadow mode.
 5. Turn on call recording and transcription for that line in Quo, with the recording disclosure (Florida is an all-party consent state).
 
+## Importing real exports
+
+The Import tab takes CSV or Excel (.xlsx) straight from Buildertrend. Verified against real Buildertrend exports of clients, subs and jobs: it skips the title row above the headers, treats Cell as the main phone, reads "Primary contact" and "Company" for subs, uses Division as trade and Liability exp. as the insurance date, and links each job's first client (with phone and email). Clients with jobs become clients, those with only lead opportunities become prospects. Two people who share a name stay separate unless a phone or email matches. Re runs never duplicate.
+
 ## Eval (step 3)
+
+Use real calls. Export transcripts from Quo, then:
+
+```
+npm run eval:import-export -- --file quo-call-transcripts.json --slug wci
+```
+
+This converts a Quo export (named speakers) into `data/eval/calls.jsonl`, skips outgoing calls, and tags callers already on file with their contact type. Add a `label` to each row, then run the eval below.
 
 ```
 npm run eval:pull -- --slug wci     # writes data/eval/calls.jsonl (gitignored, customer data)

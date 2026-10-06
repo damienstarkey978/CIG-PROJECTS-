@@ -1,21 +1,26 @@
-import type { PoolClient } from "pg";
 import { toE164 } from "../lib/phone";
-import { mapColumns, parseCsv, pick, splitName } from "./csv";
+import { upsertContact, type ImportContactType } from "./contactStore";
+import { allHints, mapColumns, pick, readTable, splitName } from "./csv";
 import { runImport, type ImportResult } from "./run";
 
-export type ImportContactType = "client" | "sub" | "vendor" | "prospect" | "other";
+export type { ImportContactType };
 
+// Order matters: a column feeds only one field, earlier fields first. Cell comes
+// before Phone so the number people actually text is the main one.
 const SYNONYMS = {
-  name: ["name", "full name", "contact", "contact name", "client name", "sub name", "subcontractor", "vendor name", "display name"],
+  name: ["name", "full name", "contact", "contact name", "primary contact", "client name", "sub name", "vendor name", "display name"],
   first: ["first name", "firstname", "first", "given name"],
   last: ["last name", "lastname", "last", "surname", "family name"],
   company: ["company", "company name", "business", "business name", "organization", "trade partner", "vendor", "subcontractor company"],
   email: ["email", "e mail", "email address", "primary email"],
-  phone: ["phone", "phone number", "mobile", "cell", "cell phone", "mobile phone", "primary phone", "work phone", "telephone"],
-  phone2: ["phone 2", "secondary phone", "other phone", "home phone", "alternate phone"],
+  phone: ["cell", "cell phone", "mobile", "mobile phone", "primary phone", "phone", "phone number", "telephone", "work phone"],
+  phone2: ["phone", "phone 2", "secondary phone", "other phone", "home phone", "alternate phone", "work phone"],
   type: ["type", "contact type", "category", "role", "kind"],
-  trades: ["trade", "trades", "specialty", "specialties", "service", "services"],
+  trades: ["trade", "trades", "division", "specialty", "specialties", "service", "services"],
   notes: ["notes", "note", "comments", "memo"],
+  coiExpires: ["liability exp", "liability expiration", "liability insurance exp", "coi expires", "coi expiration", "insurance exp", "insurance expiration"],
+  jobs: ["jobs", "job count", "number of jobs"],
+  leads: ["lead opportunities", "leads", "lead count"],
 };
 
 export function mapType(raw: string, fallback: ImportContactType): ImportContactType {
@@ -28,94 +33,50 @@ export function mapType(raw: string, fallback: ImportContactType): ImportContact
   return fallback;
 }
 
-interface Existing { id: string; type: string; first_name: string | null; last_name: string | null; company: string | null; email: string | null; notes: string | null }
-
-async function findExisting(tx: PoolClient, tenantId: string, phones: string[], email: string, first: string | null, last: string | null, company: string): Promise<Existing | null> {
-  const cols = "c.id, c.type, c.first_name, c.last_name, c.company, c.email, c.notes";
-  if (phones.length) {
-    const r = await tx.query<Existing>(`SELECT ${cols} FROM contact_phones p JOIN contacts c ON c.id = p.contact_id WHERE p.tenant_id = $1 AND p.phone = ANY($2) LIMIT 1`, [tenantId, phones]);
-    if (r.rows[0]) return r.rows[0];
-  }
-  if (email) {
-    const r = await tx.query<Existing>(`SELECT ${cols} FROM contacts c WHERE c.tenant_id = $1 AND lower(c.email) = lower($2) LIMIT 1`, [tenantId, email]);
-    if (r.rows[0]) return r.rows[0];
-  }
-  if (first || last || company) {
-    const r = await tx.query<Existing>(
-      `SELECT ${cols} FROM contacts c WHERE c.tenant_id = $1
-         AND lower(coalesce(c.first_name,'')) = lower($2) AND lower(coalesce(c.last_name,'')) = lower($3) AND lower(coalesce(c.company,'')) = lower($4) LIMIT 1`,
-      [tenantId, first ?? "", last ?? "", company],
-    );
-    if (r.rows[0]) return r.rows[0];
-  }
-  return null;
+function toDate(raw: string): string | null {
+  const t = raw ? Date.parse(raw) : NaN;
+  return Number.isNaN(t) ? null : new Date(t).toISOString().slice(0, 10);
 }
 
-export async function importContacts(tenantId: string, csvText: string, opts: { defaultType: ImportContactType; dryRun: boolean }): Promise<ImportResult> {
-  const { headers, rows } = parseCsv(csvText);
+export async function importContacts(tenantId: string, input: string | Buffer, opts: { defaultType: ImportContactType; dryRun: boolean }): Promise<ImportResult> {
+  const { headers, rows } = await readTable(input, allHints(SYNONYMS));
   const { map, ignored } = mapColumns(headers, SYNONYMS);
   if (!map.name && !map.first && !map.company) throw new Error("Couldn't find a name or company column. Expected something like Name, First Name or Company.");
 
   return runImport(opts.dryRun, async (tx) => {
     const res: ImportResult = { dryRun: opts.dryRun, created: 0, updated: 0, unchanged: 0, skipped: 0, warnings: [], columns: { recognized: map, ignored } };
-    for (const [idx, row] of rows.entries()) {
-      const line = idx + 2;
-      let { first, last } = map.name ? splitName(pick(row, map, "name")) : { first: null, last: null };
-      first = pick(row, map, "first") || first;
-      last = pick(row, map, "last") || last;
-      const company = pick(row, map, "company");
+    let badPhones = 0, badDates = 0;
+    for (const row of rows) {
+      const person = map.name ? splitName(pick(row, map, "name")) : { first: null, last: null, label: null };
+      const first = pick(row, map, "first") || person.first;
+      const last = pick(row, map, "last") || person.last;
+      const company = pick(row, map, "company") || person.label || "";
       const email = pick(row, map, "email");
       const rawPhones = [pick(row, map, "phone"), pick(row, map, "phone2")].filter(Boolean);
-      const phones = rawPhones.map(toE164).filter((p): p is string => Boolean(p));
-      if (rawPhones.length > phones.length) res.warnings.push(`Row ${line}: a phone number couldn't be read and was skipped`);
+      const phones = [...new Set(rawPhones.map(toE164).filter((p): p is string => Boolean(p)))];
+      badPhones += rawPhones.length - rawPhones.map(toE164).filter(Boolean).length;
       if (!first && !last && !company && !email && !phones.length) { res.skipped++; continue; }
 
-      const type = mapType(pick(row, map, "type"), opts.defaultType);
-      const trades = pick(row, map, "trades").split(/[;,/]/).map((t) => t.trim()).filter(Boolean);
-      const notes = pick(row, map, "notes");
+      // A Buildertrend style client list says who has jobs and who is only a lead.
+      let type = mapType(pick(row, map, "type"), opts.defaultType);
+      if (!map.type && map.jobs && map.leads && (type === "client" || type === "other")) {
+        if (Number(pick(row, map, "jobs")) > 0) type = "client";
+        else if (Number(pick(row, map, "leads")) > 0) type = "prospect";
+      }
+      const coiRaw = pick(row, map, "coiExpires");
+      const coi = toDate(coiRaw);
+      if (coiRaw && !coi) badDates++;
 
-      const found = await findExisting(tx, tenantId, phones, email, first, last, company);
-      let contactId: string;
-      let changed = false;
-      if (found) {
-        contactId = found.id;
-        const sets: string[] = [];
-        const vals: unknown[] = [];
-        const fill = (col: string, cur: string | null, next: string | null | undefined) => {
-          if (!cur && next) { vals.push(next); sets.push(`${col} = $${vals.length + 2}`); }
-        };
-        fill("first_name", found.first_name, first); fill("last_name", found.last_name, last);
-        fill("company", found.company, company); fill("email", found.email, email); fill("notes", found.notes, notes);
-        if (found.type === "other" && type !== "other") { vals.push(type); sets.push(`type = $${vals.length + 2}`); }
-        if (sets.length) { await tx.query(`UPDATE contacts SET ${sets.join(", ")}, updated_at = now() WHERE id = $1 AND tenant_id = $2`, [contactId, tenantId, ...vals]); changed = true; }
-      } else {
-        const ins = await tx.query<{ id: string }>(
-          "INSERT INTO contacts (tenant_id, type, first_name, last_name, company, email, notes) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
-          [tenantId, type, first, last, company || null, email || null, notes || null],
-        );
-        contactId = ins.rows[0].id;
-        changed = true;
-      }
-      for (const phone of phones) {
-        const r = await tx.query("INSERT INTO contact_phones (tenant_id, phone, contact_id) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING", [tenantId, phone, contactId]);
-        if (r.rowCount) changed = true;
-      }
-      const effectiveType = found ? (found.type === "other" ? type : found.type) : type;
-      if (effectiveType === "sub") {
-        const r = await tx.query(
-          `INSERT INTO sub_profiles (contact_id, trades) VALUES ($1, $2)
-           ON CONFLICT (contact_id) DO UPDATE SET trades = (SELECT array_agg(DISTINCT t) FROM unnest(sub_profiles.trades || EXCLUDED.trades) t)
-           WHERE NOT sub_profiles.trades @> EXCLUDED.trades`,
-          [contactId, trades],
-        );
-        if (r.rowCount && (trades.length || !found)) changed = true;
-      } else if (effectiveType === "client") {
-        await tx.query("INSERT INTO client_profiles (contact_id) VALUES ($1) ON CONFLICT DO NOTHING", [contactId]);
-      }
-      if (!found) res.created++;
-      else if (changed) res.updated++;
-      else res.unchanged++;
+      const out = await upsertContact(tx, tenantId, {
+        type, first, last, company, email, phones,
+        notes: pick(row, map, "notes"),
+        trades: pick(row, map, "trades").split(/[;,/]/).map((t) => t.trim()).filter(Boolean),
+        coiExpiresOn: coi,
+      });
+      res[out.outcome]++;
     }
+    if (badPhones) res.warnings.push(`${badPhones} phone number(s) couldn't be read and were skipped`);
+    if (badDates) res.warnings.push(`${badDates} insurance date(s) couldn't be read`);
     return res;
   });
 }

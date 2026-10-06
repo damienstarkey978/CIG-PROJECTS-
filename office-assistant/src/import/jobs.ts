@@ -1,15 +1,21 @@
-import type { PoolClient } from "pg";
-import { mapColumns, parseCsv, pick, splitName } from "./csv";
+import { toE164 } from "../lib/phone";
+import { upsertContact } from "./contactStore";
+import { allHints, mapColumns, pick, readTable, splitName } from "./csv";
 import { runImport, type ImportResult } from "./run";
 
 const SYNONYMS = {
-  name: ["job", "job name", "project", "project name", "name", "job title"],
-  address: ["address", "job address", "site address", "street", "project address", "location"],
-  client: ["client", "client name", "owner", "customer", "customer name", "homeowner"],
-  status: ["status", "job status", "project status", "stage"],
-  start: ["start", "start date", "scheduled start", "begin date"],
-  end: ["end", "end date", "scheduled end", "completion date", "finish date", "due date"],
-  externalId: ["job id", "project id", "id", "job number", "job no", "job #"],
+  name: ["job name", "job", "project name", "project", "job title", "name"],
+  street: ["street address", "job address", "site address", "project address", "address", "street", "location"],
+  city: ["city", "job city"],
+  state: ["state", "job state"],
+  zip: ["zip", "zip code", "postal code", "job zip"],
+  client: ["clients", "client", "client name", "owner", "customer", "customer name", "homeowner"],
+  clientPhone: ["client phone", "client cell", "customer phone", "client mobile"],
+  clientEmail: ["client email", "customer email"],
+  status: ["job status", "project status", "status", "stage"],
+  start: ["start date", "scheduled start", "begin date", "start"],
+  end: ["end date", "scheduled end", "completion date", "finish date", "due date", "end"],
+  externalId: ["job id", "project id", "job number", "job no", "job #", "id"],
 };
 
 export function mapJobStatus(raw: string): "lead" | "active" | "on_hold" | "complete" | "cancelled" {
@@ -27,42 +33,42 @@ function toDate(raw: string): string | null {
   return Number.isNaN(t) ? null : new Date(t).toISOString().slice(0, 10);
 }
 
-async function clientIdFor(tx: PoolClient, tenantId: string, raw: string): Promise<{ id: string; created: boolean }> {
-  const { first, last } = splitName(raw);
-  const found = await tx.query<{ id: string }>(
-    `SELECT id FROM contacts WHERE tenant_id = $1 AND (
-       lower(trim(concat_ws(' ', first_name, last_name))) = lower($2) OR lower(company) = lower($2)) ORDER BY (type = 'client') DESC LIMIT 1`,
-    [tenantId, [first, last].filter(Boolean).join(" ")],
-  );
-  if (found.rows[0]) return { id: found.rows[0].id, created: false };
-  const ins = await tx.query<{ id: string }>("INSERT INTO contacts (tenant_id, type, first_name, last_name) VALUES ($1,'client',$2,$3) RETURNING id", [tenantId, first, last]);
-  await tx.query("INSERT INTO client_profiles (contact_id) VALUES ($1)", [ins.rows[0].id]);
-  return { id: ins.rows[0].id, created: true };
-}
+/** Buildertrend marks some jobs with a leading "*". */
+const cleanJobName = (s: string) => s.replace(/^[*\s]+/, "").replace(/\s+/g, " ").trim();
 
-export async function importJobs(tenantId: string, csvText: string, opts: { dryRun: boolean }): Promise<ImportResult> {
-  const { headers, rows } = parseCsv(csvText);
+export async function importJobs(tenantId: string, input: string | Buffer, opts: { dryRun: boolean }): Promise<ImportResult> {
+  const { headers, rows } = await readTable(input, allHints(SYNONYMS));
   const { map, ignored } = mapColumns(headers, SYNONYMS);
   if (!map.name) throw new Error("Couldn't find a job name column. Expected something like Job Name or Project.");
 
   return runImport(opts.dryRun, async (tx) => {
     const res: ImportResult = { dryRun: opts.dryRun, created: 0, updated: 0, unchanged: 0, skipped: 0, warnings: [], columns: { recognized: map, ignored } };
-    for (const [idx, row] of rows.entries()) {
-      const line = idx + 2;
-      const name = pick(row, map, "name");
+    let badDates = 0, extraClients = 0, badPhones = 0;
+    for (const row of rows) {
+      const name = cleanJobName(pick(row, map, "name"));
       if (!name) { res.skipped++; continue; }
-      const address = pick(row, map, "address") || null;
+      const street = pick(row, map, "street");
+      const cityLine = [pick(row, map, "city"), [pick(row, map, "state"), pick(row, map, "zip")].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+      const address = [street, cityLine].filter(Boolean).join(", ") || null;
       const startRaw = pick(row, map, "start"), endRaw = pick(row, map, "end");
       const start = toDate(startRaw), end = toDate(endRaw);
-      if (startRaw && !start) res.warnings.push(`Row ${line}: start date "${startRaw}" couldn't be read`);
-      if (endRaw && !end) res.warnings.push(`Row ${line}: end date "${endRaw}" couldn't be read`);
+      if ((startRaw && !start) || (endRaw && !end)) badDates++;
       const status = mapJobStatus(pick(row, map, "status"));
       const extId = pick(row, map, "externalId");
 
+      // Several clients can be stacked in one cell; the first is the one we link.
+      const clientNames = pick(row, map, "client").split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+      if (clientNames.length > 1) extraClients++;
       let clientId: string | null = null;
-      const clientRaw = pick(row, map, "client");
-      if (clientRaw) {
-        const c = await clientIdFor(tx, tenantId, clientRaw);
+      if (clientNames.length) {
+        const p = splitName(clientNames[0]);
+        const rawPhone = pick(row, map, "clientPhone");
+        const phone = toE164(rawPhone);
+        if (rawPhone && !phone) badPhones++;
+        const c = await upsertContact(tx, tenantId, {
+          type: "client", first: p.first, last: p.last, company: p.label ?? "", email: pick(row, map, "clientEmail"),
+          phones: phone ? [phone] : [], notes: "", trades: [], coiExpiresOn: null,
+        });
         clientId = c.id;
       }
 
@@ -87,6 +93,10 @@ export async function importJobs(tenantId: string, csvText: string, opts: { dryR
       if (sets.length) { await tx.query(`UPDATE jobs SET ${sets.join(", ")} WHERE id = $1 AND tenant_id = $2`, [j.id, tenantId, ...vals]); res.updated++; }
       else res.unchanged++;
     }
+    if (badDates) res.warnings.push(`${badDates} job(s) had a date that couldn't be read`);
+    if (badPhones) res.warnings.push(`${badPhones} client phone number(s) couldn't be read`);
+    if (extraClients) res.warnings.push(`${extraClients} job(s) list more than one client; only the first is linked`);
+    if (!map.status) res.warnings.push("No job status column found, so every job is marked active");
     return res;
   });
 }

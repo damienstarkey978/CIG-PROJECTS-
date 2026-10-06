@@ -41,3 +41,24 @@ test("lead details are pulled out", async () => {
 test("urgent roof leak is flagged", async () => {
   assert.equal((await run("lead_roof_voicemail")).urgency, "urgent");
 });
+
+import { renderCallForModel } from "../src/ai/classify";
+
+test("our side of the call is never shown to the model as the caller, whatever identifier the phone system uses", () => {
+  const text = renderCallForModel({
+    companyName: "Test Co",
+    callerPhone: "+19045551234",
+    knownContact: null,
+    answeredBy: "ai_agent",
+    transcript: [
+      { identifier: "+19047171729", userId: null, text: "May I have your name?", start: 0 }, // the business line
+      { identifier: null, userId: null, text: "How can I help?", start: 1 },
+      { identifier: "+19045551234", userId: null, text: "I need a quote.", start: 2 },
+    ],
+    summary: null,
+    voicemailTranscript: null,
+  });
+  assert.match(text, /Our side: May I have your name\?/);
+  assert.match(text, /Our side: How can I help\?/);
+  assert.match(text, /Caller: I need a quote\./);
+});

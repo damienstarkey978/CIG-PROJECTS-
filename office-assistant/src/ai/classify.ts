@@ -51,12 +51,23 @@ Caller types:
 
 Construction context: "draw" is a scheduled progress payment, "CO" or "change order" is extra scope on an existing job, "punch list" is final fix items, "COI" is a certificate of insurance. A sub talking about a job is sub_vendor even if they also mention money. A vendor offering to sell a new service is a solicitor, but a supplier following up on an order is sub_vendor.
 
+Judgment calls seen on real calls:
+- Cold calls pitching marketing, Google listings, appointment setting, lead generation, cleaning, or financing are solicitors, even when they mention kitchen and bath projects or homeowners. They are selling to the company, not hiring it.
+- A caller who only asks for the owner or a named person, with no reason given, is unknown. Do not guess solicitor.
+- A caller who asks for a real person, or whether they are talking to an AI, is unknown. Say so in the summary.
+- Someone asking for work a remodeling contractor would not do (for example coating a trailer roof) is unknown. Say it is not a fit in the summary.
+- A realtor, property manager, or relative calling about a past client's job or products the company installed is existing_client.
+- A sub or vendor asking about payment, schedules, or paperwork on a job is sub_vendor, even when money is the topic.
+- The AI phone agent may speak on our side of the call. Its prompts ("May I have your name?") are not the caller's words.
+
 Set confidence honestly. Use below 0.6 when the call is short, garbled, or could reasonably be two types. Only extract details that were actually said; use null otherwise. The office summary is read on a phone between job sites, so keep it plain and short.`;
 
 function speakerLabel(line: TranscriptLine, callerPhone: string | null): string {
-  if (callerPhone && line.identifier === callerPhone) return "Caller";
-  if (line.userId) return "Office";
-  return line.identifier ? "Caller" : "Agent";
+  // The caller is the line tied to the caller's number. Anything else (a teammate, the
+  // AI agent, or the business line itself) is our side of the call.
+  if (callerPhone) return line.identifier === callerPhone ? "Caller" : "Our side";
+  if (line.userId) return "Our side";
+  return line.identifier ? "Caller" : "Our side";
 }
 
 export function renderCallForModel(ctx: CallContext): string {
