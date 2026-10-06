@@ -31,6 +31,7 @@ export interface NormalizedMessage {
   from: string | null;
   to: string | null;
   body: string;
+  media?: { url: string; type: string }[];
   createdAt: string | null;
 }
 

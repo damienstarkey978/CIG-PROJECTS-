@@ -82,7 +82,7 @@ export async function runAutomation(tenant: Tenant, tel: TelephonyProvider, opts
     const asked = await alreadyDid(tenant.id, "confirm_request", a.id, mode);
     if (!asked) {
       const copy = templates.schedule_confirm
-        ? renderTemplate(templates.schedule_confirm, { first_name: t.firstName, company: t.company, job: a.job_name, address: a.address, date: dayName(a.start_date), scope: a.scope })
+        ? renderTemplate(templates.schedule_confirm, { first_name: t.firstName, business: tenant.name, company: t.company, job: a.job_name, address: a.address, date: dayName(a.start_date), scope: a.scope })
         : null;
       if (!t.phone) {
         if (live) await task(tenant.id, "sub_no_phone", `No phone number for ${subName(t)}`, `Needs to confirm ${a.job_name} on ${a.start_date}.`, t.contactId, a.job_id);
@@ -141,7 +141,7 @@ export async function runAutomation(tenant: Tenant, tel: TelephonyProvider, opts
       continue;
     }
     const copy = templates.paperwork_request
-      ? renderTemplate(templates.paperwork_request, { first_name: t.firstName, company: t.company, missing: needs.join(" and ") })
+      ? renderTemplate(templates.paperwork_request, { first_name: t.firstName, business: tenant.name, company: t.company, missing: needs.join(" and ") })
       : null;
     if (!t.phone) {
       digest.push(`Can't ask ${subName(t)} for ${needs.join(", ")}: no phone number`);

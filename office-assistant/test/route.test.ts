@@ -35,7 +35,7 @@ test("a number on file wins over the model, even at low confidence", () => {
 });
 
 test("templates fill known fields and drop missing ones", () => {
-  assert.equal(renderTemplate("Hi {first_name}, thanks for calling {company}.", { first_name: null, company: "WCI" }), "Hi , thanks for calling WCI.");
+  assert.equal(renderTemplate("Hi {first_name}, thanks for calling {company}.", { first_name: null, company: "WCI" }), "Hi, thanks for calling WCI.");
   assert.equal(renderTemplate("Hi {first_name}", { first_name: "Jane" }), "Hi Jane");
 });
 

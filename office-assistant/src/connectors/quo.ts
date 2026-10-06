@@ -129,6 +129,7 @@ export function parseQuoWebhook(rawBody: Buffer): NormalizedEvent {
           from: toE164(o.from),
           to: toE164(Array.isArray(o.to) ? o.to[0] : o.to),
           body: String(o.text ?? o.body ?? ""),
+          media: Array.isArray(o.media) ? o.media.filter((m: any) => typeof m?.url === "string").map((m: any) => ({ url: m.url, type: String(m.type ?? "") })) : [], // VERIFY field name
           createdAt: o.createdAt ?? null,
         },
       };

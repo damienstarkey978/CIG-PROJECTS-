@@ -94,10 +94,10 @@ export async function ingestEvent(
         const m = evt.message;
         const ins = await c.query<{ id: string }>(
           `INSERT INTO interactions (tenant_id, channel, direction, provider, provider_id, provider_conversation_id,
-             provider_phone_number_id, from_phone, to_phone, body, started_at)
-           VALUES ($1,'sms',$2,$3,$4,$5,$6,$7,$8,$9,$10)
+             provider_phone_number_id, from_phone, to_phone, body, started_at, media)
+           VALUES ($1,'sms',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
            ON CONFLICT (provider, provider_id) DO NOTHING RETURNING id`,
-          [tenantId, m.direction, provider, m.providerId, m.conversationId, m.phoneNumberId, m.from, m.to, m.body, m.createdAt],
+          [tenantId, m.direction, provider, m.providerId, m.conversationId, m.phoneNumberId, m.from, m.to, m.body, m.createdAt, m.media?.length ? JSON.stringify(m.media) : null],
         );
         // Incoming texts are read by the sub text handler; ones we sent ourselves just get logged.
         if (ins.rows[0] && m.direction === "incoming") await enqueue(PROCESS_SMS, { interactionId: ins.rows[0].id }, { dedupeKey: `sms:${ins.rows[0].id}` }, c);

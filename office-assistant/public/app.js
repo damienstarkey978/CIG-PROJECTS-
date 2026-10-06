@@ -57,11 +57,11 @@
       } catch (e) { flash(msg, e.message === "Signed out" ? "That didn't work." : e.message, true); }
     };
     pw.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
-    mount(h("div", { class: "login" }, h("h1", {}, "Office"), email, h("p", {}, pw), h("p", { class: "muted" }, "Operators: leave email empty and enter the admin token."), h("p", {}, h("button", { class: "btn", onclick: go }, "Sign in")), msg));
+    mount(h("div", { class: "login" }, h("h1", {}, meta?.product || "Heather"), email, h("p", {}, pw), h("p", { class: "muted" }, "Operators: leave email empty and enter the admin token."), h("p", {}, h("button", { class: "btn", onclick: go }, "Sign in")), msg));
   }
 
   // ---- shell ----
-  const TABS = [["inbox", "Inbox"], ["tasks", "Tasks"], ["leads", "Leads"], ["contacts", "Contacts"], ["schedule", "Schedule"], ["subs", "Subs"], ["texts", "Texts"], ["books", "Books"], ["settings", "Settings"], ["import", "Import"], ["connectors", "Connectors"], ["team", "Team"], ["demo", "Demo"]];
+  const TABS = [["inbox", "Inbox"], ["tasks", "Tasks"], ["leads", "Leads"], ["contacts", "Contacts"], ["schedule", "Schedule"], ["permits", "Permits"], ["subs", "Subs"], ["texts", "Texts"], ["books", "Books"], ["settings", "Settings"], ["import", "Import"], ["connectors", "Connectors"], ["team", "Team"], ["demo", "Demo"]];
   const OWNER_ONLY = new Set(["settings", "import", "connectors", "team", "demo"]);
   const canAdmin = () => me && (me.role === "operator" || me.role === "owner");
   const visible = (id) => OWNER_ONLY.has(id) ? canAdmin() : (id === "books" || id === "subs") ? (canAdmin() || me.role === "office") : true;
@@ -130,7 +130,7 @@
       const rows = await api(`/t/${slug}/tasks`);
       if (!rows.length) return body.append(empty("Nothing open. Nice."));
       for (const k of rows) {
-        body.append(h("div", { class: "card row" }, h("div", { class: "grow" }, h("b", {}, k.title), h("div", {}, k.body), h("div", { class: "muted" }, fmtPhone(k.from_phone) + " · " + fmtTime(k.created_at))),
+        body.append(h("div", { class: "card row" }, h("div", { class: "grow" }, h("b", {}, k.title), h("div", {}, k.body), ...(k.media || []).filter((m) => /^https:\/\//.test(m.url)).map((m, n) => h("div", {}, h("a", { href: m.url, target: "_blank", rel: "noopener noreferrer" }, "Open attachment " + (n + 1)))), h("div", { class: "muted" }, fmtPhone(k.from_phone) + " · " + fmtTime(k.created_at))),
           h("button", { class: "btn ghost", onclick: async () => { await api(`/t/${slug}/tasks/${k.id}`, { method: "PATCH", body: { status: "done" } }); render(); } }, "Done")));
       }
     },
@@ -162,9 +162,14 @@
       const chase = h("input", { type: "number", min: "1", max: "90", step: "1", value: s.chaseAfterDays || 14 });
       const outbound = h("input", { placeholder: "Business line texts go out from, e.g. (904) 555 0100", value: s.outboundNumber || "" });
       const phone = h("input", { placeholder: "Shadow report phone, e.g. (904) 555 0100", value: s.shadowRecipientPhone || "" });
-      const labels = { lead_callback: "Text to new leads", ack_sub_vendor: "Text to subs and vendors", ack_client: "Text to clients", generic: "Text when unsure", schedule_confirm: "Text asking a sub to confirm they are on site (use {first_name}, {job}, {date})", paperwork_request: "Text asking a sub for paperwork (use {first_name}, {missing})" };
       const tpl = {};
-      const tplFields = meta.templateKeys.map((k) => { tpl[k] = h("textarea", { rows: 2, maxlength: 320, placeholder: "Leave empty to send nothing" }); tpl[k].value = s.templates?.[k] || ""; return [h("label", {}, labels[k]), tpl[k]]; });
+      const tplFields = meta.templateKeys.map((k) => {
+        const info = meta.templateInfo[k];
+        tpl[k] = h("textarea", { rows: 5, maxlength: 320, placeholder: "Leave empty to send nothing" });
+        tpl[k].value = s.templates?.[k] || "";
+        return h("div", {}, h("label", {}, info.label), h("div", { class: "muted" }, info.when + " You can use " + info.vars.map((v) => "{" + v + "}").join(", ") + "."), tpl[k],
+          h("button", { class: "btn ghost", onclick: () => { tpl[k].value = info.suggested; } }, "Use suggested wording"));
+      });
       const msg = h("div", {});
       const save = async () => {
         if (mode.value === "live" && s.mode !== "live" && !confirm("Live mode texts real callers and staff. Switch to live?")) return;
@@ -174,7 +179,7 @@
         } catch (e) { flash(msg, e.message, true); }
       };
       body.append(h("div", { class: "card" }, h("label", {}, "Mode"), mode, h("label", {}, "Minimum confidence before a call is sorted automatically (0.3 to 0.99). Below this it goes to a person."), thr, h("label", {}, "Days past due before an unpaid invoice gets a follow up task"), chase, h("label", {}, "Business line for texts to subs"), outbound, h("label", {}, "Shadow report phone"), phone,
-        h("h3", {}, "Text messages to callers"), h("p", { class: "muted" }, "Use {first_name} and {company} if you like. A caller only gets a text if the box has words in it."), tplFields,
+        h("h3", {}, "Text messages"), h("p", { class: "muted" }, "Each box says when it is sent and which words you can drop in. Suggested wording is filled in to start; edit it freely. A message only goes out if its box has words in it, and nothing goes to anyone until the mode above is Live."), tplFields,
         h("p", {}, h("button", { class: "btn", onclick: save }, "Save")), msg));
     },
 
@@ -290,6 +295,26 @@
         h("div", { class: "row" }, h("select", { style: "width:auto", onchange: async (e) => { await api(`/t/${slug}/schedule/${a.id}`, { method: "PATCH", body: { confirmationStatus: e.target.value } }); render(); } },
           Object.entries(CHIP).map(([v, l]) => h("option", { value: v, selected: v === a.confirmation_status }, l))),
           h("button", { class: "btn ghost", onclick: async () => { if (confirm("Remove this from the schedule?")) { await api(`/t/${slug}/schedule/${a.id}`, { method: "DELETE" }); render(); } } }, "Remove"))));
+    },
+
+    async permits(body) {
+      const [rows, look] = await Promise.all([api(`/t/${slug}/permits`), api(`/t/${slug}/lookups`)]);
+      const job = h("select", {}, h("option", { value: "" }, "Job..."), look.jobs.map((j) => h("option", { value: j.id }, j.name)));
+      const kind = h("select", {}, [["permit", "Permit"], ["inspection", "Inspection"]].map(([v, l]) => h("option", { value: v }, l)));
+      const title = h("input", { placeholder: "e.g. Building permit, Rough electrical" });
+      const due = h("input", { type: "date" });
+      const msg = h("div", {});
+      body.append(h("div", { class: "card muted" }, "Track permits and inspections per job. When something is due within 3 days, overdue, expired, or failed, a task opens for the job's project manager."),
+        h("div", { class: "card" }, h("b", {}, "Add"), job, h("p", {}, kind), title, h("label", {}, "Apply by, or inspection date"), due,
+          h("p", {}, h("button", { class: "btn", onclick: async () => { try { await api(`/t/${slug}/permits`, { method: "POST", body: { jobId: job.value, kind: kind.value, title: title.value, dueDate: due.value || null } }); render(); } catch (e) { flash(msg, e.message, true); } } }, "Add")), msg));
+      if (!rows.length) return body.append(empty("No permits or inspections tracked yet."));
+      const STATUS = { permit: ["needed", "applied", "issued", "expired", "not_needed"], inspection: ["needed", "scheduled", "passed", "failed", "not_needed"] };
+      const label = (v) => v.replace("_", " ");
+      for (const p of rows) body.append(h("div", { class: "card" }, h("div", { class: "row" }, h("b", { class: "grow" }, p.title), h("span", { class: "chip" }, p.kind)),
+        h("div", { class: "muted" }, p.job_name + (p.due_date ? " · " + p.due_date : "") + (p.reference ? " · #" + p.reference : "")),
+        p.attention ? h("div", { class: "chip unknown" }, p.attention) : null,
+        h("div", { class: "row" }, h("select", { style: "width:auto", onchange: async (e) => { await api(`/t/${slug}/permits/${p.id}`, { method: "PATCH", body: { status: e.target.value } }); render(); } }, STATUS[p.kind].map((v) => h("option", { value: v, selected: v === p.status }, label(v)))),
+          h("button", { class: "btn ghost", onclick: async () => { if (confirm("Remove this?")) { await api(`/t/${slug}/permits/${p.id}`, { method: "DELETE" }); render(); } } }, "Remove"))));
     },
 
     async subs(body) {

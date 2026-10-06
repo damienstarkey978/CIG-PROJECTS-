@@ -56,7 +56,7 @@ async function setup(settings: Record<string, unknown> = {}) {
   const assign = (await db().query<{ id: string }>("INSERT INTO job_assignments (tenant_id, job_id, sub_contact_id, scope, start_date) VALUES ($1,$2,$3,'Backsplash','2026-10-07') RETURNING id", [tenantId, job, sub])).rows[0].id;
   return { sub, job, assign };
 }
-const sent = async () => (await db().query("SELECT purpose, to_phone, body, mode FROM outbound_messages ORDER BY id")).rows;
+const sent = async () => (await db().query("SELECT purpose, to_phone, body, mode FROM outbound_messages ORDER BY created_at")).rows;
 const run = async (o: { now?: Date } = {}) => runAutomation(await getTenantById(tenantId), mock, { now: o.now ?? NOW });
 
 const deps: Deps = { telephony: telephonyFor, classify: offlineClassifier() };

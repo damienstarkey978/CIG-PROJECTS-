@@ -3,6 +3,7 @@
 //     --inbox PNEYAAmj7S --shadow-phone +1XXXXXXXXXX
 import { parseArgs } from "node:util";
 import { closeDb, db, migrate } from "../src/lib/db";
+import { DEFAULT_TEMPLATES } from "../src/copy";
 import { toE164 } from "../src/lib/phone";
 import { getConnector, saveConnector } from "../src/tenants";
 import type { QuoSecrets } from "../src/connectors/quo";
@@ -22,9 +23,9 @@ async function main() {
 
   const shadow = toE164(values["shadow-phone"]);
   const { rows } = await db().query<{ id: string }>(
-    `INSERT INTO tenants (slug, name, timezone) VALUES ($1,$2,$3)
+    `INSERT INTO tenants (slug, name, timezone, settings) VALUES ($1,$2,$3,$4)
      ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, timezone = EXCLUDED.timezone RETURNING id`,
-    [values.slug, values.name, values.timezone],
+    [values.slug, values.name, values.timezone, JSON.stringify({ mode: "shadow", confidenceThreshold: 0.7, templates: DEFAULT_TEMPLATES })],
   );
   const tenantId = rows[0].id;
   if (shadow) {

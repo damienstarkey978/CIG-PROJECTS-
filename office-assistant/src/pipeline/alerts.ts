@@ -60,5 +60,9 @@ export function shadowReport(
 }
 
 export function renderTemplate(template: string, vars: Record<string, string | null | undefined>): string {
-  return template.replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? "").replace(/\s+/g, " ").trim();
+  return template
+    .replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.!?;:])/g, "$1") // "Hi , thanks" becomes "Hi, thanks" when a name is unknown
+    .trim();
 }

@@ -212,7 +212,7 @@ async function notify(
   if (!from) return;
   const template = d.followUpTemplate ? tenant.settings.templates?.[d.followUpTemplate] : undefined;
   const followUp = template
-    ? renderTemplate(template, { company: tenant.name, first_name: c.caller_name?.split(" ")[0] ?? null })
+    ? renderTemplate(template, { company: tenant.name, business: tenant.name, first_name: c.caller_name?.split(" ")[0] ?? null })
     : null;
 
   if (tenant.settings.mode !== "live") {

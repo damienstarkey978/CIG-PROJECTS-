@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import express, { type NextFunction, type Request, type Response, Router } from "express";
 import { z } from "zod";
 import { PRODUCT_NAME } from "./brand";
+import { DEFAULT_TEMPLATES, TEMPLATE_INFO, TEMPLATE_KEYS } from "./copy";
 import { adminToken, config } from "./config";
 import { authFromSession, clearFailures, createSession, endSession, hashPassword, login, MIN_PASSWORD, noteFailure, tooManyAttempts, type Auth } from "./auth";
 import { findManifest, publicCatalog, splitFields } from "./connectors/registry";
@@ -14,13 +15,13 @@ import { importContacts, type ImportContactType } from "./import/contacts";
 import { importJobs } from "./import/jobs";
 import { accountingFor, getTenantBySlug, saveConnector, telephonyFor, type Tenant } from "./tenants";
 import { paperworkNeeds } from "./subs/paperwork";
+import { permitAttention, runPermitNudges } from "./permits/nudges";
 import { runAutomation } from "./subs/automation";
 import { ingestEvent } from "./pipeline/ingest";
 import { ageTotals, daysOverdue, paymentBlockers, round2 } from "./books/analyze";
 import { DEFAULT_CHASE_AFTER_DAYS, syncBooks } from "./books/sync";
 import { authorizeUrl, exchangeCode, qboAppFromEnv, signState, verifyState } from "./connectors/quickbooks";
 
-export const TEMPLATE_KEYS = ["lead_callback", "ack_sub_vendor", "ack_client", "generic", "schedule_confirm", "paperwork_request"] as const;
 
 const SettingsBody = z.object({
   mode: z.enum(["shadow", "live"]),
@@ -130,7 +131,7 @@ export function apiRouter(): Router {
   });
 
   r.get("/meta", (_req, res) => {
-    res.json({ product: PRODUCT_NAME, connectors: publicCatalog(), scenarios: SCENARIOS.map((s) => ({ id: s.id, label: s.label })), templateKeys: TEMPLATE_KEYS });
+    res.json({ product: PRODUCT_NAME, connectors: publicCatalog(), scenarios: SCENARIOS.map((s) => ({ id: s.id, label: s.label })), templateKeys: TEMPLATE_KEYS, templateInfo: TEMPLATE_INFO });
   });
 
   r.get("/tenants", wrap(async (_req, res) => {
@@ -147,7 +148,8 @@ export function apiRouter(): Router {
     const body = NewTenantBody.safeParse(req.body);
     if (!body.success) return void res.status(400).json({ error: body.error.issues[0].message });
     if (await getTenantBySlug(body.data.slug)) return void res.status(409).json({ error: "That short name is taken" });
-    await db().query("INSERT INTO tenants (slug, name, timezone) VALUES ($1,$2,$3)", [body.data.slug, body.data.name, body.data.timezone]);
+    // New companies start with the suggested wording so shadow reports show real text. Mode stays shadow.
+    await db().query("INSERT INTO tenants (slug, name, timezone, settings) VALUES ($1,$2,$3,$4)", [body.data.slug, body.data.name, body.data.timezone, JSON.stringify({ mode: "shadow", confidenceThreshold: 0.7, templates: DEFAULT_TEMPLATES })]);
     res.status(201).json({ slug: body.data.slug });
   }));
 
@@ -186,7 +188,7 @@ export function apiRouter(): Router {
     if (!t) return;
     const status = req.query.status === "done" ? "done" : "open";
     const { rows } = await db().query(
-      `SELECT k.id, k.type, k.title, k.body, k.status, k.created_at, i.from_phone
+      `SELECT k.id, k.type, k.title, k.body, k.status, k.created_at, i.from_phone, i.media
        FROM tasks k LEFT JOIN interactions i ON i.id = k.interaction_id
        WHERE k.tenant_id = $1 AND k.status = $2 ORDER BY k.created_at DESC LIMIT 200`,
       [t.id, status],
@@ -403,6 +405,70 @@ export function apiRouter(): Router {
     if (d.lienWaiverStatus !== undefined) await db().query("UPDATE sub_profiles SET lien_waiver_status = $2 WHERE contact_id = $1", [req.params.id, d.lienWaiverStatus || null]);
     if (d.trades !== undefined) await db().query("UPDATE sub_profiles SET trades = $2 WHERE contact_id = $1", [req.params.id, d.trades]);
     res.json({ ok: true });
+  }));
+
+  // ---- permits and inspections ----
+  const PermitBody = z.object({
+    jobId: z.string().uuid(),
+    kind: z.enum(["permit", "inspection"]),
+    title: z.string().min(1).max(120),
+    status: z.enum(["needed", "applied", "issued", "scheduled", "passed", "failed", "expired", "not_needed"]).optional(),
+    reference: z.string().max(60).nullable().optional(),
+    dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    notes: z.string().max(500).nullable().optional(),
+  });
+
+  r.get("/t/:slug/permits", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office", "pm")) return;
+    const { rows } = await db().query(
+      `SELECT p.id, p.job_id, p.kind, p.title, p.status, p.reference, p.due_date::text AS due_date, p.notes, j.name AS job_name
+       FROM permits p JOIN jobs j ON j.id = p.job_id WHERE p.tenant_id = $1
+       ORDER BY (p.status IN ('passed','not_needed','issued')), p.due_date NULLS LAST, j.name LIMIT 500`, [t.id]);
+    const today = new Date().toISOString().slice(0, 10);
+    res.json(rows.map((p) => ({ ...p, attention: permitAttention({ kind: p.kind, status: p.status, dueDate: p.due_date }, today)?.why ?? null })));
+  }));
+
+  r.post("/t/:slug/permits", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office", "pm")) return;
+    const b = PermitBody.safeParse(req.body);
+    if (!b.success) return void res.status(400).json({ error: "Pick a job, a type and a title. Dates are YYYY-MM-DD." });
+    const job = await db().query("SELECT 1 FROM jobs WHERE id = $1 AND tenant_id = $2", [b.data.jobId, t.id]);
+    if (!job.rowCount) return void res.status(400).json({ error: "Unknown job" });
+    const { rows } = await db().query<{ id: string }>(
+      "INSERT INTO permits (tenant_id, job_id, kind, title, status, reference, due_date, notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",
+      [t.id, b.data.jobId, b.data.kind, b.data.title, b.data.status ?? "needed", b.data.reference ?? null, b.data.dueDate ?? null, b.data.notes ?? null]);
+    await runPermitNudges(t.id, t.timezone); // a permit entered already overdue should not wait for the next tick
+    res.status(201).json({ id: rows[0].id });
+  }));
+
+  r.patch("/t/:slug/permits/:id", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office", "pm")) return;
+    const b = PermitBody.omit({ jobId: true, kind: true }).partial().safeParse(req.body);
+    if (!b.success) return void res.status(400).json({ error: "Check the fields. Dates are YYYY-MM-DD." });
+    const d = b.data;
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    const add = (col: string, v: unknown) => { vals.push(v); sets.push(`${col} = $${vals.length + 2}`); };
+    if (d.title !== undefined) add("title", d.title);
+    if (d.status !== undefined) add("status", d.status);
+    if (d.reference !== undefined) add("reference", d.reference);
+    if (d.dueDate !== undefined) add("due_date", d.dueDate);
+    if (d.notes !== undefined) add("notes", d.notes);
+    if (!sets.length) return void res.json({ ok: true });
+    const out = await db().query(`UPDATE permits SET ${sets.join(", ")}, updated_at = now() WHERE id = $1 AND tenant_id = $2`, [req.params.id, t.id, ...vals]);
+    if (!out.rowCount) return void res.status(404).json({ ok: false });
+    await runPermitNudges(t.id, t.timezone);
+    res.json({ ok: true });
+  }));
+
+  r.delete("/t/:slug/permits/:id", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office", "pm")) return;
+    const out = await db().query("DELETE FROM permits WHERE id = $1 AND tenant_id = $2", [req.params.id, t.id]);
+    res.status(out.rowCount ? 200 : 404).json({ ok: Boolean(out.rowCount) });
   }));
 
   r.get("/t/:slug/lookups", wrap(async (req, res) => {

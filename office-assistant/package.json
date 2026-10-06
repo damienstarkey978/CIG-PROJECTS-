@@ -1,7 +1,7 @@
 {
   "name": "office-assistant",
   "version": "0.1.0",
-  "description": "AI office assistant for small GC offices: backbone DB plus Quo call handling (Phase 1).",
+  "description": "Heather: an AI office assistant for small general contractors (calls, subs, books, permits).",
   "private": true,
   "type": "commonjs",
   "engines": {
