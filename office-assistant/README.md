@@ -13,7 +13,7 @@ One app, many companies. Each company is a tenant, and everything outside the co
 | Phone and texting | Quo, Demo phone | Twilio |
 | Calendar | | Google Calendar |
 | Jobs and schedules | | CSV import, Buildertrend |
-| Accounting | | QuickBooks Online, Xero |
+| Accounting | QuickBooks Online, Demo books | Xero |
 
 ## Web app and demo (no Quo needed)
 
@@ -76,6 +76,20 @@ These need accounts and money, so they are not automated:
    ```
    `PNEYAAmj7S` is the WCI line (904) 717-1729. The tenant starts in shadow mode.
 5. Turn on call recording and transcription for that line in Quo, with the recording disclosure (Florida is an all-party consent state).
+
+## Books (QuickBooks, read only)
+
+Open Books after connecting QuickBooks (or Demo books to practice). Sync copies open bills and invoices from the books, then:
+
+- shows what you owe and what you are owed, aged by days late;
+- suggests which job each bill belongs to, from the QuickBooks customer:job reference, line descriptions and addresses (refuses to guess when two jobs fit equally);
+- links vendors and customers to your contacts (legal suffixes like LLC ignored);
+- opens a task to hold payment when a bill is due within 7 days or late and its sub has no W9, no insurance date, an expired certificate, or an outstanding lien waiver;
+- opens a task to chase an invoice once it is `chaseAfterDays` late (default 14, set in Settings).
+
+It never pays a bill, edits the books, or texts anyone: all it does is list and create tasks. Repeat syncs never duplicate tasks.
+
+To connect real QuickBooks, register an app at developer.intuit.com, set `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET` and `QBO_ENV`, register the redirect URI `<PUBLIC_BASE_URL>/api/oauth/quickbooks/callback`, then use Connect with QuickBooks on the Connectors tab. The adapter follows Intuit's documented REST and OAuth APIs and is tested against canned responses, but has not yet run against a live Intuit company. Matching logic was checked against WCI's real open bills and invoices.
 
 ## Importing real exports
 

@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import express, { type NextFunction, type Request, type Response, Router } from "express";
 import { z } from "zod";
 import { PRODUCT_NAME } from "./brand";
-import { adminToken } from "./config";
+import { adminToken, config } from "./config";
 import { authFromSession, clearFailures, createSession, endSession, hashPassword, login, MIN_PASSWORD, noteFailure, tooManyAttempts, type Auth } from "./auth";
 import { findManifest, publicCatalog, splitFields } from "./connectors/registry";
 import { decryptJson } from "./lib/crypto";
@@ -12,13 +12,17 @@ import { findScenario, SCENARIOS } from "./sim/scenarios";
 import { simulateCall } from "./sim/simulate";
 import { importContacts, type ImportContactType } from "./import/contacts";
 import { importJobs } from "./import/jobs";
-import { getTenantBySlug, saveConnector, type Tenant } from "./tenants";
+import { accountingFor, getTenantBySlug, saveConnector, type Tenant } from "./tenants";
+import { ageTotals, daysOverdue, paymentBlockers, round2 } from "./books/analyze";
+import { DEFAULT_CHASE_AFTER_DAYS, syncBooks } from "./books/sync";
+import { authorizeUrl, exchangeCode, qboAppFromEnv, signState, verifyState } from "./connectors/quickbooks";
 
 export const TEMPLATE_KEYS = ["lead_callback", "ack_sub_vendor", "ack_client", "generic"] as const;
 
 const SettingsBody = z.object({
   mode: z.enum(["shadow", "live"]),
   confidenceThreshold: z.number().min(0.3).max(0.99),
+  chaseAfterDays: z.number().int().min(1).max(90).optional(),
   shadowRecipientPhone: z.string().nullable().optional(),
   templates: z.partialRecord(z.enum(TEMPLATE_KEYS), z.string().max(320)),
 });
@@ -91,6 +95,22 @@ export function apiRouter(): Router {
     }
     clearFailures(key);
     res.json({ token });
+  }));
+
+  // Intuit sends the browser back here, so it cannot carry our sign in. The signed state ties it to one company.
+  r.get("/oauth/quickbooks/callback", wrap(async (req, res) => {
+    const app = qboAppFromEnv();
+    const state = String(req.query.state ?? "");
+    const slug = app ? verifyState(state, Buffer.from(config.encryptionKey(), "base64")) : null;
+    const t = slug ? await getTenantBySlug(slug) : null;
+    if (!app || !t || !req.query.code || !req.query.realmId) return void res.status(400).send("That QuickBooks link expired or is invalid. Start again from Connectors.");
+    try {
+      const secrets = await exchangeCode(app, String(req.query.code), `${config.publicBaseUrl()}/api/oauth/quickbooks/callback`, String(req.query.realmId));
+      await saveConnector(t.id, "accounting", "quickbooks", { realmId: secrets.realmId }, secrets);
+      res.redirect("/?connected=quickbooks");
+    } catch (err) {
+      res.status(502).send("QuickBooks didn't accept the sign in. Try again from Connectors.");
+    }
   }));
 
   r.use(authenticate);
@@ -229,6 +249,7 @@ export function apiRouter(): Router {
     const next = {
       mode: body.data.mode,
       confidenceThreshold: body.data.confidenceThreshold,
+      chaseAfterDays: body.data.chaseAfterDays ?? t.settings.chaseAfterDays,
       templates: Object.fromEntries(Object.entries(body.data.templates).filter(([, v]) => v && v.trim())),
       ...(phone ? { shadowRecipientPhone: phone } : {}),
     };
@@ -258,6 +279,7 @@ export function apiRouter(): Router {
     const m = findManifest(String(req.params.kind), String(req.params.provider));
     if (!m) return void res.status(404).json({ error: "Unknown connector" });
     if (m.status !== "ready") return void res.status(400).json({ error: `${m.label} is not available yet` });
+    if (m.oauth) return void res.status(400).json({ error: `Use the Connect button to sign in to ${m.label}` });
     const { rows } = await db().query<{ secrets_enc: string | null }>(
       "SELECT secrets_enc FROM connector_accounts WHERE tenant_id = $1 AND kind = $2 AND provider = $3",
       [t.id, m.kind, m.provider],
@@ -275,6 +297,66 @@ export function apiRouter(): Router {
     if (m.kind === "telephony" && m.provider === "quo") split.secrets.signingKeys ??= [];
     await saveConnector(t.id, m.kind, m.provider, split.config, split.secrets);
     res.json({ ok: true });
+  }));
+
+  r.get("/t/:slug/connectors/accounting/quickbooks/authorize", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner")) return;
+    const app = qboAppFromEnv();
+    if (!app) return void res.status(400).json({ error: "QuickBooks isn't set up on this server yet (needs QBO_CLIENT_ID and QBO_CLIENT_SECRET)" });
+    const state = signState(t.slug, Buffer.from(config.encryptionKey(), "base64"));
+    res.json({ url: authorizeUrl(app, `${config.publicBaseUrl()}/api/oauth/quickbooks/callback`, state) });
+  }));
+
+  r.post("/t/:slug/books/sync", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office")) return;
+    let provider;
+    try {
+      provider = await accountingFor(t.id);
+    } catch (err) {
+      return void res.status(400).json({ error: (err as Error).message });
+    }
+    if (!provider) return void res.status(400).json({ error: "Connect QuickBooks (or Demo books) first" });
+    try {
+      res.json(await syncBooks(t.id, provider, { chaseAfterDays: t.settings.chaseAfterDays }));
+    } catch (err) {
+      res.status(502).json({ error: `Couldn't read the books: ${(err as Error).message}` });
+    }
+  }));
+
+  r.get("/t/:slug/books", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office")) return;
+    const today = new Date();
+    const [bills, invoices, last, conn] = await Promise.all([
+      db().query(
+        `SELECT b.id, b.vendor_name, b.due_date::text, b.balance::float8 AS balance, b.amount::float8 AS amount, b.doc_number, b.memo, b.suggestion_note,
+                j.name AS job_name, c.type AS contact_type, s.w9_on_file, s.coi_expires_on::text AS coi_expires_on, s.lien_waiver_status
+         FROM acct_bills b LEFT JOIN jobs j ON j.id = b.suggested_job_id LEFT JOIN contacts c ON c.id = b.contact_id LEFT JOIN sub_profiles s ON s.contact_id = b.contact_id
+         WHERE b.tenant_id = $1 ORDER BY b.due_date NULLS LAST`, [t.id]),
+      db().query(
+        `SELECT i.id, i.customer_name, i.due_date::text, i.balance::float8 AS balance, i.amount::float8 AS amount, i.doc_number, j.name AS job_name
+         FROM acct_invoices i LEFT JOIN jobs j ON j.id = i.job_id WHERE i.tenant_id = $1 ORDER BY i.due_date NULLS LAST`, [t.id]),
+      db().query("SELECT provider, finished_at, error FROM acct_sync_runs WHERE tenant_id = $1 ORDER BY id DESC LIMIT 1", [t.id]),
+      db().query("SELECT provider FROM connector_accounts WHERE tenant_id = $1 AND kind = 'accounting' LIMIT 1", [t.id]),
+    ]);
+    const billRows = bills.rows.map((b) => ({
+      id: b.id, vendor: b.vendor_name, dueDate: b.due_date, balance: b.balance, docNumber: b.doc_number, memo: b.memo,
+      daysOverdue: daysOverdue(b.due_date, today), job: b.job_name, jobNote: b.suggestion_note,
+      blockers: paymentBlockers({ known: Boolean(b.contact_type), sub: b.w9_on_file === null ? null : { w9OnFile: b.w9_on_file, coiExpiresOn: b.coi_expires_on, lienWaiverStatus: b.lien_waiver_status } }, today),
+    }));
+    const invoiceRows = invoices.rows.map((i) => ({ id: i.id, customer: i.customer_name, dueDate: i.due_date, balance: i.balance, amount: i.amount, docNumber: i.doc_number, daysOverdue: daysOverdue(i.due_date, today), job: i.job_name }));
+    res.json({
+      connected: conn.rows[0]?.provider ?? null,
+      lastSync: last.rows[0] ?? null,
+      chaseAfterDays: t.settings.chaseAfterDays ?? DEFAULT_CHASE_AFTER_DAYS,
+      payable: ageTotals(billRows, today),
+      receivable: ageTotals(invoiceRows, today),
+      held: round2(billRows.filter((b) => b.blockers.length).reduce((n, b) => n + b.balance, 0)),
+      bills: billRows,
+      invoices: invoiceRows,
+    });
   }));
 
   const NewUserBody = z.object({

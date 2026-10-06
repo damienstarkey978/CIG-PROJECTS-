@@ -1,12 +1,15 @@
 import { db } from "./lib/db";
 import { decryptJson, encryptJson } from "./lib/crypto";
 import { findManifest } from "./connectors/registry";
-import type { TelephonyProvider } from "./connectors/types";
+import { QuickBooksOnline, qboAppFromEnv, type QboSecrets } from "./connectors/quickbooks";
+import type { AccountingProvider, TelephonyProvider } from "./connectors/types";
 
 export interface TenantSettings {
   mode: "shadow" | "live";
   shadowRecipientPhone?: string;
   confidenceThreshold: number;
+  /** Days past due before an unpaid invoice gets a follow up task. */
+  chaseAfterDays?: number;
   // Approved follow up copy keyed by template name. Missing key = no text is sent.
   templates: Record<string, string>;
 }
@@ -62,4 +65,23 @@ export async function telephonyFor(tenantId: string): Promise<TelephonyProvider>
   const manifest = findManifest("telephony", row.provider);
   if (!manifest?.createTelephony) throw new Error(`Unknown telephony provider ${row.provider}`);
   return manifest.createTelephony(row.config, row.secrets_enc ? decryptJson(row.secrets_enc) : {});
+}
+
+/** The tenant's books connection, or null when none is connected. */
+export async function accountingFor(tenantId: string): Promise<AccountingProvider | null> {
+  const { rows } = await db().query<{ provider: string; config: any; secrets_enc: string | null }>(
+    "SELECT provider, config, secrets_enc FROM connector_accounts WHERE tenant_id = $1 AND kind = 'accounting' ORDER BY created_at LIMIT 1",
+    [tenantId],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  if (row.provider === "quickbooks") {
+    const app = qboAppFromEnv();
+    if (!app) throw new Error("QuickBooks isn't set up on this server (QBO_CLIENT_ID and QBO_CLIENT_SECRET)");
+    if (!row.secrets_enc) throw new Error("QuickBooks isn't connected yet");
+    return new QuickBooksOnline(decryptJson<QboSecrets>(row.secrets_enc), app, (secrets) => saveConnector(tenantId, "accounting", "quickbooks", row.config, secrets));
+  }
+  const manifest = findManifest("accounting", row.provider);
+  if (!manifest?.createAccounting) throw new Error(`Unknown accounting provider ${row.provider}`);
+  return manifest.createAccounting();
 }

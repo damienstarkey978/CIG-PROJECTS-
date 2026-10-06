@@ -1,6 +1,7 @@
+import { MockAccounting } from "./mockAccounting";
 import { MockTelephony } from "./mock";
 import { QuoClient, type QuoSecrets } from "./quo";
-import type { TelephonyProvider } from "./types";
+import type { AccountingProvider, TelephonyProvider } from "./types";
 
 // Every plug in a customer can pick, in one list. Adding a provider means adding
 // a manifest here and an adapter next to it; the core never names a provider.
@@ -23,8 +24,11 @@ export interface ConnectorManifest {
   /** ready: usable now. planned: shows in the catalog but cannot be connected yet. */
   status: "ready" | "planned";
   fields: FieldSpec[];
-  /** Only for telephony adapters today. */
+  /** Connected by signing in at the provider, not by typing keys. */
+  oauth?: boolean;
   createTelephony?: (config: any, secrets: any) => TelephonyProvider;
+  /** Only for providers needing no sign in. QuickBooks is built in tenants.ts so it can save refreshed tokens. */
+  createAccounting?: () => AccountingProvider;
 }
 
 export const MANIFESTS: ConnectorManifest[] = [
@@ -77,9 +81,19 @@ export const MANIFESTS: ConnectorManifest[] = [
     kind: "accounting",
     provider: "quickbooks",
     label: "QuickBooks Online",
-    description: "Bill coding, receipts, AP and AR, payroll prep. Prepares and flags only.",
-    status: "planned",
+    description: "Reads open bills and invoices, suggests jobs, flags missing paperwork, chases late invoices. Read only: it never pays anything or changes your books.",
+    status: "ready",
+    oauth: true,
     fields: [],
+  },
+  {
+    kind: "accounting",
+    provider: "demo_books",
+    label: "Demo books",
+    description: "Practice books with made up bills and invoices.",
+    status: "ready",
+    fields: [],
+    createAccounting: () => new MockAccounting(),
   },
   {
     kind: "accounting",
@@ -97,7 +111,7 @@ export function findManifest(kind: string, provider: string): ConnectorManifest 
 
 /** What the UI may show: manifests without factory functions. */
 export function publicCatalog() {
-  return MANIFESTS.map(({ createTelephony: _f, ...m }) => m);
+  return MANIFESTS.map(({ createTelephony: _t, createAccounting: _a, ...m }) => m);
 }
 
 /** Splits submitted values into non secret config and secrets, and checks required fields. */

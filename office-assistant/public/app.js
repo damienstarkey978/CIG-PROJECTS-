@@ -7,7 +7,7 @@
   let me = null;
   let tenants = [];
   let slug = localStorage.getItem("office_tenant") || "";
-  let tab = "inbox";
+  let tab = new URLSearchParams(location.search).get("connected") ? "connectors" : "inbox";
 
   const h = (tag, attrs, ...kids) => {
     const el = document.createElement(tag);
@@ -61,9 +61,10 @@
   }
 
   // ---- shell ----
-  const TABS = [["inbox", "Inbox"], ["tasks", "Tasks"], ["leads", "Leads"], ["contacts", "Contacts"], ["texts", "Texts"], ["settings", "Settings"], ["import", "Import"], ["connectors", "Connectors"], ["team", "Team"], ["demo", "Demo"]];
+  const TABS = [["inbox", "Inbox"], ["tasks", "Tasks"], ["leads", "Leads"], ["contacts", "Contacts"], ["texts", "Texts"], ["books", "Books"], ["settings", "Settings"], ["import", "Import"], ["connectors", "Connectors"], ["team", "Team"], ["demo", "Demo"]];
   const OWNER_ONLY = new Set(["settings", "import", "connectors", "team", "demo"]);
   const canAdmin = () => me && (me.role === "operator" || me.role === "owner");
+  const visible = (id) => OWNER_ONLY.has(id) ? canAdmin() : id === "books" ? (canAdmin() || me.role === "office") : true;
 
   async function render() {
     if (!token) return loginView();
@@ -81,8 +82,8 @@
     const header = h("header", {}, h("h1", {}, meta.product), tenants.length ? picker : null,
       me.role === "operator" ? h("button", { class: "btn ghost", onclick: addCompanyView }, "Add company") : null,
       h("span", { class: "grow" }), h("span", { class: "muted" }, me.name), h("button", { class: "btn ghost", onclick: async () => { await api("/logout", { method: "POST" }).catch(() => {}); signOut(); } }, "Sign out"));
-    if (!canAdmin() && OWNER_ONLY.has(tab)) tab = "inbox";
-    const nav = h("nav", {}, TABS.filter(([id]) => canAdmin() || !OWNER_ONLY.has(id)).map(([id, label]) => h("button", { class: id === tab ? "on" : "", onclick: () => { tab = id; render(); } }, label)));
+    if (!visible(tab)) tab = "inbox";
+    const nav = h("nav", {}, TABS.filter(([id]) => visible(id)).map(([id, label]) => h("button", { class: id === tab ? "on" : "", onclick: () => { tab = id; render(); } }, label)));
     const body = h("main", {});
     mount(header, nav, body);
     if (!slug) { body.append(h("div", { class: "card" }, "No companies yet. Use Add company to create one.")); return; }
@@ -158,6 +159,7 @@
       const s = await api(`/t/${slug}/settings`);
       const mode = h("select", {}, ["shadow", "live"].map((m) => h("option", { value: m, selected: s.mode === m }, m === "shadow" ? "Shadow (only you get reports)" : "Live (callers and staff get texts)")));
       const thr = h("input", { type: "number", min: "0.3", max: "0.99", step: "0.05", value: s.confidenceThreshold });
+      const chase = h("input", { type: "number", min: "1", max: "90", step: "1", value: s.chaseAfterDays || 14 });
       const phone = h("input", { placeholder: "Shadow report phone, e.g. (904) 555 0100", value: s.shadowRecipientPhone || "" });
       const labels = { lead_callback: "Text to new leads", ack_sub_vendor: "Text to subs and vendors", ack_client: "Text to clients", generic: "Text when unsure" };
       const tpl = {};
@@ -166,11 +168,11 @@
       const save = async () => {
         if (mode.value === "live" && s.mode !== "live" && !confirm("Live mode texts real callers and staff. Switch to live?")) return;
         try {
-          await api(`/t/${slug}/settings`, { method: "PUT", body: { mode: mode.value, confidenceThreshold: Number(thr.value), shadowRecipientPhone: phone.value || null, templates: Object.fromEntries(Object.entries(tpl).map(([k, el]) => [k, el.value])) } });
+          await api(`/t/${slug}/settings`, { method: "PUT", body: { mode: mode.value, confidenceThreshold: Number(thr.value), chaseAfterDays: Number(chase.value) || undefined, shadowRecipientPhone: phone.value || null, templates: Object.fromEntries(Object.entries(tpl).map(([k, el]) => [k, el.value])) } });
           flash(msg, "Saved.");
         } catch (e) { flash(msg, e.message, true); }
       };
-      body.append(h("div", { class: "card" }, h("label", {}, "Mode"), mode, h("label", {}, "Minimum confidence before a call is sorted automatically (0.3 to 0.99). Below this it goes to a person."), thr, h("label", {}, "Shadow report phone"), phone,
+      body.append(h("div", { class: "card" }, h("label", {}, "Mode"), mode, h("label", {}, "Minimum confidence before a call is sorted automatically (0.3 to 0.99). Below this it goes to a person."), thr, h("label", {}, "Days past due before an unpaid invoice gets a follow up task"), chase, h("label", {}, "Shadow report phone"), phone,
         h("h3", {}, "Text messages to callers"), h("p", { class: "muted" }, "Use {first_name} and {company} if you like. A caller only gets a text if the box has words in it."), tplFields,
         h("p", {}, h("button", { class: "btn", onclick: save }, "Save")), msg));
     },
@@ -184,7 +186,13 @@
           const mine = have.find((c) => c.kind === kind && c.provider === m.provider);
           const card = h("div", { class: "card" });
           card.append(h("div", { class: "row" }, h("b", { class: "grow" }, m.label), h("span", { class: "chip " + (mine ? "lead" : "") }, mine ? "Connected" : m.status === "ready" ? "Not connected" : "Coming soon")), h("div", { class: "muted" }, m.description));
-          if (m.status === "ready") {
+          if (m.status === "ready" && m.oauth) {
+            const msg = h("div", {});
+            card.append(h("p", {}, h("button", { class: "btn", onclick: async () => {
+              try { const out = await api(`/t/${slug}/connectors/${kind}/${m.provider}/authorize`); location.href = out.url; }
+              catch (e) { flash(msg, e.message, true); }
+            } }, mine ? "Reconnect" : "Connect with " + m.label)), msg);
+          } else if (m.status === "ready") {
             const inputs = {};
             const msg = h("div", {});
             for (const f of m.fields) {
@@ -234,6 +242,30 @@
       };
       body.append(h("div", { class: "card" }, h("label", {}, "What are you loading?"), kind, typeRow, h("label", {}, "File (CSV or Excel .xlsx)"), file,
         h("p", { class: "row" }, h("button", { class: "btn ghost", onclick: () => run(true) }, "Preview"), h("button", { class: "btn", onclick: () => run(false) }, "Import"))), out);
+    },
+
+    async books(body) {
+      const d = await api(`/t/${slug}/books`);
+      const usd = (n) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+      if (!d.connected) return body.append(empty("No books connected yet. Open Connectors and connect QuickBooks (or Demo books to practice)."));
+      const msg = h("div", {});
+      body.append(h("div", { class: "card row" }, h("div", { class: "grow" }, h("b", {}, "Books: " + d.connected), h("div", { class: "muted" }, d.lastSync ? (d.lastSync.error ? "Last sync failed: " + d.lastSync.error : "Last synced " + fmtTime(d.lastSync.finished_at)) : "Not synced yet")),
+        h("button", { class: "btn", onclick: async () => { try { const r = await api(`/t/${slug}/books/sync`, { method: "POST" }); flash(msg, `Synced ${r.bills} bills, ${r.invoices} invoices, ${r.tasksCreated} new task(s).`); setTimeout(render, 600); } catch (e) { flash(msg, e.message, true); } } }, "Sync now")), msg);
+      body.append(h("div", { class: "card muted" }, "Read only. This never pays a bill, edits your books, or texts anyone. It lists what needs a person."));
+      const ageCard = (title, t) => h("div", { class: "card" }, h("div", { class: "row" }, h("b", { class: "grow" }, title), h("b", {}, usd(t.total))),
+        h("div", { class: "muted" }, [["Not due", t.current], ["1 to 30 late", t.d1_30], ["31 to 60", t.d31_60], ["61 to 90", t.d61_90], ["Over 90", t.d90_plus]].filter(([, v]) => v).map(([l, v]) => `${l} ${usd(v)}`).join(" · ") || "Nothing open"));
+      body.append(ageCard("You owe (bills)", d.payable), ageCard("Owed to you (invoices)", d.receivable));
+      if (d.held) body.append(h("div", { class: "card" }, h("b", {}, usd(d.held) + " of bills need paperwork before paying")));
+      body.append(h("h3", {}, "Bills"));
+      if (!d.bills.length) body.append(empty("No open bills."));
+      for (const b of d.bills) body.append(h("div", { class: "card" }, h("div", { class: "row" }, h("b", { class: "grow" }, b.vendor), h("b", {}, usd(b.balance))),
+        h("div", { class: "muted" }, [b.docNumber ? "#" + b.docNumber : "", b.dueDate ? (b.daysOverdue > 0 ? b.daysOverdue + " days late" : "due " + b.dueDate) : "no due date"].filter(Boolean).join(" · ")),
+        b.job ? h("div", {}, "Looks like job: " + b.job, h("span", { class: "muted" }, " (" + b.jobNote + ")")) : h("div", { class: "muted" }, "Job not identified"),
+        ...b.blockers.map((x) => h("div", { class: "chip unknown" }, x))));
+      body.append(h("h3", {}, "Invoices"));
+      if (!d.invoices.length) body.append(empty("No open invoices."));
+      for (const i of d.invoices) body.append(h("div", { class: "card" }, h("div", { class: "row" }, h("b", { class: "grow" }, i.customer), h("b", {}, usd(i.balance))),
+        h("div", { class: "muted" }, [i.docNumber ? "#" + i.docNumber : "", i.daysOverdue > 0 ? i.daysOverdue + " days late" : "due " + i.dueDate].filter(Boolean).join(" · ")), i.job ? h("div", {}, "Job: " + i.job) : null));
     },
 
     async team(body) {

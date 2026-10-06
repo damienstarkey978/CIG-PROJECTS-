@@ -11,7 +11,8 @@ test("every ready telephony connector can build an adapter; planned ones cannot 
     const tel = m.createTelephony!({}, { apiKey: "k", signingKeys: [] });
     assert.equal(tel.name, m.provider);
   }
-  assert.equal(findManifest("accounting", "quickbooks")?.status, "planned");
+  assert.equal(findManifest("accounting", "xero")?.status, "planned");
+  assert.deepEqual([findManifest("accounting", "quickbooks")?.status, findManifest("accounting", "quickbooks")?.oauth], ["ready", true]);
 });
 
 test("splitFields separates secrets, enforces required, and keeps existing secrets on update", () => {

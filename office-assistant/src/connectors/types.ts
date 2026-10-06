@@ -58,3 +58,45 @@ export interface CalendarProvider {
   book(slot: { start: Date; end: Date }, attendee: { name: string; phone: string }, details: string): Promise<{ ref: string }>;
   cancel(ref: string): Promise<void>;
 }
+
+// ---- accounting (Phase 3). Read only by design: no method here moves money or edits books. ----
+
+export interface AcctLine {
+  description: string | null;
+  amount: number;
+  account: string | null;
+  /** In QuickBooks a "customer:job" reference is how a cost is tied to a job. */
+  customerRef: string | null;
+}
+
+export interface AcctBill {
+  externalId: string;
+  vendorExternalId: string | null;
+  vendorName: string;
+  txnDate: string | null; // YYYY-MM-DD
+  dueDate: string | null;
+  amount: number;
+  balance: number;
+  docNumber: string | null;
+  memo: string | null;
+  lines: AcctLine[];
+}
+
+export interface AcctInvoice {
+  externalId: string;
+  customerExternalId: string | null;
+  customerName: string;
+  txnDate: string | null;
+  dueDate: string | null;
+  amount: number;
+  balance: number;
+  docNumber: string | null;
+}
+
+export interface AccountingProvider {
+  readonly name: string;
+  /** Bills with a balance still owed. */
+  listOpenBills(): Promise<AcctBill[]>;
+  /** Invoices with a balance still owed to us. */
+  listOpenInvoices(): Promise<AcctInvoice[]>;
+}
