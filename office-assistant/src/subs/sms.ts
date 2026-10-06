@@ -1,10 +1,16 @@
+import { offlineDrafter } from "../changeorders/draft";
+import { draftChangeOrder } from "../changeorders/store";
 import { db } from "../lib/db";
+import { sendLogged } from "../lib/outbound";
+import type { Deps } from "../pipeline/processCall";
+import { getTenantById } from "../tenants";
+import { outboundNumberFor } from "./automation";
 import { prettyPhone } from "../lib/phone";
 import { suggestJob } from "../books/analyze";
 import { localDate, looksLikeMaterialRequest, paperworkNeeds, parseConfirmReply } from "./paperwork";
 
 /** Reads one inbound text, files it, and opens the right task. Texts are never answered automatically. */
-export async function processSms(interactionId: string): Promise<void> {
+export async function processSms(interactionId: string, deps?: Pick<Deps, "telephony" | "draft">): Promise<void> {
   const { rows } = await db().query(
     "SELECT id, tenant_id, from_phone, body, media FROM interactions WHERE id = $1 AND channel = 'sms' AND direction = 'incoming' AND processed_at IS NULL",
     [interactionId],
@@ -26,7 +32,37 @@ export async function processSms(interactionId: string): Promise<void> {
     db().query("INSERT INTO tasks (tenant_id, type, title, body, contact_id, job_id, interaction_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [m.tenant_id, type, title, body || (hasMedia ? "(photo or file attached)" : ""), contact?.id ?? null, jobId, m.id]);
 
   let jobId: string | null = null;
-  if (!contact) {
+
+  // Staff can text "change order, <what changed>" to start a draft. A person reviews it in the app.
+  const staff = m.from_phone
+    ? (await db().query<{ id: string; name: string; phone: string }>("SELECT id, name, phone FROM users WHERE tenant_id = $1 AND phone = $2", [m.tenant_id, m.from_phone])).rows[0]
+    : undefined;
+  const co = staff ? /^\s*(?:co|change order)\b[\s:,.\-]*(.*)$/is.exec(body) : null;
+  if (staff && co) {
+    const text = co[1].trim();
+    const jobs = (await db().query<{ id: string; name: string; address: string | null }>("SELECT id, name, address FROM jobs WHERE tenant_id = $1 AND status IN ('active','lead','on_hold')", [m.tenant_id])).rows;
+    const job = text ? suggestJob([text], jobs) : null;
+    if (!job) {
+      await db().query("INSERT INTO tasks (tenant_id, type, title, body, assignee_user_id, interaction_id) VALUES ($1,'change_order_unplaced',$2,$3,$4,$5)",
+        [m.tenant_id, `Change order text from ${staff.name}: which job?`, body, staff.id, m.id]);
+    } else {
+      const tenant = await getTenantById(m.tenant_id);
+      const draft = await draftChangeOrder(deps?.draft ?? offlineDrafter(), tenant, job.jobId, text, { source: "text", userId: staff.id });
+      await db().query("INSERT INTO tasks (tenant_id, type, title, body, job_id, assignee_user_id, interaction_id) VALUES ($1,'change_order_review',$2,$3,$4,$5,$6)",
+        [m.tenant_id, `Review change order ${draft.label} for ${draft.jobName}`, draft.questions.length ? `Still needed: ${draft.questions.join(" ")}` : "Check the wording and price, then send it.", draft.jobId, staff.id, m.id]);
+      if (tenant.settings.mode === "live" && deps?.telephony) {
+        const from = await outboundNumberFor(tenant);
+        if (from) await sendLogged(tenant, await deps.telephony(tenant.id), m.id, "office_alert", from, staff.phone, `Draft ${draft.label} for ${draft.jobName} is saved. Review it in the app before it goes to the client.`);
+      }
+      jobId = draft.jobId;
+    }
+    await db().query("UPDATE interactions SET job_id = $2, processed_at = now() WHERE id = $1", [m.id, jobId]);
+    return;
+  }
+
+  if (!contact && staff) {
+    await task("staff_text", `Text from ${staff.name}`);
+  } else if (!contact) {
     await task("sms_unknown", `Text from unknown number ${who}`);
   } else if (contact.type === "sub" || contact.type === "vendor") {
     // Is this the answer to a "can you be there?" text?

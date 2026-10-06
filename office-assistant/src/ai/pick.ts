@@ -1,4 +1,5 @@
 import { claudeClassifier, type Classifier } from "./classify";
+import { claudeDrafter, offlineDrafter, type Drafter } from "../changeorders/draft";
 import { offlineClassifier } from "./offline";
 import { log } from "../lib/log";
 
@@ -10,4 +11,8 @@ export function pickClassifier(): { classify: Classifier; engine: "claude" | "of
   if (hasClaudeCredentials()) return { classify: claudeClassifier(), engine: "claude" };
   log.warn("No Anthropic credentials: using the offline demo classifier. Do not use with live callers.");
   return { classify: offlineClassifier(), engine: "offline" };
+}
+
+export function pickDrafter(): Drafter {
+  return hasClaudeCredentials() ? claudeDrafter() : offlineDrafter();
 }

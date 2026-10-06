@@ -86,6 +86,18 @@ These need accounts and money, so they are not automated:
 - **Copy:** every text has suggested wording written in `src/copy.ts` (short, says who it is from, one ask, no links, no dashes). New companies start with it in Settings in shadow mode, so shadow reports show real text. The owner can edit any message or empty a box to send nothing; live mode is a separate switch. With no copy, live mode opens a task for the office instead. Shadow mode texts no sub at all; it sends the owner one digest of what it would have done.
 - **Photos:** a photo from a sub we are chasing for paperwork opens a "check this file" task with the attachment link. A person marks the paperwork on file.
 
+## Change orders
+
+Describe extra work in plain words (in the app, or by text: a staff member whose number is on their user starts a text with "change order" and names the job). Heather drafts the title, the client wording, line items, total and added days, and saves it as a **draft**. Rules:
+
+- It never invents a price, quantity or date. Anything not stated is left blank and listed as a question; a code guard also drops any number the model returns that is not in the source text.
+- A draft cannot be marked sent without a price. Sent change orders are locked; to change one, void it and draft a new one. Approved is final.
+- Heather never sends a change order to a client. Print it (or save as PDF, with a signature line) or paste it into your own email, then press "I sent it".
+- Numbers run per job (CO-1, CO-2), even when two are drafted at once.
+- A text draft opens a review task for the person who sent it; in live mode they also get a short confirmation text. Not enough to tell which job: a task instead of a guess.
+
+Drafting uses Claude when `ANTHROPIC_API_KEY` is set, otherwise a crude offline drafter for demos.
+
 ## Permits and inspections
 
 Track permits and inspections per job. A task opens for the job's project manager when one is due within 3 days, overdue, expired, or failed. A changed date or status earns a fresh task; nothing repeats.

@@ -31,3 +31,12 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px
 .transcript { margin-top: 8px; font-size: 13px; border-left: 3px solid var(--line); padding-left: 10px; white-space: pre-wrap; }
 .err { color: var(--bad); } .okmsg { color: var(--ok); }
 .login { max-width: 360px; margin: 18vh auto; padding: 0 16px; }
+
+#printsheet { display: none; }
+@media print {
+  body > *:not(#printsheet) { display: none !important; }
+  #printsheet { display: block; padding: 32px; color: #000; background: #fff; font: 14px/1.5 system-ui, sans-serif; }
+  #printsheet table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+  #printsheet th, #printsheet td { border-bottom: 1px solid #999; padding: 6px; text-align: left; }
+  #printsheet .sign { margin-top: 48px; }
+}

@@ -7,6 +7,7 @@
   let me = null;
   let tenants = [];
   let slug = localStorage.getItem("office_tenant") || "";
+  let coOpen = null;
   let tab = new URLSearchParams(location.search).get("connected") ? "connectors" : "inbox";
 
   const h = (tag, attrs, ...kids) => {
@@ -61,7 +62,7 @@
   }
 
   // ---- shell ----
-  const TABS = [["inbox", "Inbox"], ["tasks", "Tasks"], ["leads", "Leads"], ["contacts", "Contacts"], ["schedule", "Schedule"], ["permits", "Permits"], ["subs", "Subs"], ["texts", "Texts"], ["books", "Books"], ["settings", "Settings"], ["import", "Import"], ["connectors", "Connectors"], ["team", "Team"], ["demo", "Demo"]];
+  const TABS = [["inbox", "Inbox"], ["tasks", "Tasks"], ["leads", "Leads"], ["contacts", "Contacts"], ["schedule", "Schedule"], ["change", "Change orders"], ["permits", "Permits"], ["subs", "Subs"], ["texts", "Texts"], ["books", "Books"], ["settings", "Settings"], ["import", "Import"], ["connectors", "Connectors"], ["team", "Team"], ["demo", "Demo"]];
   const OWNER_ONLY = new Set(["settings", "import", "connectors", "team", "demo"]);
   const canAdmin = () => me && (me.role === "operator" || me.role === "owner");
   const visible = (id) => OWNER_ONLY.has(id) ? canAdmin() : (id === "books" || id === "subs") ? (canAdmin() || me.role === "office") : true;
@@ -83,7 +84,7 @@
       me.role === "operator" ? h("button", { class: "btn ghost", onclick: addCompanyView }, "Add company") : null,
       h("span", { class: "grow" }), h("span", { class: "muted" }, me.name), h("button", { class: "btn ghost", onclick: async () => { await api("/logout", { method: "POST" }).catch(() => {}); signOut(); } }, "Sign out"));
     if (!visible(tab)) tab = "inbox";
-    const nav = h("nav", {}, TABS.filter(([id]) => visible(id)).map(([id, label]) => h("button", { class: id === tab ? "on" : "", onclick: () => { tab = id; render(); } }, label)));
+    const nav = h("nav", {}, TABS.filter(([id]) => visible(id)).map(([id, label]) => h("button", { class: id === tab ? "on" : "", onclick: () => { tab = id; coOpen = null; render(); } }, label)));
     const body = h("main", {});
     mount(header, nav, body);
     if (!slug) { body.append(h("div", { class: "card" }, "No companies yet. Use Add company to create one.")); return; }
@@ -102,6 +103,66 @@
     };
     mount(h("main", {}, h("h2", {}, "Add company"), h("label", {}, "Name"), name, h("label", {}, "Short name"), short,
       h("p", { class: "row" }, h("button", { class: "btn", onclick: save }, "Create"), h("button", { class: "btn ghost", onclick: render }, "Cancel")), msg));
+  }
+
+  const usdFmt = (n) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+  function printChangeOrder(c, company) {
+    let sheet = document.getElementById("printsheet");
+    if (!sheet) { sheet = h("div", { id: "printsheet" }); document.body.append(sheet); }
+    const rows = c.items.map((i) => h("tr", {}, h("td", {}, i.description), h("td", {}, i.quantity ?? ""), h("td", {}, i.unit ?? ""), h("td", {}, i.unitPrice === null ? "" : usdFmt(i.unitPrice))));
+    sheet.replaceChildren(
+      h("h1", {}, company), h("h2", {}, "Change Order " + c.label),
+      h("p", {}, "Job: " + c.jobName + (c.jobAddress ? ", " + c.jobAddress : "")), h("p", {}, "Date: " + new Date().toLocaleDateString()),
+      h("h3", {}, c.title), h("p", {}, c.description),
+      c.items.length ? h("table", {}, h("thead", {}, h("tr", {}, ["Item", "Qty", "Unit", "Price"].map((x) => h("th", {}, x)))), h("tbody", {}, rows)) : null,
+      h("p", {}, h("b", {}, "Total: " + (c.total === null ? "To be confirmed" : usdFmt(c.total)))),
+      c.scheduleDays ? h("p", {}, "Added time: " + c.scheduleDays + " day" + (c.scheduleDays === 1 ? "" : "s")) : null,
+      h("div", { class: "sign" }, h("p", {}, "Approved by: ______________________________   Date: ______________")));
+    window.print();
+  }
+
+  async function coEditor(body) {
+    const c = await api(`/t/${slug}/change-orders/${coOpen}`);
+    const editable = c.status === "draft";
+    const back = () => { coOpen = null; render(); };
+    const msg = h("div", {});
+    const title = h("input", { value: c.title, disabled: !editable });
+    const desc = h("textarea", { rows: 5, disabled: !editable }); desc.value = c.description;
+    const amount = h("input", { type: "number", min: "0", step: "0.01", placeholder: "Total price", value: c.amount ?? "", disabled: !editable });
+    const days = h("input", { type: "number", min: "0", step: "1", placeholder: "Extra days (optional)", value: c.scheduleDays ?? "", disabled: !editable });
+    let items = c.items.map((i) => ({ ...i }));
+    const itemsBox = h("div", {});
+    const drawItems = () => {
+      itemsBox.replaceChildren(...items.map((it, n) => {
+        const d = h("input", { placeholder: "Item", value: it.description, disabled: !editable, oninput: (e) => { it.description = e.target.value; } });
+        const q = h("input", { type: "number", placeholder: "Qty", value: it.quantity ?? "", disabled: !editable, oninput: (e) => { it.quantity = e.target.value === "" ? null : Number(e.target.value); } });
+        const u = h("input", { type: "number", step: "0.01", placeholder: "Unit price", value: it.unitPrice ?? "", disabled: !editable, oninput: (e) => { it.unitPrice = e.target.value === "" ? null : Number(e.target.value); } });
+        return h("div", { class: "card" }, d, h("div", { class: "row" }, h("div", { class: "grow" }, q), h("div", { class: "grow" }, u), editable ? h("button", { class: "btn ghost", onclick: () => { items.splice(n, 1); drawItems(); } }, "Remove") : null));
+      }));
+    };
+    drawItems();
+    const read = () => ({ title: title.value, description: desc.value, items: items.filter((i) => i.description.trim()), amount: amount.value === "" ? null : Number(amount.value), scheduleDays: days.value === "" ? null : Number(days.value) });
+    const save = async (extra = {}) => { try { await api(`/t/${slug}/change-orders/${c.id}`, { method: "PATCH", body: { ...(editable ? read() : {}), ...extra } }); render(); } catch (e) { flash(msg, e.message, true); } };
+    const company = (tenants.find((t) => t.slug === slug) || {}).name || "";
+    body.append(...[
+      h("div", { class: "row" }, h("button", { class: "btn ghost", onclick: back }, "Back"), h("b", { class: "grow" }, c.label + " for " + c.jobName), h("span", { class: "chip" }, c.status)),
+      c.source === "text" ? h("div", { class: "muted" }, "Started from a text message.") : null,
+      c.status === "draft" && c.questions.length ? h("div", { class: "card" }, h("b", {}, "Heather needs you to fill in"), ...c.questions.map((q) => h("div", {}, "• " + q)), h("button", { class: "btn ghost", onclick: () => save({ questions: [] }) }, "Done, clear these")) : null,
+      h("div", { class: "card" }, h("label", {}, "Title"), title, h("label", {}, "What the client will read"), desc, h("label", {}, "Line items (optional)"), itemsBox,
+        editable ? h("p", {}, h("button", { class: "btn ghost", onclick: () => { items.push({ description: "", quantity: null, unit: null, unitPrice: null }); drawItems(); } }, "Add a line")) : null,
+        h("label", {}, "Total price (leave blank to add up the line items)"), amount, h("label", {}, "Added schedule time"), days,
+        h("p", { class: "muted" }, "Total shown to the client: " + (c.total === null ? "not set yet" : usdFmt(c.total)))),
+      h("div", { class: "row" },
+        editable ? h("button", { class: "btn", onclick: () => save() }, "Save") : null,
+        h("button", { class: "btn ghost", onclick: () => printChangeOrder({ ...c, ...read(), total: read().amount ?? c.total }, company) }, "Print or save as PDF"),
+        c.status === "draft" ? h("button", { class: "btn ghost", onclick: () => save({ status: "sent" }) }, "I sent it") : null,
+        c.status === "sent" ? h("button", { class: "btn ghost", onclick: () => save({ status: "approved" }) }, "Client approved") : null,
+        c.status === "sent" ? h("button", { class: "btn ghost", onclick: () => save({ status: "declined" }) }, "Client declined") : null,
+        ["draft", "sent", "declined"].includes(c.status) ? h("button", { class: "btn ghost", onclick: () => { if (confirm("Void this change order?")) save({ status: "void" }); } }, "Void") : null,
+        c.status === "draft" ? h("button", { class: "btn ghost", onclick: async () => { if (confirm("Delete this draft?")) { await api(`/t/${slug}/change-orders/${c.id}`, { method: "DELETE" }); back(); } } }, "Delete") : null),
+      msg, h("div", { class: "muted" }, "Heather never sends a change order. Print it or copy it into your own email, then press \"I sent it\"."),
+    ].filter(Boolean));
   }
 
   const empty = (what) => h("div", { class: "card muted" }, what);
@@ -295,6 +356,23 @@
         h("div", { class: "row" }, h("select", { style: "width:auto", onchange: async (e) => { await api(`/t/${slug}/schedule/${a.id}`, { method: "PATCH", body: { confirmationStatus: e.target.value } }); render(); } },
           Object.entries(CHIP).map(([v, l]) => h("option", { value: v, selected: v === a.confirmation_status }, l))),
           h("button", { class: "btn ghost", onclick: async () => { if (confirm("Remove this from the schedule?")) { await api(`/t/${slug}/schedule/${a.id}`, { method: "DELETE" }); render(); } } }, "Remove"))));
+    },
+
+    async change(body) {
+      if (coOpen) return coEditor(body);
+      const [rows, look] = await Promise.all([api(`/t/${slug}/change-orders`), api(`/t/${slug}/lookups`)]);
+      const job = h("select", {}, h("option", { value: "" }, "Job..."), look.jobs.map((j) => h("option", { value: j.id }, j.name)));
+      const text = h("textarea", { rows: 4, placeholder: "Describe the extra work in plain words. Include the price if you have it, e.g. Add 6 recessed lights in the kitchen, $1,800, adds 2 days." });
+      const msg = h("div", {});
+      body.append(h("div", { class: "card" }, h("b", {}, "New change order"), job, h("p", {}, text),
+        h("div", { class: "muted" }, "Heather writes a draft. It never makes up a price, a quantity or a date: anything you did not say is left blank for you. You review it before it goes anywhere. You can also text it from your phone: start with \"change order\" and the job name."),
+        h("p", {}, h("button", { class: "btn", onclick: async (e) => { e.target.disabled = true; try { const co = await api(`/t/${slug}/change-orders`, { method: "POST", body: { jobId: job.value, text: text.value } }); coOpen = co.id; render(); } catch (er) { flash(msg, er.message, true); e.target.disabled = false; } } }, "Draft it")), msg));
+      if (!rows.length) return body.append(empty("No change orders yet."));
+      const CHIP = { draft: "Draft", sent: "Sent", approved: "Approved", declined: "Declined", void: "Void" };
+      for (const c of rows) body.append(h("div", { class: "card", onclick: () => { coOpen = c.id; render(); } },
+        h("div", { class: "row" }, h("b", { class: "grow" }, c.label + " " + c.title), h("span", { class: "chip " + (c.status === "approved" ? "lead" : c.status === "draft" ? "unknown" : "") }, CHIP[c.status])),
+        h("div", { class: "muted" }, c.jobName + " · " + (c.total === null ? "no price yet" : usdFmt(c.total)) + (c.source === "text" ? " · from a text" : "")),
+        c.status === "draft" && c.questions.length ? h("div", { class: "chip unknown" }, c.questions.length + " thing(s) to fill in") : null));
     },
 
     async permits(body) {

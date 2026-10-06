@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import express from "express";
-import { pickClassifier } from "./ai/pick";
+import { pickClassifier, pickDrafter } from "./ai/pick";
 import { apiRouter } from "./api";
 import { config } from "./config";
 import { db, migrate } from "./lib/db";
@@ -11,7 +11,7 @@ import { ingestEvent } from "./pipeline/ingest";
 import { handlers, type Deps } from "./pipeline/processCall";
 import { getTenantBySlug, telephonyFor } from "./tenants";
 
-export function buildApp(deps: Pick<Deps, "telephony">) {
+export function buildApp(deps: Pick<Deps, "telephony" | "draft">) {
   const app = express();
 
   app.get("/health", async (_req, res) => {
@@ -40,7 +40,7 @@ export function buildApp(deps: Pick<Deps, "telephony">) {
     }
   });
 
-  app.use("/api", apiRouter());
+  app.use("/api", apiRouter({ draft: deps.draft }));
   const publicDir = [path.resolve(__dirname, "../public"), path.resolve(__dirname, "../../public")].find((d) => fs.existsSync(d));
   if (publicDir) app.use(express.static(publicDir));
 
@@ -52,7 +52,7 @@ async function main() {
   if (applied.length) log.info("migrations applied", { applied });
   const { classify, engine } = pickClassifier();
   log.info("classifier", { engine });
-  const deps: Deps = { telephony: telephonyFor, classify };
+  const deps: Deps = { telephony: telephonyFor, classify, draft: pickDrafter() };
   startWorker(handlers(deps), config.workerPollMs);
   // Every 10 minutes, ask the queue to run the sub automation once (a duplicate request in the same window is ignored).
   const tick = () => enqueue("scheduler_tick", {}, { dedupeKey: `tick:${Math.floor(Date.now() / 600_000)}` }).catch((err) => log.error("tick failed", { error: String(err) }));

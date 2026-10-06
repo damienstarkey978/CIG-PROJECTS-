@@ -11,6 +11,8 @@ import { db } from "./lib/db";
 import { toE164 } from "./lib/phone";
 import { findScenario, SCENARIOS } from "./sim/scenarios";
 import { simulateCall } from "./sim/simulate";
+import { offlineDrafter, type Drafter } from "./changeorders/draft";
+import { draftChangeOrder, getChangeOrder, listChangeOrders, TRANSITIONS, type CoStatus } from "./changeorders/store";
 import { importContacts, type ImportContactType } from "./import/contacts";
 import { importJobs } from "./import/jobs";
 import { accountingFor, getTenantBySlug, saveConnector, telephonyFor, type Tenant } from "./tenants";
@@ -84,7 +86,7 @@ async function tenantOf(req: Request, res: Response): Promise<Tenant | null> {
   return t;
 }
 
-export function apiRouter(): Router {
+export function apiRouter(opts: { draft?: Drafter } = {}): Router {
   const r = Router();
   r.use(express.json({ limit: "8mb" })); // CSV imports arrive as text in the body
 
@@ -469,6 +471,83 @@ export function apiRouter(): Router {
     if (!t || !allow(res, "owner", "office", "pm")) return;
     const out = await db().query("DELETE FROM permits WHERE id = $1 AND tenant_id = $2", [req.params.id, t.id]);
     res.status(out.rowCount ? 200 : 404).json({ ok: Boolean(out.rowCount) });
+  }));
+
+  // ---- change orders ----
+  const CoItemBody = z.object({ description: z.string().min(1).max(300), quantity: z.number().nullable().optional(), unit: z.string().max(30).nullable().optional(), unitPrice: z.number().min(0).nullable().optional() });
+
+  r.get("/t/:slug/change-orders", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office", "pm")) return;
+    res.json(await listChangeOrders(t.id, typeof req.query.status === "string" ? req.query.status : undefined));
+  }));
+
+  r.post("/t/:slug/change-orders", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office", "pm")) return;
+    const b = z.object({ jobId: z.string().uuid(), text: z.string().min(5).max(2000) }).safeParse(req.body);
+    if (!b.success) return void res.status(400).json({ error: "Pick a job and describe the extra work in a sentence or two" });
+    const a = authOf(res);
+    try {
+      const co = await draftChangeOrder(opts.draft ?? offlineDrafter(), t, b.data.jobId, b.data.text, { source: "app", userId: a.kind === "user" ? a.userId : null });
+      res.status(201).json(co);
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  }));
+
+  r.get("/t/:slug/change-orders/:id", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office", "pm")) return;
+    const co = await getChangeOrder(t.id, String(req.params.id));
+    res.status(co ? 200 : 404).json(co ?? { error: "Not found" });
+  }));
+
+  r.patch("/t/:slug/change-orders/:id", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office", "pm")) return;
+    const b = z.object({
+      title: z.string().min(1).max(120).optional(),
+      description: z.string().min(1).max(3000).optional(),
+      items: z.array(CoItemBody).max(40).optional(),
+      amount: z.number().min(0).nullable().optional(),
+      scheduleDays: z.number().int().min(0).max(365).nullable().optional(),
+      questions: z.array(z.string().max(200)).max(20).optional(),
+      status: z.enum(["draft", "sent", "approved", "declined", "void"]).optional(),
+    }).safeParse(req.body);
+    if (!b.success) return void res.status(400).json({ error: "Check the fields" });
+    const cur = await getChangeOrder(t.id, String(req.params.id));
+    if (!cur) return void res.status(404).json({ error: "Not found" });
+    const d = b.data;
+    const edits = d.title !== undefined || d.description !== undefined || d.items !== undefined || d.amount !== undefined || d.scheduleDays !== undefined || d.questions !== undefined;
+    if (edits && cur.status !== "draft") return void res.status(400).json({ error: "Only a draft can be edited. Void it and draft a new one." });
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    const add = (col: string, v: unknown) => { vals.push(v); sets.push(`${col} = $${vals.length + 2}`); };
+    if (d.title !== undefined) add("title", d.title);
+    if (d.description !== undefined) add("description", d.description);
+    if (d.items !== undefined) add("items", JSON.stringify(d.items.map((i) => ({ description: i.description, quantity: i.quantity ?? null, unit: i.unit ?? null, unitPrice: i.unitPrice ?? null }))));
+    if (d.amount !== undefined) add("amount", d.amount);
+    if (d.scheduleDays !== undefined) add("schedule_days", d.scheduleDays);
+    if (d.questions !== undefined) add("questions", JSON.stringify(d.questions));
+    if (d.status !== undefined && d.status !== cur.status) {
+      if (!TRANSITIONS[cur.status as CoStatus].includes(d.status)) return void res.status(400).json({ error: `A ${cur.status} change order can't become ${d.status}` });
+      // Merge pending edits before checking, so "set the price and mark sent" works in one save.
+      const nextItems = d.items ?? cur.items.map((i) => ({ ...i }));
+      const total = d.amount !== undefined ? d.amount : cur.amount;
+      const priced = total !== null || (nextItems.length > 0 && nextItems.every((i: any) => (i.unitPrice ?? null) !== null));
+      if (d.status === "sent" && !priced) return void res.status(400).json({ error: "Add a price before marking it sent" });
+      add("status", d.status);
+    }
+    if (sets.length) await db().query(`UPDATE change_orders SET ${sets.join(", ")}, updated_at = now() WHERE id = $1 AND tenant_id = $2`, [cur.id, t.id, ...vals]);
+    res.json(await getChangeOrder(t.id, cur.id));
+  }));
+
+  r.delete("/t/:slug/change-orders/:id", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office", "pm")) return;
+    const out = await db().query("DELETE FROM change_orders WHERE id = $1 AND tenant_id = $2 AND status = 'draft'", [req.params.id, t.id]);
+    res.status(out.rowCount ? 200 : 400).json(out.rowCount ? { ok: true } : { error: "Only drafts can be deleted. Void it instead." });
   }));
 
   r.get("/t/:slug/lookups", wrap(async (req, res) => {
