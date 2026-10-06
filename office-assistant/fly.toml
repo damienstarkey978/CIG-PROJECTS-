@@ -1,0 +1,27 @@
+app = "office-assistant"
+primary_region = "iad"
+
+[build]
+
+[env]
+  PORT = "8080"
+
+# The worker loop lives in the same process and must keep running between
+# webhooks (it retries calls waiting on transcripts), so never auto stop.
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

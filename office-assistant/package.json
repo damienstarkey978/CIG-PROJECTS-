@@ -1,0 +1,36 @@
+{
+  "name": "office-assistant",
+  "version": "0.1.0",
+  "description": "AI office assistant for small GC offices: backbone DB plus Quo call handling (Phase 1).",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/server.js",
+    "dev": "tsx src/server.ts",
+    "migrate": "tsx scripts/migrate.ts",
+    "tenant:create": "tsx scripts/createTenant.ts",
+    "quo:register-webhooks": "tsx scripts/registerWebhooks.ts",
+    "eval:pull": "tsx scripts/pullEvalSet.ts",
+    "eval:run": "tsx scripts/runEval.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "dotenv": "^18.0.5",
+    "express": "^5.2.1",
+    "pg": "^8.23.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.19.43",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
