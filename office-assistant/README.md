@@ -4,6 +4,25 @@ AI office assistant for small GC offices. Phase 1: Quo's Sona agent answers call
 
 Architecture and open questions: [Phase 1 Architecture doc](https://claude.ai/code/artifact/94c81139-6bf7-4f99-8b07-cf67d51739e6).
 
+## Plug in model
+
+One app, many companies. Each company is a tenant, and everything outside the core is a connector picked per company in the web app (Connectors tab): phone, calendar, job software, accounting. The catalog lives in `src/connectors/registry.ts`; adding a provider is one manifest plus one adapter, and the pipeline never names a provider.
+
+| Kind | Ready | Planned |
+| --- | --- | --- |
+| Phone and texting | Quo, Demo phone | Twilio |
+| Calendar | | Google Calendar |
+| Jobs and schedules | | CSV import, Buildertrend |
+| Accounting | | QuickBooks Online, Xero |
+
+## Web app and demo (no Quo needed)
+
+```
+ADMIN_TOKEN=pick-something-long npm run dev     # open http://localhost:8080
+```
+
+Sign in with `ADMIN_TOKEN`, Add company, Connectors, connect **Demo phone**, then the Demo tab runs practice calls through the whole pipeline. Without Anthropic credentials the app uses a crude offline keyword classifier (logged as a warning); set `ANTHROPIC_API_KEY` to use Claude. Simulated calls are refused on any company that has a real phone connected, so a demo can never text a real number.
+
 ## How it works
 
 ```

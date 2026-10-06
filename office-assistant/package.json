@@ -17,7 +17,7 @@
     "eval:pull": "tsx scripts/pullEvalSet.ts",
     "eval:run": "tsx scripts/runEval.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

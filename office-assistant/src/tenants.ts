@@ -1,6 +1,6 @@
 import { db } from "./lib/db";
 import { decryptJson, encryptJson } from "./lib/crypto";
-import { QuoClient, type QuoSecrets } from "./connectors/quo";
+import { findManifest } from "./connectors/registry";
 import type { TelephonyProvider } from "./connectors/types";
 
 export interface TenantSettings {
@@ -51,9 +51,15 @@ export async function saveConnector(tenantId: string, kind: string, provider: st
   );
 }
 
-/** Phase 1 has one telephony provider; this is the seam where Twilio would slot in. */
+/** Whichever telephony connector the tenant has connected; the core never names a provider. */
 export async function telephonyFor(tenantId: string): Promise<TelephonyProvider> {
-  const conn = await getConnector<QuoSecrets>(tenantId, "telephony", "quo");
-  if (!conn?.secrets) throw new Error(`Tenant ${tenantId} has no Quo connector`);
-  return new QuoClient(conn.secrets);
+  const { rows } = await db().query<{ provider: string; config: any; secrets_enc: string | null }>(
+    "SELECT provider, config, secrets_enc FROM connector_accounts WHERE tenant_id = $1 AND kind = 'telephony' ORDER BY created_at LIMIT 1",
+    [tenantId],
+  );
+  const row = rows[0];
+  if (!row) throw new Error(`Tenant ${tenantId} has no telephony connector`);
+  const manifest = findManifest("telephony", row.provider);
+  if (!manifest?.createTelephony) throw new Error(`Unknown telephony provider ${row.provider}`);
+  return manifest.createTelephony(row.config, row.secrets_enc ? decryptJson(row.secrets_enc) : {});
 }

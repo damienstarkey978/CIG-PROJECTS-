@@ -1,5 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
 import express from "express";
-import { claudeClassifier } from "./ai/classify";
+import { pickClassifier } from "./ai/pick";
+import { apiRouter } from "./api";
 import { config } from "./config";
 import { db, migrate } from "./lib/db";
 import { log } from "./lib/log";
@@ -37,13 +40,19 @@ export function buildApp(deps: Pick<Deps, "telephony">) {
     }
   });
 
+  app.use("/api", apiRouter());
+  const publicDir = [path.resolve(__dirname, "../public"), path.resolve(__dirname, "../../public")].find((d) => fs.existsSync(d));
+  if (publicDir) app.use(express.static(publicDir));
+
   return app;
 }
 
 async function main() {
   const applied = await migrate();
   if (applied.length) log.info("migrations applied", { applied });
-  const deps: Deps = { telephony: telephonyFor, classify: claudeClassifier() };
+  const { classify, engine } = pickClassifier();
+  log.info("classifier", { engine });
+  const deps: Deps = { telephony: telephonyFor, classify };
   startWorker(handlers(deps), config.workerPollMs);
   buildApp(deps).listen(config.port, () => log.info("listening", { port: config.port }));
 }

@@ -20,3 +20,6 @@ export const config = {
   firstLookDelayMs: Number(process.env.FIRST_LOOK_DELAY_MS ?? 3 * 60_000),
   workerPollMs: Number(process.env.WORKER_POLL_MS ?? 2_000),
 };
+
+// Operator login for the web app and API. Customer logins come later.
+export const adminToken = () => process.env.ADMIN_TOKEN ?? "";
