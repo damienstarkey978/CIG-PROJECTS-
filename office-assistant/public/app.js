@@ -61,10 +61,10 @@
   }
 
   // ---- shell ----
-  const TABS = [["inbox", "Inbox"], ["tasks", "Tasks"], ["leads", "Leads"], ["contacts", "Contacts"], ["texts", "Texts"], ["books", "Books"], ["settings", "Settings"], ["import", "Import"], ["connectors", "Connectors"], ["team", "Team"], ["demo", "Demo"]];
+  const TABS = [["inbox", "Inbox"], ["tasks", "Tasks"], ["leads", "Leads"], ["contacts", "Contacts"], ["schedule", "Schedule"], ["subs", "Subs"], ["texts", "Texts"], ["books", "Books"], ["settings", "Settings"], ["import", "Import"], ["connectors", "Connectors"], ["team", "Team"], ["demo", "Demo"]];
   const OWNER_ONLY = new Set(["settings", "import", "connectors", "team", "demo"]);
   const canAdmin = () => me && (me.role === "operator" || me.role === "owner");
-  const visible = (id) => OWNER_ONLY.has(id) ? canAdmin() : id === "books" ? (canAdmin() || me.role === "office") : true;
+  const visible = (id) => OWNER_ONLY.has(id) ? canAdmin() : (id === "books" || id === "subs") ? (canAdmin() || me.role === "office") : true;
 
   async function render() {
     if (!token) return loginView();
@@ -160,19 +160,20 @@
       const mode = h("select", {}, ["shadow", "live"].map((m) => h("option", { value: m, selected: s.mode === m }, m === "shadow" ? "Shadow (only you get reports)" : "Live (callers and staff get texts)")));
       const thr = h("input", { type: "number", min: "0.3", max: "0.99", step: "0.05", value: s.confidenceThreshold });
       const chase = h("input", { type: "number", min: "1", max: "90", step: "1", value: s.chaseAfterDays || 14 });
+      const outbound = h("input", { placeholder: "Business line texts go out from, e.g. (904) 555 0100", value: s.outboundNumber || "" });
       const phone = h("input", { placeholder: "Shadow report phone, e.g. (904) 555 0100", value: s.shadowRecipientPhone || "" });
-      const labels = { lead_callback: "Text to new leads", ack_sub_vendor: "Text to subs and vendors", ack_client: "Text to clients", generic: "Text when unsure" };
+      const labels = { lead_callback: "Text to new leads", ack_sub_vendor: "Text to subs and vendors", ack_client: "Text to clients", generic: "Text when unsure", schedule_confirm: "Text asking a sub to confirm they are on site (use {first_name}, {job}, {date})", paperwork_request: "Text asking a sub for paperwork (use {first_name}, {missing})" };
       const tpl = {};
       const tplFields = meta.templateKeys.map((k) => { tpl[k] = h("textarea", { rows: 2, maxlength: 320, placeholder: "Leave empty to send nothing" }); tpl[k].value = s.templates?.[k] || ""; return [h("label", {}, labels[k]), tpl[k]]; });
       const msg = h("div", {});
       const save = async () => {
         if (mode.value === "live" && s.mode !== "live" && !confirm("Live mode texts real callers and staff. Switch to live?")) return;
         try {
-          await api(`/t/${slug}/settings`, { method: "PUT", body: { mode: mode.value, confidenceThreshold: Number(thr.value), chaseAfterDays: Number(chase.value) || undefined, shadowRecipientPhone: phone.value || null, templates: Object.fromEntries(Object.entries(tpl).map(([k, el]) => [k, el.value])) } });
+          await api(`/t/${slug}/settings`, { method: "PUT", body: { mode: mode.value, confidenceThreshold: Number(thr.value), chaseAfterDays: Number(chase.value) || undefined, outboundNumber: outbound.value || undefined, shadowRecipientPhone: phone.value || null, templates: Object.fromEntries(Object.entries(tpl).map(([k, el]) => [k, el.value])) } });
           flash(msg, "Saved.");
         } catch (e) { flash(msg, e.message, true); }
       };
-      body.append(h("div", { class: "card" }, h("label", {}, "Mode"), mode, h("label", {}, "Minimum confidence before a call is sorted automatically (0.3 to 0.99). Below this it goes to a person."), thr, h("label", {}, "Days past due before an unpaid invoice gets a follow up task"), chase, h("label", {}, "Shadow report phone"), phone,
+      body.append(h("div", { class: "card" }, h("label", {}, "Mode"), mode, h("label", {}, "Minimum confidence before a call is sorted automatically (0.3 to 0.99). Below this it goes to a person."), thr, h("label", {}, "Days past due before an unpaid invoice gets a follow up task"), chase, h("label", {}, "Business line for texts to subs"), outbound, h("label", {}, "Shadow report phone"), phone,
         h("h3", {}, "Text messages to callers"), h("p", { class: "muted" }, "Use {first_name} and {company} if you like. A caller only gets a text if the box has words in it."), tplFields,
         h("p", {}, h("button", { class: "btn", onclick: save }, "Save")), msg));
     },
@@ -268,6 +269,60 @@
         h("div", { class: "muted" }, [i.docNumber ? "#" + i.docNumber : "", i.daysOverdue > 0 ? i.daysOverdue + " days late" : "due " + i.dueDate].filter(Boolean).join(" · ")), i.job ? h("div", {}, "Job: " + i.job) : null));
     },
 
+    async schedule(body) {
+      const [rows, look] = await Promise.all([api(`/t/${slug}/schedule`), api(`/t/${slug}/lookups`)]);
+      const msg = h("div", {});
+      if (canAdmin() || me.role === "office") {
+        body.append(h("div", { class: "card row" }, h("div", { class: "grow muted" }, "Texts subs to confirm, asks for missing paperwork, and flags no shows. Runs by itself every 10 minutes between 9 and 5."),
+          h("button", { class: "btn ghost", onclick: async () => { try { const r = await api(`/t/${slug}/automation/run`, { method: "POST" }); flash(msg, r.skipped ? "Skipped: " + r.skipped : `Done. ${r.confirmRequests} confirmation(s), ${r.paperworkRequests} paperwork request(s), ${r.escalations} escalation(s).`); setTimeout(render, 700); } catch (e) { flash(msg, e.message, true); } } }, "Run now")), msg);
+      }
+      const job = h("select", {}, h("option", { value: "" }, "Job..."), look.jobs.map((j) => h("option", { value: j.id }, j.name)));
+      const sub = h("select", {}, h("option", { value: "" }, "Sub..."), look.subs.map((x) => h("option", { value: x.id }, x.name)));
+      const scope = h("input", { placeholder: "What they are doing (optional)" });
+      const start = h("input", { type: "date" });
+      const addMsg = h("div", {});
+      body.append(h("div", { class: "card" }, h("b", {}, "Add to schedule"), job, h("p", {}, sub), scope, h("label", {}, "Start date"), start,
+        h("p", {}, h("button", { class: "btn", onclick: async () => { try { await api(`/t/${slug}/schedule`, { method: "POST", body: { jobId: job.value, subId: sub.value, scope: scope.value || undefined, startDate: start.value } }); render(); } catch (e) { flash(addMsg, e.message, true); } } }, "Add")), addMsg));
+      if (!rows.length) return body.append(empty("Nothing scheduled yet."));
+      const CHIP = { pending: "Not confirmed", confirmed: "Confirmed", declined: "Declined", no_response: "No answer" };
+      for (const a of rows) body.append(h("div", { class: "card" }, h("div", { class: "row" }, h("b", { class: "grow" }, a.sub_name + " at " + a.job_name), h("span", { class: "chip " + (a.confirmation_status === "confirmed" ? "lead" : a.confirmation_status === "pending" ? "" : "unknown") }, CHIP[a.confirmation_status])),
+        h("div", { class: "muted" }, a.start_date + (a.scope ? " · " + a.scope : "") + (a.confirm_reply ? " · replied: " + a.confirm_reply : "")),
+        h("div", { class: "row" }, h("select", { style: "width:auto", onchange: async (e) => { await api(`/t/${slug}/schedule/${a.id}`, { method: "PATCH", body: { confirmationStatus: e.target.value } }); render(); } },
+          Object.entries(CHIP).map(([v, l]) => h("option", { value: v, selected: v === a.confirmation_status }, l))),
+          h("button", { class: "btn ghost", onclick: async () => { if (confirm("Remove this from the schedule?")) { await api(`/t/${slug}/schedule/${a.id}`, { method: "DELETE" }); render(); } } }, "Remove"))));
+    },
+
+    async subs(body) {
+      const rows = await api(`/t/${slug}/subs`);
+      const q = h("input", { placeholder: "Search subs", type: "search" });
+      const list = h("div", {});
+      const draw = () => {
+        const term = q.value.trim().toLowerCase();
+        list.replaceChildren();
+        const shown = rows.filter((s) => !term || [s.company, s.name, s.phone, (s.trades || []).join(" ")].join(" ").toLowerCase().includes(term));
+        if (!shown.length) list.append(empty("No subs match. Import them from the Import tab."));
+        for (const s of shown.slice(0, 150)) {
+          const w9 = h("input", { type: "checkbox", style: "width:auto", checked: s.w9OnFile });
+          const coi = h("input", { type: "date", value: s.coiExpiresOn || "" });
+          const lien = h("select", {}, [["", "Nothing needed"], ["needed", "Needed"], ["received", "Received"]].map(([v, l]) => h("option", { value: v, selected: (s.lienWaiverStatus || "") === v }, l)));
+          const trades = h("input", { placeholder: "Trades, separated by commas", value: (s.trades || []).join(", ") });
+          const msg = h("div", {});
+          const form = h("div", { hidden: true }, h("label", { class: "row" }, w9, "W9 on file"), h("label", {}, "Insurance certificate expires"), coi, h("label", {}, "Lien waiver"), lien, h("label", {}, "Trades"), trades,
+            h("p", {}, h("button", { class: "btn", onclick: async (e) => { e.stopPropagation(); try { await api(`/t/${slug}/subs/${s.id}`, { method: "PATCH", body: { w9OnFile: w9.checked, coiExpiresOn: coi.value || null, lienWaiverStatus: lien.value || null, trades: trades.value.split(",").map((x) => x.trim()).filter(Boolean) } }); flash(msg, "Saved."); setTimeout(render, 500); } catch (er) { flash(msg, er.message, true); } } }, "Save")), msg);
+          form.addEventListener("click", (e) => e.stopPropagation());
+          list.append(h("div", { class: "card", onclick: () => { form.hidden = !form.hidden; } },
+            h("div", { class: "row" }, h("b", { class: "grow" }, s.company || s.name || "Unnamed"), s.upcoming ? h("span", { class: "chip" }, s.upcoming + " upcoming") : null),
+            h("div", { class: "muted" }, [s.company && s.name ? s.name : "", s.phone ? fmtPhone(s.phone) : "no phone", (s.trades || []).join(", ")].filter(Boolean).join(" · ")),
+            s.needs.length ? h("div", {}, s.needs.map((n) => h("span", { class: "chip unknown", style: "margin-right:4px" }, "Needs " + n))) : h("div", { class: "muted" }, "Paperwork complete"), form));
+        }
+        if (shown.length > 150) list.append(h("div", { class: "muted" }, `Showing 150 of ${shown.length}. Search to narrow.`));
+      };
+      q.addEventListener("input", draw);
+      const missing = rows.filter((s) => s.needs.length).length;
+      body.append(h("div", { class: "card muted" }, `${rows.length} subs, ${missing} missing or expiring paperwork. Tap a sub to update. The system only chases subs who are on the schedule or have an open bill.`), q, list);
+      draw();
+    },
+
     async team(body) {
       const rows = await api(`/t/${slug}/users`);
       const name = h("input", { placeholder: "Name" }), email = h("input", { type: "email", placeholder: "Email" }), phone = h("input", { placeholder: "Mobile (for alerts)" });
@@ -291,6 +346,9 @@
         try { await api(`/t/${slug}/simulate`, { method: "POST", body: { scenario: s.id } }); flash(msg, "Call sent. Check the Inbox in a few seconds."); } catch (e) { flash(msg, e.message, true); }
       } }, "Run")));
       body.append(msg);
+      const from = h("input", { placeholder: "Sub's phone, e.g. (904) 555 0133" }), text = h("input", { placeholder: "Text, e.g. need more tile at the Oak job" }), tmsg = h("div", {});
+      body.append(h("div", { class: "card" }, h("b", {}, "Pretend a sub texted in"), from, h("p", {}, text),
+        h("button", { class: "btn", onclick: async () => { try { await api(`/t/${slug}/simulate-text`, { method: "POST", body: { from: from.value, text: text.value } }); flash(tmsg, "Sent. Check Tasks in a few seconds."); } catch (e) { flash(tmsg, e.message, true); } } }, "Send"), tmsg));
     },
   };
 

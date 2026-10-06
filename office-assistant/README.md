@@ -77,6 +77,15 @@ These need accounts and money, so they are not automated:
    `PNEYAAmj7S` is the WCI line (904) 717-1729. The tenant starts in shadow mode.
 5. Turn on call recording and transcription for that line in Quo, with the recording disclosure (Florida is an all-party consent state).
 
+## Subs: paperwork, schedule, texting (Phase 2)
+
+- **Subs tab:** track each sub's W9, insurance certificate expiry and lien waiver. Anything missing, expired, or expiring within 30 days shows as a need.
+- **Schedule tab:** put a sub on a job for a date. Owners, office and project managers can all edit it.
+- **Automation** (every 10 minutes, Monday to Saturday 9 to 5 in the company's time zone, or "Run now"): texts a sub starting within 2 days to confirm; reads YES or NO replies (anything else, or a bare yes when the sub has two jobs that day, becomes a task, never a guess); after 20 hours with no answer marks the sub "no answer" and opens a task; asks subs who are scheduled or have an open bill for missing paperwork, at most weekly, and after 3 tries opens a task for a person to call.
+- **Inbound sub texts:** "need more tile at the Oak job" becomes a materials task linked to the right job. Texts from strangers and clients become tasks. Nothing is auto replied.
+- **Copy:** nothing is texted to a sub unless the owner has written that message in Settings (`schedule_confirm`, `paperwork_request`). With no copy, live mode opens a task for the office instead. Shadow mode texts no sub at all; it sends the owner one digest of what it would have done.
+- Set the business line the texts go out from in Settings.
+
 ## Books (QuickBooks, read only)
 
 Open Books after connecting QuickBooks (or Demo books to practice). Sync copies open bills and invoices from the books, then:

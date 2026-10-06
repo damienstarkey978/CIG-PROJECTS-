@@ -6,6 +6,7 @@ import { enqueue } from "../lib/queue";
 
 export const PROCESS_CALL = "process_call";
 export const FETCH_CALL = "fetch_call";
+export const PROCESS_SMS = "process_sms";
 
 export async function upsertCall(c: PoolClient, tenantId: string, provider: string, call: NormalizedCall): Promise<string> {
   const { rows } = await c.query<{ id: string }>(
@@ -91,14 +92,16 @@ export async function ingestEvent(
       }
       case "message_received": {
         const m = evt.message;
-        // Phase 1 logs texts only; text intake is Phase 2.
-        await c.query(
+        const ins = await c.query<{ id: string }>(
           `INSERT INTO interactions (tenant_id, channel, direction, provider, provider_id, provider_conversation_id,
-             provider_phone_number_id, from_phone, to_phone, body, started_at, processed_at)
-           VALUES ($1,'sms',$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
-           ON CONFLICT (provider, provider_id) DO NOTHING`,
+             provider_phone_number_id, from_phone, to_phone, body, started_at)
+           VALUES ($1,'sms',$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           ON CONFLICT (provider, provider_id) DO NOTHING RETURNING id`,
           [tenantId, m.direction, provider, m.providerId, m.conversationId, m.phoneNumberId, m.from, m.to, m.body, m.createdAt],
         );
+        // Incoming texts are read by the sub text handler; ones we sent ourselves just get logged.
+        if (ins.rows[0] && m.direction === "incoming") await enqueue(PROCESS_SMS, { interactionId: ins.rows[0].id }, { dedupeKey: `sms:${ins.rows[0].id}` }, c);
+        else if (ins.rows[0]) await c.query("UPDATE interactions SET processed_at = now() WHERE id = $1", [ins.rows[0].id]);
         break;
       }
       case "ignored":

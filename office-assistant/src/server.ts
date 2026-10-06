@@ -6,7 +6,7 @@ import { apiRouter } from "./api";
 import { config } from "./config";
 import { db, migrate } from "./lib/db";
 import { log } from "./lib/log";
-import { startWorker } from "./lib/queue";
+import { enqueue, startWorker } from "./lib/queue";
 import { ingestEvent } from "./pipeline/ingest";
 import { handlers, type Deps } from "./pipeline/processCall";
 import { getTenantBySlug, telephonyFor } from "./tenants";
@@ -54,6 +54,10 @@ async function main() {
   log.info("classifier", { engine });
   const deps: Deps = { telephony: telephonyFor, classify };
   startWorker(handlers(deps), config.workerPollMs);
+  // Every 10 minutes, ask the queue to run the sub automation once (a duplicate request in the same window is ignored).
+  const tick = () => enqueue("scheduler_tick", {}, { dedupeKey: `tick:${Math.floor(Date.now() / 600_000)}` }).catch((err) => log.error("tick failed", { error: String(err) }));
+  void tick();
+  setInterval(tick, 600_000);
   buildApp(deps).listen(config.port, () => log.info("listening", { port: config.port }));
 }
 

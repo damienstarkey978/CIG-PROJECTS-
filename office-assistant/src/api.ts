@@ -12,17 +12,21 @@ import { findScenario, SCENARIOS } from "./sim/scenarios";
 import { simulateCall } from "./sim/simulate";
 import { importContacts, type ImportContactType } from "./import/contacts";
 import { importJobs } from "./import/jobs";
-import { accountingFor, getTenantBySlug, saveConnector, type Tenant } from "./tenants";
+import { accountingFor, getTenantBySlug, saveConnector, telephonyFor, type Tenant } from "./tenants";
+import { paperworkNeeds } from "./subs/paperwork";
+import { runAutomation } from "./subs/automation";
+import { ingestEvent } from "./pipeline/ingest";
 import { ageTotals, daysOverdue, paymentBlockers, round2 } from "./books/analyze";
 import { DEFAULT_CHASE_AFTER_DAYS, syncBooks } from "./books/sync";
 import { authorizeUrl, exchangeCode, qboAppFromEnv, signState, verifyState } from "./connectors/quickbooks";
 
-export const TEMPLATE_KEYS = ["lead_callback", "ack_sub_vendor", "ack_client", "generic"] as const;
+export const TEMPLATE_KEYS = ["lead_callback", "ack_sub_vendor", "ack_client", "generic", "schedule_confirm", "paperwork_request"] as const;
 
 const SettingsBody = z.object({
   mode: z.enum(["shadow", "live"]),
   confidenceThreshold: z.number().min(0.3).max(0.99),
   chaseAfterDays: z.number().int().min(1).max(90).optional(),
+  outboundNumber: z.string().nullable().optional(),
   shadowRecipientPhone: z.string().nullable().optional(),
   templates: z.partialRecord(z.enum(TEMPLATE_KEYS), z.string().max(320)),
 });
@@ -246,10 +250,13 @@ export function apiRouter(): Router {
     if (!body.success) return void res.status(400).json({ error: body.error.issues[0].message });
     const phone = body.data.shadowRecipientPhone ? toE164(body.data.shadowRecipientPhone) : undefined;
     if (body.data.shadowRecipientPhone && !phone) return void res.status(400).json({ error: "Shadow phone is not a valid number" });
+    const outbound = body.data.outboundNumber ? toE164(body.data.outboundNumber) : null;
+    if (body.data.outboundNumber && !outbound) return void res.status(400).json({ error: "Business line is not a valid number" });
     const next = {
       mode: body.data.mode,
       confidenceThreshold: body.data.confidenceThreshold,
       chaseAfterDays: body.data.chaseAfterDays ?? t.settings.chaseAfterDays,
+      ...(outbound ? { outboundNumber: outbound } : body.data.outboundNumber === undefined && t.settings.outboundNumber ? { outboundNumber: t.settings.outboundNumber } : {}),
       templates: Object.fromEntries(Object.entries(body.data.templates).filter(([, v]) => v && v.trim())),
       ...(phone ? { shadowRecipientPhone: phone } : {}),
     };
@@ -357,6 +364,118 @@ export function apiRouter(): Router {
       bills: billRows,
       invoices: invoiceRows,
     });
+  }));
+
+  // ---- subs paperwork and the job schedule ----
+
+  r.get("/t/:slug/subs", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office")) return;
+    const { rows } = await db().query(
+      `SELECT c.id, c.first_name, c.last_name, c.company, s.trades, s.w9_on_file, s.coi_expires_on::text AS coi_expires_on, s.lien_waiver_status,
+              (SELECT phone FROM contact_phones WHERE contact_id = c.id LIMIT 1) AS phone,
+              (SELECT count(*)::int FROM job_assignments a WHERE a.sub_contact_id = c.id AND a.start_date >= current_date) AS upcoming
+       FROM contacts c JOIN sub_profiles s ON s.contact_id = c.id WHERE c.tenant_id = $1 ORDER BY coalesce(c.company, c.last_name, c.first_name)`, [t.id]);
+    const today = new Date();
+    res.json(rows.map((s) => ({
+      id: s.id, name: [s.first_name, s.last_name].filter(Boolean).join(" ") || null, company: s.company, phone: s.phone, trades: s.trades, upcoming: s.upcoming,
+      w9OnFile: s.w9_on_file, coiExpiresOn: s.coi_expires_on, lienWaiverStatus: s.lien_waiver_status,
+      needs: paperworkNeeds({ w9OnFile: s.w9_on_file, coiExpiresOn: s.coi_expires_on, lienWaiverStatus: s.lien_waiver_status }, today),
+    })));
+  }));
+
+  r.patch("/t/:slug/subs/:id", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office")) return;
+    const body = z.object({
+      w9OnFile: z.boolean().optional(),
+      coiExpiresOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+      lienWaiverStatus: z.string().max(40).nullable().optional(),
+      trades: z.array(z.string().max(60)).max(20).optional(),
+    }).safeParse(req.body);
+    if (!body.success) return void res.status(400).json({ error: "Check the dates (YYYY-MM-DD) and fields" });
+    const owns = await db().query("SELECT 1 FROM contacts WHERE id = $1 AND tenant_id = $2", [req.params.id, t.id]);
+    if (!owns.rowCount) return void res.status(404).json({ error: "Not found" });
+    await db().query("INSERT INTO sub_profiles (contact_id) VALUES ($1) ON CONFLICT DO NOTHING", [req.params.id]);
+    const d = body.data;
+    if (d.w9OnFile !== undefined) await db().query("UPDATE sub_profiles SET w9_on_file = $2 WHERE contact_id = $1", [req.params.id, d.w9OnFile]);
+    if (d.coiExpiresOn !== undefined) await db().query("UPDATE sub_profiles SET coi_expires_on = $2 WHERE contact_id = $1", [req.params.id, d.coiExpiresOn]);
+    if (d.lienWaiverStatus !== undefined) await db().query("UPDATE sub_profiles SET lien_waiver_status = $2 WHERE contact_id = $1", [req.params.id, d.lienWaiverStatus || null]);
+    if (d.trades !== undefined) await db().query("UPDATE sub_profiles SET trades = $2 WHERE contact_id = $1", [req.params.id, d.trades]);
+    res.json({ ok: true });
+  }));
+
+  r.get("/t/:slug/lookups", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office", "pm")) return;
+    const [jobs, subs] = await Promise.all([
+      db().query("SELECT id, name FROM jobs WHERE tenant_id = $1 AND status IN ('active','lead','on_hold') ORDER BY name LIMIT 600", [t.id]),
+      db().query("SELECT c.id, coalesce(nullif(c.company,''), trim(concat_ws(' ', c.first_name, c.last_name))) AS name FROM contacts c JOIN sub_profiles s ON s.contact_id = c.id WHERE c.tenant_id = $1 ORDER BY 2", [t.id]),
+    ]);
+    res.json({ jobs: jobs.rows, subs: subs.rows });
+  }));
+
+  r.get("/t/:slug/schedule", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office", "pm")) return;
+    const { rows } = await db().query(
+      `SELECT a.id, a.start_date::text, a.end_date::text, a.scope, a.confirmation_status, a.confirm_reply, j.name AS job_name,
+              coalesce(nullif(c.company,''), trim(concat_ws(' ', c.first_name, c.last_name))) AS sub_name
+       FROM job_assignments a JOIN jobs j ON j.id = a.job_id JOIN contacts c ON c.id = a.sub_contact_id
+       WHERE a.tenant_id = $1 AND a.start_date >= current_date - 7 ORDER BY a.start_date, j.name LIMIT 300`, [t.id]);
+    res.json(rows);
+  }));
+
+  r.post("/t/:slug/schedule", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office", "pm")) return;
+    const body = z.object({ jobId: z.string().uuid(), subId: z.string().uuid(), scope: z.string().max(200).optional(), startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).safeParse(req.body);
+    if (!body.success) return void res.status(400).json({ error: "Pick a job, a sub and a start date" });
+    const ok = await db().query("SELECT (SELECT count(*) FROM jobs WHERE id = $1 AND tenant_id = $3) AS j, (SELECT count(*) FROM contacts WHERE id = $2 AND tenant_id = $3) AS c", [body.data.jobId, body.data.subId, t.id]);
+    if (Number(ok.rows[0].j) !== 1 || Number(ok.rows[0].c) !== 1) return void res.status(400).json({ error: "Unknown job or sub" });
+    const { rows } = await db().query<{ id: string }>(
+      "INSERT INTO job_assignments (tenant_id, job_id, sub_contact_id, scope, start_date, end_date) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
+      [t.id, body.data.jobId, body.data.subId, body.data.scope ?? null, body.data.startDate, body.data.endDate ?? body.data.startDate]);
+    res.status(201).json({ id: rows[0].id });
+  }));
+
+  r.patch("/t/:slug/schedule/:id", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office", "pm")) return;
+    const status = z.enum(["pending", "confirmed", "declined", "no_response"]).safeParse(req.body?.confirmationStatus);
+    if (!status.success) return void res.status(400).json({ error: "Bad status" });
+    const out = await db().query("UPDATE job_assignments SET confirmation_status = $3 WHERE id = $1 AND tenant_id = $2", [req.params.id, t.id, status.data]);
+    res.status(out.rowCount ? 200 : 404).json({ ok: Boolean(out.rowCount) });
+  }));
+
+  r.delete("/t/:slug/schedule/:id", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office", "pm")) return;
+    const out = await db().query("DELETE FROM job_assignments WHERE id = $1 AND tenant_id = $2", [req.params.id, t.id]);
+    res.status(out.rowCount ? 200 : 404).json({ ok: Boolean(out.rowCount) });
+  }));
+
+  // Run the sub automation now. In live mode with a real phone it still respects the 9 to 5 window.
+  r.post("/t/:slug/automation/run", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office")) return;
+    let tel;
+    try { tel = await telephonyFor(t.id); } catch { return void res.status(400).json({ error: "Connect a phone first" }); }
+    res.json(await runAutomation(t, tel, { ignoreWindow: t.settings.mode !== "live" || tel.name === "mock" }));
+  }));
+
+  // Demo only: pretend a sub texted in. Refused on any company with a real phone.
+  r.post("/t/:slug/simulate-text", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner")) return;
+    const body = z.object({ from: z.string(), text: z.string().min(1).max(500) }).safeParse(req.body);
+    const from = body.success ? toE164(body.data.from) : null;
+    if (!body.success || !from) return void res.status(400).json({ error: "Need a valid from number and text" });
+    const kinds = (await db().query<{ provider: string }>("SELECT provider FROM connector_accounts WHERE tenant_id = $1 AND kind = 'telephony'", [t.id])).rows.map((x) => x.provider);
+    if (!kinds.includes("mock") || kinds.some((k) => k !== "mock")) return void res.status(400).json({ error: "Texts can only be simulated on the Demo phone" });
+    const id = `SIMSMS${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    await ingestEvent(t.id, "mock", { kind: "message_received", eventId: id, type: "message.received", message: { providerId: id, conversationId: null, phoneNumberId: "SIMLINE", direction: "incoming", from, to: "+15555550100", body: body.data.text, createdAt: new Date().toISOString() } }, { simulated: true });
+    res.json({ ok: true });
   }));
 
   const NewUserBody = z.object({

@@ -10,6 +10,8 @@ export interface TenantSettings {
   confidenceThreshold: number;
   /** Days past due before an unpaid invoice gets a follow up task. */
   chaseAfterDays?: number;
+  /** The line (E.164) that texts to subs are sent from. */
+  outboundNumber?: string;
   // Approved follow up copy keyed by template name. Missing key = no text is sent.
   templates: Record<string, string>;
 }

@@ -6,7 +6,9 @@ import { log } from "../lib/log";
 import { enqueue, RetryLater } from "../lib/queue";
 import { getTenantById, type Tenant } from "../tenants";
 import { officeAlert, renderTemplate, shadowReport } from "./alerts";
-import { PROCESS_CALL, upsertCall } from "./ingest";
+import { processSms } from "../subs/sms";
+import { runAllTenants } from "../subs/scheduler";
+import { PROCESS_CALL, PROCESS_SMS, upsertCall } from "./ingest";
 import { decideRoute, type ContactType, type RouteDecision } from "./route";
 
 export interface Deps {
@@ -243,5 +245,7 @@ export function handlers(deps: Deps) {
   return {
     [PROCESS_CALL]: (p: { interactionId: string }) => processCall(deps, p.interactionId),
     fetch_call: (p: { tenantId: string; callId: string }) => fetchCall(deps, p.tenantId, p.callId),
+    [PROCESS_SMS]: (p: { interactionId: string }) => processSms(p.interactionId),
+    scheduler_tick: () => runAllTenants(deps),
   };
 }
