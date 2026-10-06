@@ -4,6 +4,7 @@
   const $app = document.getElementById("app");
   let token = localStorage.getItem("office_token") || "";
   let meta = null;
+  let me = null;
   let tenants = [];
   let slug = localStorage.getItem("office_tenant") || "";
   let tab = "inbox";
@@ -39,24 +40,35 @@
   const flash = (el, msg, bad) => { el.textContent = msg; el.className = bad ? "err" : "okmsg"; };
 
   // ---- login ----
+  function signOut() { token = ""; me = null; meta = null; localStorage.removeItem("office_token"); render(); }
   function loginView() {
-    const input = h("input", { type: "password", placeholder: "Access token", autocomplete: "current-password" });
-    const msg = h("div", { class: "muted" });
+    const email = h("input", { type: "email", placeholder: "Email", autocomplete: "username" });
+    const pw = h("input", { type: "password", placeholder: "Password (or admin token)", autocomplete: "current-password" });
+    const msg = h("div", {});
     const go = async () => {
-      token = input.value.trim();
-      try { await api("/meta"); localStorage.setItem("office_token", token); render(); }
-      catch (e) { flash(msg, e.message === "Signed out" ? "That token didn't work." : e.message, true); }
+      try {
+        if (email.value.trim()) {
+          const res = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.value.trim(), password: pw.value }) });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) return flash(msg, data.error || "Couldn't sign in", true);
+          token = data.token;
+        } else token = pw.value.trim();
+        await api("/me"); localStorage.setItem("office_token", token); render();
+      } catch (e) { flash(msg, e.message === "Signed out" ? "That didn't work." : e.message, true); }
     };
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
-    mount(h("div", { class: "login" }, h("h1", {}, "Office"), h("p", { class: "muted" }, "Enter your access token."), input, h("p", {}, h("button", { class: "btn", onclick: go }, "Sign in")), msg));
+    pw.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+    mount(h("div", { class: "login" }, h("h1", {}, "Office"), email, h("p", {}, pw), h("p", { class: "muted" }, "Operators: leave email empty and enter the admin token."), h("p", {}, h("button", { class: "btn", onclick: go }, "Sign in")), msg));
   }
 
   // ---- shell ----
-  const TABS = [["inbox", "Inbox"], ["tasks", "Tasks"], ["leads", "Leads"], ["contacts", "Contacts"], ["texts", "Texts"], ["settings", "Settings"], ["import", "Import"], ["connectors", "Connectors"], ["demo", "Demo"]];
+  const TABS = [["inbox", "Inbox"], ["tasks", "Tasks"], ["leads", "Leads"], ["contacts", "Contacts"], ["texts", "Texts"], ["settings", "Settings"], ["import", "Import"], ["connectors", "Connectors"], ["team", "Team"], ["demo", "Demo"]];
+  const OWNER_ONLY = new Set(["settings", "import", "connectors", "team", "demo"]);
+  const canAdmin = () => me && (me.role === "operator" || me.role === "owner");
 
   async function render() {
     if (!token) return loginView();
     try {
+      me = me || await api("/me");
       meta = meta || await api("/meta");
       tenants = await api("/tenants");
     } catch (e) { return; }
@@ -64,12 +76,13 @@
     if (!tenants.find((t) => t.slug === slug)) slug = tenants[0]?.slug || "";
     if (slug) localStorage.setItem("office_tenant", slug);
 
-    const picker = h("select", { onchange: (e) => { slug = e.target.value; localStorage.setItem("office_tenant", slug); render(); } },
+    const picker = me.role !== "operator" ? h("strong", {}, tenants[0]?.name) : h("select", { onchange: (e) => { slug = e.target.value; localStorage.setItem("office_tenant", slug); render(); } },
       tenants.map((t) => h("option", { value: t.slug, selected: t.slug === slug }, t.name)));
     const header = h("header", {}, h("h1", {}, meta.product), tenants.length ? picker : null,
-      h("button", { class: "btn ghost", onclick: addCompanyView }, "Add company"),
-      h("span", { class: "grow" }), h("button", { class: "btn ghost", onclick: () => { token = ""; localStorage.removeItem("office_token"); render(); } }, "Sign out"));
-    const nav = h("nav", {}, TABS.map(([id, label]) => h("button", { class: id === tab ? "on" : "", onclick: () => { tab = id; render(); } }, label)));
+      me.role === "operator" ? h("button", { class: "btn ghost", onclick: addCompanyView }, "Add company") : null,
+      h("span", { class: "grow" }), h("span", { class: "muted" }, me.name), h("button", { class: "btn ghost", onclick: async () => { await api("/logout", { method: "POST" }).catch(() => {}); signOut(); } }, "Sign out"));
+    if (!canAdmin() && OWNER_ONLY.has(tab)) tab = "inbox";
+    const nav = h("nav", {}, TABS.filter(([id]) => canAdmin() || !OWNER_ONLY.has(id)).map(([id, label]) => h("button", { class: id === tab ? "on" : "", onclick: () => { tab = id; render(); } }, label)));
     const body = h("main", {});
     mount(header, nav, body);
     if (!slug) { body.append(h("div", { class: "card" }, "No companies yet. Use Add company to create one.")); return; }
@@ -213,6 +226,22 @@
       };
       body.append(h("div", { class: "card" }, h("label", {}, "What are you loading?"), kind, typeRow, h("label", {}, "File (CSV)"), file,
         h("p", { class: "row" }, h("button", { class: "btn ghost", onclick: () => run(true) }, "Preview"), h("button", { class: "btn", onclick: () => run(false) }, "Import"))), out);
+    },
+
+    async team(body) {
+      const rows = await api(`/t/${slug}/users`);
+      const name = h("input", { placeholder: "Name" }), email = h("input", { type: "email", placeholder: "Email" }), phone = h("input", { placeholder: "Mobile (for alerts)" });
+      const pw = h("input", { type: "password", placeholder: "Starting password (10+ characters)", autocomplete: "new-password" });
+      const role = h("select", {}, [["owner", "Owner (everything)"], ["office", "Office (calls, tasks, leads)"], ["pm", "Project manager (calls, tasks, leads)"]].map(([v, l]) => h("option", { value: v }, l)));
+      const msg = h("div", {});
+      for (const u of rows) body.append(h("div", { class: "card row" }, h("div", { class: "grow" }, h("b", {}, u.name), h("span", { class: "chip" }, u.role), h("div", { class: "muted" }, [u.email, u.phone ? fmtPhone(u.phone) : "no mobile", u.last_login_at ? "last in " + fmtTime(u.last_login_at) : "never signed in"].join(" · "))),
+        h("label", { class: "row muted" }, h("input", { type: "checkbox", style: "width:auto", checked: u.alerts_enabled, onchange: async (e) => { await api(`/t/${slug}/users/${u.id}`, { method: "PATCH", body: { alertsEnabled: e.target.checked } }); } }), "Gets alerts"),
+        h("button", { class: "btn ghost", onclick: async () => { if (confirm("Remove " + u.name + "?")) { try { await api(`/t/${slug}/users/${u.id}`, { method: "DELETE" }); render(); } catch (e) { alert(e.message); } } } }, "Remove")));
+      body.append(h("div", { class: "card" }, h("h3", {}, "Add a person"), name, h("p", {}, email), phone, h("p", {}, pw), role,
+        h("p", {}, h("button", { class: "btn", onclick: async () => {
+          try { await api(`/t/${slug}/users`, { method: "POST", body: { name: name.value, email: email.value, phone: phone.value || undefined, role: role.value, password: pw.value } }); render(); }
+          catch (e) { flash(msg, e.message, true); }
+        } }, "Add")), msg, h("p", { class: "muted" }, "People with a mobile and alerts on get a text for every call that needs attention, once the company is in live mode.")));
     },
 
     async demo(body) {

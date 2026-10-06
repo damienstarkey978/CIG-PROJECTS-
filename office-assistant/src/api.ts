@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response, Router } from 
 import { z } from "zod";
 import { PRODUCT_NAME } from "./brand";
 import { adminToken } from "./config";
+import { authFromSession, clearFailures, createSession, endSession, hashPassword, login, MIN_PASSWORD, noteFailure, tooManyAttempts, type Auth } from "./auth";
 import { findManifest, publicCatalog, splitFields } from "./connectors/registry";
 import { decryptJson } from "./lib/crypto";
 import { db } from "./lib/db";
@@ -34,18 +35,41 @@ function safeEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-function requireAdmin(req: Request, res: Response, next: NextFunction) {
+const bearerOf = (req: Request) => /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
+const authOf = (res: Response) => res.locals.auth as Auth;
+
+/** Operator token (all companies) or a signed in user's session (one company, by role). */
+function authenticate(req: Request, res: Response, next: NextFunction) {
+  const given = bearerOf(req);
   const expected = adminToken();
-  if (!expected) return void res.status(503).json({ error: "ADMIN_TOKEN is not set on the server" });
-  const given = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
-  if (!given || !safeEqual(given, expected)) return void res.status(401).json({ error: "Wrong or missing token" });
-  next();
+  if (expected && given && safeEqual(given, expected)) {
+    res.locals.auth = { kind: "operator" } satisfies Auth;
+    return next();
+  }
+  authFromSession(given).then((a) => {
+    if (!a) return void res.status(401).json({ error: "Wrong or missing sign in" });
+    res.locals.auth = a;
+    next();
+  }, next);
+}
+
+/** Owners (and the operator) pass; others get a 403. */
+function allow(res: Response, ...roles: Array<"owner" | "office" | "pm">): boolean {
+  const a = authOf(res);
+  if (a.kind === "operator" || roles.includes(a.role)) return true;
+  res.status(403).json({ error: "Your role can't do that" });
+  return false;
 }
 
 const wrap = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) =>
   fn(req, res).catch(next);
 
 async function tenantOf(req: Request, res: Response): Promise<Tenant | null> {
+  const a = authOf(res);
+  if (a.kind === "user" && a.slug !== String(req.params.slug)) {
+    res.status(403).json({ error: "That isn't your company" });
+    return null;
+  }
   const t = await getTenantBySlug(String(req.params.slug));
   if (!t) res.status(404).json({ error: "Unknown company" });
   return t;
@@ -54,18 +78,48 @@ async function tenantOf(req: Request, res: Response): Promise<Tenant | null> {
 export function apiRouter(): Router {
   const r = Router();
   r.use(express.json({ limit: "3mb" })); // CSV imports arrive as text in the body
-  r.use(requireAdmin);
+
+  r.post("/login", wrap(async (req, res) => {
+    const body = z.object({ email: z.string().min(3), password: z.string().min(1) }).safeParse(req.body);
+    if (!body.success) return void res.status(400).json({ error: "Enter your email and password" });
+    const key = `${body.data.email.toLowerCase()}|${req.ip}`;
+    if (tooManyAttempts(key)) return void res.status(429).json({ error: "Too many tries. Wait 15 minutes." });
+    const token = await login(body.data.email, body.data.password);
+    if (!token) {
+      noteFailure(key);
+      return void res.status(401).json({ error: "Wrong email or password" });
+    }
+    clearFailures(key);
+    res.json({ token });
+  }));
+
+  r.use(authenticate);
+
+  r.post("/logout", wrap(async (req, res) => {
+    await endSession(bearerOf(req));
+    res.json({ ok: true });
+  }));
+
+  r.get("/me", (_req, res) => {
+    const a = authOf(res);
+    res.json(a.kind === "operator" ? { role: "operator", name: "Operator", slug: null } : { role: a.role, name: a.name, slug: a.slug });
+  });
 
   r.get("/meta", (_req, res) => {
     res.json({ product: PRODUCT_NAME, connectors: publicCatalog(), scenarios: SCENARIOS.map((s) => ({ id: s.id, label: s.label })), templateKeys: TEMPLATE_KEYS });
   });
 
   r.get("/tenants", wrap(async (_req, res) => {
-    const { rows } = await db().query("SELECT slug, name, timezone, settings->>'mode' AS mode FROM tenants ORDER BY name");
+    const a = authOf(res);
+    const { rows } = await db().query(
+      "SELECT slug, name, timezone, settings->>'mode' AS mode FROM tenants WHERE ($1::text IS NULL OR slug = $1) ORDER BY name",
+      [a.kind === "user" ? a.slug : null],
+    );
     res.json(rows);
   }));
 
   r.post("/tenants", wrap(async (req, res) => {
+    if (authOf(res).kind !== "operator") return void res.status(403).json({ error: "Only the operator can add companies" });
     const body = NewTenantBody.safeParse(req.body);
     if (!body.success) return void res.status(400).json({ error: body.error.issues[0].message });
     if (await getTenantBySlug(body.data.slug)) return void res.status(409).json({ error: "That short name is taken" });
@@ -167,7 +221,7 @@ export function apiRouter(): Router {
 
   r.put("/t/:slug/settings", wrap(async (req, res) => {
     const t = await tenantOf(req, res);
-    if (!t) return;
+    if (!t || !allow(res, "owner")) return;
     const body = SettingsBody.safeParse(req.body);
     if (!body.success) return void res.status(400).json({ error: body.error.issues[0].message });
     const phone = body.data.shadowRecipientPhone ? toE164(body.data.shadowRecipientPhone) : undefined;
@@ -200,7 +254,7 @@ export function apiRouter(): Router {
 
   r.put("/t/:slug/connectors/:kind/:provider", wrap(async (req, res) => {
     const t = await tenantOf(req, res);
-    if (!t) return;
+    if (!t || !allow(res, "owner")) return;
     const m = findManifest(String(req.params.kind), String(req.params.provider));
     if (!m) return void res.status(404).json({ error: "Unknown connector" });
     if (m.status !== "ready") return void res.status(400).json({ error: `${m.label} is not available yet` });
@@ -223,6 +277,65 @@ export function apiRouter(): Router {
     res.json({ ok: true });
   }));
 
+  const NewUserBody = z.object({
+    name: z.string().min(1).max(120),
+    email: z.string().email(),
+    phone: z.string().optional(),
+    role: z.enum(["owner", "office", "pm"]),
+    password: z.string().min(MIN_PASSWORD, `Password needs at least ${MIN_PASSWORD} characters`),
+  });
+
+  r.get("/t/:slug/users", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner")) return;
+    const { rows } = await db().query(
+      "SELECT id, name, email, phone, role, alerts_enabled, last_login_at FROM users WHERE tenant_id = $1 ORDER BY created_at",
+      [t.id],
+    );
+    res.json(rows);
+  }));
+
+  r.post("/t/:slug/users", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner")) return;
+    const body = NewUserBody.safeParse(req.body);
+    if (!body.success) return void res.status(400).json({ error: body.error.issues[0].message });
+    const phone = body.data.phone ? toE164(body.data.phone) : null;
+    if (body.data.phone && !phone) return void res.status(400).json({ error: "That phone number isn't valid" });
+    const dupe = await db().query("SELECT 1 FROM users WHERE lower(email) = lower($1)", [body.data.email]);
+    if (dupe.rowCount) return void res.status(409).json({ error: "That email already has an account" });
+    const { rows } = await db().query<{ id: string }>(
+      "INSERT INTO users (tenant_id, name, email, phone, role, password_hash) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
+      [t.id, body.data.name, body.data.email, phone, body.data.role, hashPassword(body.data.password)],
+    );
+    res.status(201).json({ id: rows[0].id });
+  }));
+
+  r.patch("/t/:slug/users/:id", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner")) return;
+    const body = z.object({ alertsEnabled: z.boolean().optional(), phone: z.string().nullable().optional(), password: z.string().min(MIN_PASSWORD).optional() }).safeParse(req.body);
+    if (!body.success) return void res.status(400).json({ error: body.error.issues[0].message });
+    const phone = body.data.phone ? toE164(body.data.phone) : body.data.phone;
+    if (body.data.phone && !phone) return void res.status(400).json({ error: "That phone number isn't valid" });
+    if (body.data.alertsEnabled !== undefined) await db().query("UPDATE users SET alerts_enabled = $3 WHERE id = $1 AND tenant_id = $2", [req.params.id, t.id, body.data.alertsEnabled]);
+    if (phone !== undefined) await db().query("UPDATE users SET phone = $3 WHERE id = $1 AND tenant_id = $2", [req.params.id, t.id, phone]);
+    if (body.data.password) {
+      await db().query("UPDATE users SET password_hash = $3 WHERE id = $1 AND tenant_id = $2", [req.params.id, t.id, hashPassword(body.data.password)]);
+      await db().query("DELETE FROM sessions WHERE user_id = $1", [req.params.id]); // a reset signs the person out everywhere
+    }
+    res.json({ ok: true });
+  }));
+
+  r.delete("/t/:slug/users/:id", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner")) return;
+    const a = authOf(res);
+    if (a.kind === "user" && a.userId === req.params.id) return void res.status(400).json({ error: "You can't remove yourself" });
+    const out = await db().query("DELETE FROM users WHERE id = $1 AND tenant_id = $2", [req.params.id, t.id]);
+    res.status(out.rowCount ? 200 : 404).json({ ok: Boolean(out.rowCount) });
+  }));
+
   const ImportBody = z.object({
     csv: z.string().min(1),
     defaultType: z.enum(["client", "sub", "vendor", "prospect", "other"]).default("other"),
@@ -231,7 +344,7 @@ export function apiRouter(): Router {
 
   r.post("/t/:slug/import/:kind", wrap(async (req, res) => {
     const t = await tenantOf(req, res);
-    if (!t) return;
+    if (!t || !allow(res, "owner")) return;
     const body = ImportBody.safeParse(req.body);
     if (!body.success) return void res.status(400).json({ error: "Send the file text as csv" });
     try {
@@ -251,7 +364,7 @@ export function apiRouter(): Router {
   // Only allowed on the demo phone, so a simulated call can never text a real number.
   r.post("/t/:slug/simulate", wrap(async (req, res) => {
     const t = await tenantOf(req, res);
-    if (!t) return;
+    if (!t || !allow(res, "owner")) return;
     const scenario = findScenario(String(req.body?.scenario));
     if (!scenario) return void res.status(400).json({ error: "Unknown scenario" });
     const { rows } = await db().query("SELECT 1 FROM connector_accounts WHERE tenant_id = $1 AND kind = 'telephony' AND provider = 'mock'", [t.id]);

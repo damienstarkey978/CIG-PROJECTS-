@@ -21,7 +21,9 @@ One app, many companies. Each company is a tenant, and everything outside the co
 ADMIN_TOKEN=pick-something-long npm run dev     # open http://localhost:8080
 ```
 
-Sign in with `ADMIN_TOKEN`, Add company, Connectors, connect **Demo phone**, then the Demo tab runs practice calls through the whole pipeline. Without Anthropic credentials the app uses a crude offline keyword classifier (logged as a warning); set `ANTHROPIC_API_KEY` to use Claude. Simulated calls are refused on any company that has a real phone connected, so a demo can never text a real number.
+Sign in with `ADMIN_TOKEN` (leave email empty): that is the operator login and sees every company. Customers get their own logins: as operator, open a company, go to Team, and add the owner with an email and starting password. Roles: **owner** can change everything for their company; **office** and **pm** can use the inbox, tasks, leads, contacts and texts. Each person sees only their own company. Passwords are hashed with scrypt, sessions last 30 days, and 10 wrong tries locks a login for 15 minutes.
+
+Operator walkthrough: Add company, Connectors, connect **Demo phone**, then the Demo tab runs practice calls through the whole pipeline. Without Anthropic credentials the app uses a crude offline keyword classifier (logged as a warning); set `ANTHROPIC_API_KEY` to use Claude. Simulated calls are refused on any company that has a real phone connected, so a demo can never text a real number.
 
 ## How it works
 
