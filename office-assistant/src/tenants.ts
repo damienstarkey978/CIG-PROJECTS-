@@ -2,7 +2,7 @@ import { db } from "./lib/db";
 import { decryptJson, encryptJson } from "./lib/crypto";
 import { findManifest } from "./connectors/registry";
 import { QuickBooksOnline, qboAppFromEnv, type QboSecrets } from "./connectors/quickbooks";
-import type { AccountingProvider, TelephonyProvider } from "./connectors/types";
+import type { AccountingProvider, EmailProvider, TelephonyProvider } from "./connectors/types";
 
 export interface TenantSettings {
   mode: "shadow" | "live";
@@ -12,6 +12,10 @@ export interface TenantSettings {
   chaseAfterDays?: number;
   /** The line (E.164) that texts to subs are sent from. */
   outboundNumber?: string;
+  /** Client progress emails. cc is added to every one, every time. */
+  weeklyUpdates?: { cc?: string[]; closing?: string; signature?: string; senders?: string[]; inboundTokenHash?: string };
+  /** The Friday plans and permitting report. */
+  permitReport?: { enabled?: boolean; to?: string[]; signature?: string };
   // Approved follow up copy keyed by template name. Missing key = no text is sent.
   templates: Record<string, string>;
 }
@@ -86,4 +90,15 @@ export async function accountingFor(tenantId: string): Promise<AccountingProvide
   const manifest = findManifest("accounting", row.provider);
   if (!manifest?.createAccounting) throw new Error(`Unknown accounting provider ${row.provider}`);
   return manifest.createAccounting();
+}
+
+/** The tenant's outgoing email connection, or null when none is connected. */
+export async function emailFor(tenantId: string): Promise<EmailProvider | null> {
+  const { rows } = await db().query<{ provider: string; secrets_enc: string | null }>(
+    "SELECT provider, secrets_enc FROM connector_accounts WHERE tenant_id = $1 AND kind = 'email' ORDER BY created_at LIMIT 1", [tenantId]);
+  const row = rows[0];
+  if (!row) return null;
+  const manifest = findManifest("email", row.provider);
+  if (!manifest?.createEmail) throw new Error(`Unknown email provider ${row.provider}`);
+  return manifest.createEmail(row.secrets_enc ? decryptJson(row.secrets_enc) : {});
 }

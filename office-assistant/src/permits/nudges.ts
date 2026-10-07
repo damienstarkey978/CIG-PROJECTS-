@@ -50,3 +50,9 @@ export async function runPermitNudges(tenantId: string, timezone: string, now = 
   }
   return created;
 }
+
+/** Records a change so the Friday report can say what moved. Nothing is logged when nothing changed. */
+export async function logPermitEvent(tenantId: string, permitId: string, from: { status: string | null; due: string | null }, to: { status: string | null; due: string | null }): Promise<void> {
+  if (from.status === to.status && from.due === to.due) return;
+  await db().query("INSERT INTO permit_events (tenant_id, permit_id, from_status, to_status, from_due, to_due) VALUES ($1,$2,$3,$4,$5,$6)", [tenantId, permitId, from.status, to.status, from.due, to.due]);
+}

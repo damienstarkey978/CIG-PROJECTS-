@@ -37,6 +37,11 @@ test("message wording follows the house rules", () => {
   }
 });
 
+test("a company name ending in a full stop does not double it", () => {
+  assert.equal(renderTemplate("Hi {first_name}, thanks for calling {business}. We got your message.", { first_name: "Tom", business: "World Construction Inc." }), "Hi Tom, thanks for calling World Construction Inc. We got your message.");
+  assert.equal(renderTemplate("Calling {business}...", { business: "Acme" }), "Calling Acme..."); // a real ellipsis is left alone
+});
+
 test("permit attention rules", () => {
   const T = "2026-10-06";
   const a = (kind: any, status: any, due: string | null) => permitAttention({ kind, status, dueDate: due }, T);

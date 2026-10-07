@@ -101,3 +101,17 @@ export interface AccountingProvider {
   /** Invoices with a balance still owed to us. */
   listOpenInvoices(): Promise<AcctInvoice[]>;
 }
+
+// ---- email (client updates). Sending only ever happens after a person approves a draft. ----
+
+export interface OutgoingEmail {
+  to: string;
+  cc: string[];
+  subject: string;
+  text: string;
+}
+
+export interface EmailProvider {
+  readonly name: string;
+  send(msg: OutgoingEmail): Promise<{ id: string | null }>;
+}

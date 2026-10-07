@@ -1,5 +1,6 @@
 import { claudeClassifier, type Classifier } from "./classify";
 import { claudeDrafter, offlineDrafter, type Drafter } from "../changeorders/draft";
+import { claudeEmailParser, offlineEmailParser, type EmailParser } from "../updates/parse";
 import { offlineClassifier } from "./offline";
 import { log } from "../lib/log";
 
@@ -15,4 +16,8 @@ export function pickClassifier(): { classify: Classifier; engine: "claude" | "of
 
 export function pickDrafter(): Drafter {
   return hasClaudeCredentials() ? claudeDrafter() : offlineDrafter();
+}
+
+export function pickEmailParser(): EmailParser {
+  return hasClaudeCredentials() ? claudeEmailParser() : offlineEmailParser();
 }

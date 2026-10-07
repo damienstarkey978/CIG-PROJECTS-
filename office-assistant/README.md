@@ -86,6 +86,21 @@ These need accounts and money, so they are not automated:
 - **Copy:** every text has suggested wording written in `src/copy.ts` (short, says who it is from, one ask, no links, no dashes). New companies start with it in Settings in shadow mode, so shadow reports show real text. The owner can edit any message or empty a box to send nothing; live mode is a separate switch. With no copy, live mode opens a task for the office instead. Shadow mode texts no sub at all; it sends the owner one digest of what it would have done.
 - **Photos:** a photo from a sub we are chasing for paperwork opens a "check this file" task with the attachment link. A person marks the paperwork on file.
 
+## Weekly client updates
+
+Mirrors the office's existing process. The project manager's weekly email (internal notes, one block per job) goes in; one draft per client comes out. Paste it on the **Updates** tab, or have it forwarded to the inbound address (Settings makes a secret; only allowed sender emails can start drafts).
+
+- Each job is matched to your job list by street address. No match, several matches, or no client email on file are flagged on the draft, never guessed.
+- Explicit exclusions are respected ("skip Newcomb this week", "already sent to Kirby"): those get a Skipped card with the reason.
+- Format: `Weekly Progress Update - {address}`; "Hi {first name},"; a short intro; "This Week's Progress:" bullets; "Upcoming Work:" bullets; the closing line; the signature. The always copy list (Settings) is added to every email, every time, even if someone deletes it from a draft.
+- Facts come only from the notes. Numbers or dates that are not in the notes, and anything held back as internal, are flagged for the reviewer.
+- Running the same email twice does not double up: a job already drafted or sent in the last two days is skipped.
+- Nothing is sent until a person presses **Approve and send** on the draft. Sending uses the email connector (SMTP: Google Workspace with an app password, Microsoft 365, most business email) and can be retried if it fails. Sent emails are locked.
+
+## Plans and permitting progress report
+
+Turn it on in Settings and add recipients. Twice a week (Tuesday and Thursday morning) a task reminds the office to check the permitting software and update the Permits tab; every status or date change is recorded. Friday morning Heather drafts the report from those records and their history: Needs attention, What changed this week, Coming up in the next 14 days, Still in progress. It is built from the records, not written freehand. It lands on the Updates tab as a draft, with a review task, and goes out only when a person sends it.
+
 ## Change orders
 
 Describe extra work in plain words (in the app, or by text: a staff member whose number is on their user starts a text with "change order" and names the job). Heather drafts the title, the client wording, line items, total and added days, and saves it as a **draft**. Rules:

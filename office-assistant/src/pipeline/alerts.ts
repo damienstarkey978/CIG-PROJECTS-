@@ -64,5 +64,6 @@ export function renderTemplate(template: string, vars: Record<string, string | n
     .replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? "")
     .replace(/\s+/g, " ")
     .replace(/\s+([,.!?;:])/g, "$1") // "Hi , thanks" becomes "Hi, thanks" when a name is unknown
+    .replace(/([A-Za-z])\.\.(?!\.)/g, "$1.") // a name ending in "Inc." plus a full stop is one full stop
     .trim();
 }

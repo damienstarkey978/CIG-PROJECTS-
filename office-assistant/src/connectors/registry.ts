@@ -1,12 +1,14 @@
 import { MockAccounting } from "./mockAccounting";
+import { MockEmail } from "./mockEmail";
+import { SmtpEmail } from "./smtp";
 import { MockTelephony } from "./mock";
 import { QuoClient, type QuoSecrets } from "./quo";
-import type { AccountingProvider, TelephonyProvider } from "./types";
+import type { AccountingProvider, EmailProvider, TelephonyProvider } from "./types";
 
 // Every plug in a customer can pick, in one list. Adding a provider means adding
 // a manifest here and an adapter next to it; the core never names a provider.
 
-export type ConnectorKind = "telephony" | "calendar" | "jobs" | "accounting";
+export type ConnectorKind = "telephony" | "calendar" | "jobs" | "accounting" | "email";
 
 export interface FieldSpec {
   key: string;
@@ -29,6 +31,7 @@ export interface ConnectorManifest {
   createTelephony?: (config: any, secrets: any) => TelephonyProvider;
   /** Only for providers needing no sign in. QuickBooks is built in tenants.ts so it can save refreshed tokens. */
   createAccounting?: () => AccountingProvider;
+  createEmail?: (secrets: any) => EmailProvider;
 }
 
 export const MANIFESTS: ConnectorManifest[] = [
@@ -52,6 +55,39 @@ export const MANIFESTS: ConnectorManifest[] = [
     status: "ready",
     fields: [],
     createTelephony: () => new MockTelephony(),
+  },
+  {
+    kind: "email",
+    provider: "smtp",
+    label: "Email (SMTP)",
+    description: "Sends approved client emails from your own address. Works with Google Workspace (use an app password), Microsoft 365 and most business email.",
+    status: "ready",
+    fields: [
+      { key: "host", label: "SMTP server", required: true, help: "e.g. smtp.gmail.com" },
+      { key: "port", label: "Port", required: true, help: "587, or 465 for SSL" },
+      { key: "user", label: "Login (usually the email address)", required: true },
+      { key: "pass", label: "Password or app password", secret: true, required: true },
+      { key: "fromEmail", label: "Send from", required: true, help: "e.g. office@yourcompany.com" },
+      { key: "fromName", label: "Sender name", help: "Optional, e.g. Your Company" },
+    ],
+    createEmail: (secrets) => new SmtpEmail(secrets),
+  },
+  {
+    kind: "email",
+    provider: "demo_email",
+    label: "Demo email",
+    description: "Practice email. Nothing is actually sent.",
+    status: "ready",
+    fields: [],
+    createEmail: () => new MockEmail(),
+  },
+  {
+    kind: "email",
+    provider: "gmail",
+    label: "Gmail (sign in)",
+    description: "Read the project manager's email and save drafts straight in your inbox.",
+    status: "planned",
+    fields: [],
   },
   {
     kind: "calendar",
@@ -111,7 +147,7 @@ export function findManifest(kind: string, provider: string): ConnectorManifest 
 
 /** What the UI may show: manifests without factory functions. */
 export function publicCatalog() {
-  return MANIFESTS.map(({ createTelephony: _t, createAccounting: _a, ...m }) => m);
+  return MANIFESTS.map(({ createTelephony: _t, createAccounting: _a, createEmail: _e, ...m }) => m);
 }
 
 /** Splits submitted values into non secret config and secrets, and checks required fields. */

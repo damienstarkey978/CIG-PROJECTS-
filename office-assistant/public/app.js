@@ -62,10 +62,10 @@
   }
 
   // ---- shell ----
-  const TABS = [["inbox", "Inbox"], ["tasks", "Tasks"], ["leads", "Leads"], ["contacts", "Contacts"], ["schedule", "Schedule"], ["change", "Change orders"], ["permits", "Permits"], ["subs", "Subs"], ["texts", "Texts"], ["books", "Books"], ["settings", "Settings"], ["import", "Import"], ["connectors", "Connectors"], ["team", "Team"], ["demo", "Demo"]];
+  const TABS = [["inbox", "Inbox"], ["tasks", "Tasks"], ["leads", "Leads"], ["contacts", "Contacts"], ["schedule", "Schedule"], ["updates", "Updates"], ["change", "Change orders"], ["permits", "Permits"], ["subs", "Subs"], ["texts", "Texts"], ["books", "Books"], ["settings", "Settings"], ["import", "Import"], ["connectors", "Connectors"], ["team", "Team"], ["demo", "Demo"]];
   const OWNER_ONLY = new Set(["settings", "import", "connectors", "team", "demo"]);
   const canAdmin = () => me && (me.role === "operator" || me.role === "owner");
-  const visible = (id) => OWNER_ONLY.has(id) ? canAdmin() : (id === "books" || id === "subs") ? (canAdmin() || me.role === "office") : true;
+  const visible = (id) => OWNER_ONLY.has(id) ? canAdmin() : (id === "books" || id === "subs" || id === "updates") ? (canAdmin() || me.role === "office") : true;
 
   async function render() {
     if (!token) return loginView();
@@ -231,23 +231,42 @@
         return h("div", {}, h("label", {}, info.label), h("div", { class: "muted" }, info.when + " You can use " + info.vars.map((v) => "{" + v + "}").join(", ") + "."), tpl[k],
           h("button", { class: "btn ghost", onclick: () => { tpl[k].value = info.suggested; } }, "Use suggested wording"));
       });
+      const wu = s.weeklyUpdates || {}, pr = s.permitReport || {};
+      const list = (v) => (v || []).join(", ");
+      const split = (v) => v.split(/[,\n;]/).map((x) => x.trim()).filter(Boolean);
+      const wuCc = h("input", { placeholder: "mark@yourco.com, owner@yourco.com", value: list(wu.cc) });
+      const wuClosing = h("textarea", { rows: 3 }); wuClosing.value = wu.closing || "Please let us know if you have any questions. Thank you again for choosing {business}.";
+      const wuSig = h("textarea", { rows: 4, placeholder: "Warm Regards,\nYour name\nYour title\nPhone" }); wuSig.value = wu.signature || "";
+      const wuSenders = h("input", { placeholder: "Project manager's email, so only he can trigger drafts by email", value: list(wu.senders) });
+      const prOn = h("input", { type: "checkbox", style: "width:auto", checked: Boolean(pr.enabled) });
+      const prTo = h("input", { placeholder: "Who gets the Friday permitting report", value: list(pr.to) });
+      const tokMsg = h("div", {});
+      const updatesCard = h("div", { class: "card" }, h("h3", {}, "Client updates and the Friday permitting report"),
+        h("div", { class: "muted" }, "Nothing here ever sends by itself. Heather drafts, a person reviews on the Updates tab, and sends."),
+        h("label", {}, "Always copy these people on every client update"), wuCc,
+        h("label", {}, "Closing line (use {business} for your company name)"), wuClosing,
+        h("label", {}, "Signature"), wuSig,
+        h("label", {}, "Emails allowed to start a draft by forwarding the weekly progress email"), wuSenders,
+        h("p", {}, h("button", { class: "btn ghost", onclick: async () => { try { const r = await api(`/t/${slug}/updates/inbound-token`, { method: "POST" }); tokMsg.replaceChildren(h("div", { class: "okmsg" }, "Forward the project manager's emails to this address with this secret. It is shown once."), h("div", { class: "transcript" }, "POST " + r.url + "\nHeader x-inbound-token: " + r.token + "\nJSON body: from, subject, text")); } catch (e) { flash(tokMsg, e.message, true); } } }, wu.hasInboundToken ? "Make a new inbound email secret" : "Make an inbound email secret")), tokMsg,
+        h("label", { class: "row" }, prOn, "Turn on the weekly permitting report and the Tuesday and Thursday status check reminders"),
+        h("label", {}, "Permitting report goes to"), prTo);
       const msg = h("div", {});
       const save = async () => {
         if (mode.value === "live" && s.mode !== "live" && !confirm("Live mode texts real callers and staff. Switch to live?")) return;
         try {
-          await api(`/t/${slug}/settings`, { method: "PUT", body: { mode: mode.value, confidenceThreshold: Number(thr.value), chaseAfterDays: Number(chase.value) || undefined, outboundNumber: outbound.value || undefined, shadowRecipientPhone: phone.value || null, templates: Object.fromEntries(Object.entries(tpl).map(([k, el]) => [k, el.value])) } });
+          await api(`/t/${slug}/settings`, { method: "PUT", body: { mode: mode.value, confidenceThreshold: Number(thr.value), chaseAfterDays: Number(chase.value) || undefined, outboundNumber: outbound.value || undefined, weeklyUpdates: { cc: split(wuCc.value), closing: wuClosing.value, signature: wuSig.value, senders: split(wuSenders.value) }, permitReport: { enabled: prOn.checked, to: split(prTo.value) }, shadowRecipientPhone: phone.value || null, templates: Object.fromEntries(Object.entries(tpl).map(([k, el]) => [k, el.value])) } });
           flash(msg, "Saved.");
         } catch (e) { flash(msg, e.message, true); }
       };
       body.append(h("div", { class: "card" }, h("label", {}, "Mode"), mode, h("label", {}, "Minimum confidence before a call is sorted automatically (0.3 to 0.99). Below this it goes to a person."), thr, h("label", {}, "Days past due before an unpaid invoice gets a follow up task"), chase, h("label", {}, "Business line for texts to subs"), outbound, h("label", {}, "Shadow report phone"), phone,
         h("h3", {}, "Text messages"), h("p", { class: "muted" }, "Each box says when it is sent and which words you can drop in. Suggested wording is filled in to start; edit it freely. A message only goes out if its box has words in it, and nothing goes to anyone until the mode above is Live."), tplFields,
-        h("p", {}, h("button", { class: "btn", onclick: save }, "Save")), msg));
+        h("p", {}, h("button", { class: "btn", onclick: save }, "Save")), msg), updatesCard);
     },
 
     async connectors(body) {
       const have = await api(`/t/${slug}/connectors`);
-      for (const kind of ["telephony", "calendar", "jobs", "accounting"]) {
-        const kindLabel = { telephony: "Phone and texting", calendar: "Calendar", jobs: "Jobs and schedules", accounting: "Accounting" }[kind];
+      for (const kind of ["telephony", "email", "calendar", "jobs", "accounting"]) {
+        const kindLabel = { telephony: "Phone and texting", email: "Email for client updates", calendar: "Calendar", jobs: "Jobs and schedules", accounting: "Accounting" }[kind];
         body.append(h("h3", {}, kindLabel));
         for (const m of meta.connectors.filter((c) => c.kind === kind)) {
           const mine = have.find((c) => c.kind === kind && c.provider === m.provider);
@@ -356,6 +375,40 @@
         h("div", { class: "row" }, h("select", { style: "width:auto", onchange: async (e) => { await api(`/t/${slug}/schedule/${a.id}`, { method: "PATCH", body: { confirmationStatus: e.target.value } }); render(); } },
           Object.entries(CHIP).map(([v, l]) => h("option", { value: v, selected: v === a.confirmation_status }, l))),
           h("button", { class: "btn ghost", onclick: async () => { if (confirm("Remove this from the schedule?")) { await api(`/t/${slug}/schedule/${a.id}`, { method: "DELETE" }); render(); } } }, "Remove"))));
+    },
+
+    async updates(body) {
+      const rows = await api(`/t/${slug}/updates`);
+      const text = h("textarea", { rows: 7, placeholder: "Paste the project manager's weekly progress email here: each job's address with his notes. Say \"skip\" for any job that should not get an update this week." });
+      const out = h("div", {});
+      body.append(h("div", { class: "card" }, h("b", {}, "Weekly client updates"), h("div", { class: "muted" }, "Heather splits the email by job, matches each address to your job list, and drafts one email per client in your usual format. Nothing is sent until you review it and press Send."), h("p", {}, text),
+        h("div", { class: "row" },
+          h("button", { class: "btn", onclick: async (e) => { e.target.disabled = true; out.replaceChildren(); try { const r = await api(`/t/${slug}/updates`, { method: "POST", body: { text: text.value } });
+            out.append(h("div", { class: "card" }, h("b", {}, `${r.drafted.length} drafted, ${r.skipped.length} skipped, ${r.alreadyDone.length} already done this week`), r.unreadable ? h("div", { class: "err" }, "Couldn't find any jobs in that email. Each job needs its street address on its own line.") : null, ...r.skipped.map((x) => h("div", { class: "muted" }, "Skipped " + x.address + ": " + x.reason)), ...r.alreadyDone.map((x) => h("div", { class: "muted" }, "Already drafted: " + x))));
+            text.value = ""; setTimeout(render, 1200); } catch (er) { flash(out, er.message, true); } e.target.disabled = false; } }, "Make drafts"),
+          h("button", { class: "btn ghost", onclick: async () => { try { const r = await api(`/t/${slug}/updates/permit-report`, { method: "POST" }); flash(out, r.alreadyExists ? "This week's permitting report is already drafted." : "Permitting report drafted."); setTimeout(render, 800); } catch (er) { flash(out, er.message, true); } } }, "Draft the permitting report"))), out);
+      if (!rows.length) return body.append(empty("No drafts yet."));
+      const CHIP = { draft: "Draft", sending: "Sending", sent: "Sent", skipped: "Skipped", failed: "Failed" };
+      for (const d of rows) {
+        const to = h("input", { value: (d.to_emails || []).join(", "), placeholder: "Who it goes to", disabled: d.status === "sent" });
+        const cc = h("input", { value: (d.cc || []).join(", "), disabled: d.status === "sent" });
+        const subj = h("input", { value: d.subject, disabled: d.status === "sent" });
+        const bod = h("textarea", { rows: 14, disabled: d.status === "sent" }); bod.value = d.body;
+        const msg = h("div", {});
+        const emails = (v) => v.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
+        const save = async (extra = {}) => api(`/t/${slug}/updates/${d.id}`, { method: "PATCH", body: { toEmails: emails(to.value), cc: emails(cc.value), subject: subj.value, body: bod.value, ...extra } });
+        const form = h("div", { hidden: true }, h("label", {}, "To"), to, h("label", {}, "Copy"), cc, h("label", {}, "Subject"), subj, h("label", {}, "Email"), bod,
+          d.status !== "sent" ? h("div", { class: "row" },
+            h("button", { class: "btn ghost", onclick: async () => { try { await save(); flash(msg, "Saved."); } catch (e) { flash(msg, e.message, true); } } }, "Save"),
+            d.status !== "skipped" ? h("button", { class: "btn", onclick: async () => { if (!confirm("Send this to " + (emails(to.value).join(", ") || "nobody") + (emails(cc.value).length ? ", copying " + emails(cc.value).join(", ") : "") + "?")) return; try { await save(); await api(`/t/${slug}/updates/${d.id}/send`, { method: "POST" }); render(); } catch (e) { flash(msg, e.message, true); } } }, "Approve and send") : h("button", { class: "btn ghost", onclick: async () => { await save({ status: "draft" }); render(); } }, "Restore"),
+            d.status !== "skipped" ? h("button", { class: "btn ghost", onclick: async () => { await save({ status: "skipped" }); render(); } }, "Skip") : null,
+            h("button", { class: "btn ghost", onclick: async () => { if (confirm("Delete this draft?")) { await api(`/t/${slug}/updates/${d.id}`, { method: "DELETE" }); render(); } } }, "Delete")) : null, msg);
+        form.addEventListener("click", (e) => e.stopPropagation());
+        body.append(h("div", { class: "card", onclick: () => { form.hidden = !form.hidden; } },
+          h("div", { class: "row" }, h("b", { class: "grow" }, d.kind === "permits" ? d.subject : d.address), d.kind === "permits" ? h("span", { class: "chip" }, "Permitting report") : null, h("span", { class: "chip " + (d.status === "sent" ? "lead" : d.status === "failed" ? "unknown" : "") }, CHIP[d.status])),
+          h("div", { class: "muted" }, (d.to_emails || []).join(", ") || "no recipient yet"),
+          ...(d.flags || []).map((f) => h("div", { class: "chip unknown" }, f)), d.error ? h("div", { class: "err" }, d.error) : null, form));
+      }
     },
 
     async change(body) {

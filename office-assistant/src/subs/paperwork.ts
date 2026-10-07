@@ -55,3 +55,9 @@ export function localDate(timezone: string, now: Date, plusDays = 0): string {
 export function dayName(isoDate: string): string {
   return new Date(isoDate + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
 }
+
+/** Weekday ("Mon" to "Sun") and hour (0 to 23) in the company's time zone. */
+export function localParts(timezone: string, now: Date): { weekday: string; hour: number } {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", hour12: false, weekday: "short" }).formatToParts(now);
+  return { weekday: parts.find((p) => p.type === "weekday")!.value, hour: Number(parts.find((p) => p.type === "hour")!.value) % 24 };
+}

@@ -15,9 +15,13 @@ import { offlineDrafter, type Drafter } from "./changeorders/draft";
 import { draftChangeOrder, getChangeOrder, listChangeOrders, TRANSITIONS, type CoStatus } from "./changeorders/store";
 import { importContacts, type ImportContactType } from "./import/contacts";
 import { importJobs } from "./import/jobs";
-import { accountingFor, getTenantBySlug, saveConnector, telephonyFor, type Tenant } from "./tenants";
+import { accountingFor, emailFor, getTenantBySlug, saveConnector, telephonyFor, type Tenant } from "./tenants";
 import { paperworkNeeds } from "./subs/paperwork";
-import { permitAttention, runPermitNudges } from "./permits/nudges";
+import { logPermitEvent, permitAttention, runPermitNudges } from "./permits/nudges";
+import { buildClientUpdates } from "./updates/build";
+import { offlineEmailParser, type EmailParser } from "./updates/parse";
+import { createPermitReportDraft } from "./updates/permitReport";
+import { sendDraft, validEmails } from "./updates/send";
 import { runAutomation } from "./subs/automation";
 import { ingestEvent } from "./pipeline/ingest";
 import { ageTotals, daysOverdue, paymentBlockers, round2 } from "./books/analyze";
@@ -30,6 +34,13 @@ const SettingsBody = z.object({
   confidenceThreshold: z.number().min(0.3).max(0.99),
   chaseAfterDays: z.number().int().min(1).max(90).optional(),
   outboundNumber: z.string().nullable().optional(),
+  weeklyUpdates: z.object({
+    cc: z.array(z.string().email()).max(10),
+    closing: z.string().max(500),
+    signature: z.string().max(1500),
+    senders: z.array(z.string().email()).max(10),
+  }).optional(),
+  permitReport: z.object({ enabled: z.boolean(), to: z.array(z.string().email()).max(15), signature: z.string().max(1500).optional() }).optional(),
   shadowRecipientPhone: z.string().nullable().optional(),
   templates: z.partialRecord(z.enum(TEMPLATE_KEYS), z.string().max(320)),
 });
@@ -86,7 +97,7 @@ async function tenantOf(req: Request, res: Response): Promise<Tenant | null> {
   return t;
 }
 
-export function apiRouter(opts: { draft?: Drafter } = {}): Router {
+export function apiRouter(opts: { draft?: Drafter; parseEmail?: EmailParser } = {}): Router {
   const r = Router();
   r.use(express.json({ limit: "8mb" })); // CSV imports arrive as text in the body
 
@@ -118,6 +129,22 @@ export function apiRouter(opts: { draft?: Drafter } = {}): Router {
     } catch (err) {
       res.status(502).send("QuickBooks didn't accept the sign in. Try again from Connectors.");
     }
+  }));
+
+  // Mail forwarding (Zapier, Mailgun, a Gmail filter, etc.) posts the project manager's email here.
+  // A per company secret in the x-inbound-token header, and an allowed sender list, gate it.
+  r.post("/inbound/email/:slug", wrap(async (req, res) => {
+    const t = await getTenantBySlug(String(req.params.slug));
+    const given = String(req.headers["x-inbound-token"] ?? "");
+    const stored = t?.settings.weeklyUpdates?.inboundTokenHash;
+    if (!t || !stored || !given || !safeEqual(crypto.createHash("sha256").update(given).digest("hex"), stored)) return void res.status(401).json({ error: "Bad token" });
+    const b = z.object({ from: z.string().min(3), subject: z.string().max(300).optional(), text: z.string().min(20).max(60000) }).safeParse(req.body);
+    if (!b.success) return void res.status(400).json({ error: "Send from, subject and text" });
+    const sender = (/<([^>]+)>/.exec(b.data.from)?.[1] ?? b.data.from).trim().toLowerCase();
+    const allowed = (t.settings.weeklyUpdates?.senders ?? []).map((e) => e.toLowerCase());
+    if (!allowed.includes(sender)) return void res.status(202).json({ ok: true, ignored: "sender is not on the allowed list" });
+    const out = await buildClientUpdates(opts.parseEmail ?? offlineEmailParser(), t, { text: b.data.text, from: sender, subject: b.data.subject ?? null, source: "email" });
+    res.status(202).json({ ok: true, drafted: out.drafted.length, skipped: out.skipped.length, alreadyDone: out.alreadyDone.length });
   }));
 
   r.use(authenticate);
@@ -242,9 +269,11 @@ export function apiRouter(opts: { draft?: Drafter } = {}): Router {
     res.json(rows);
   }));
 
+  // Never send the inbound secret's hash back to the browser, only whether one exists.
+  const publicSettings = (st: any) => ({ ...st, weeklyUpdates: st.weeklyUpdates ? { ...st.weeklyUpdates, inboundTokenHash: undefined, hasInboundToken: Boolean(st.weeklyUpdates.inboundTokenHash) } : undefined });
   r.get("/t/:slug/settings", wrap(async (req, res) => {
     const t = await tenantOf(req, res);
-    if (t) res.json(t.settings);
+    if (t) res.json(publicSettings(t.settings));
   }));
 
   r.put("/t/:slug/settings", wrap(async (req, res) => {
@@ -260,12 +289,14 @@ export function apiRouter(opts: { draft?: Drafter } = {}): Router {
       mode: body.data.mode,
       confidenceThreshold: body.data.confidenceThreshold,
       chaseAfterDays: body.data.chaseAfterDays ?? t.settings.chaseAfterDays,
+      weeklyUpdates: body.data.weeklyUpdates ? { ...body.data.weeklyUpdates, inboundTokenHash: t.settings.weeklyUpdates?.inboundTokenHash } : t.settings.weeklyUpdates,
+      permitReport: body.data.permitReport ?? t.settings.permitReport,
       ...(outbound ? { outboundNumber: outbound } : body.data.outboundNumber === undefined && t.settings.outboundNumber ? { outboundNumber: t.settings.outboundNumber } : {}),
       templates: Object.fromEntries(Object.entries(body.data.templates).filter(([, v]) => v && v.trim())),
       ...(phone ? { shadowRecipientPhone: phone } : {}),
     };
     await db().query("UPDATE tenants SET settings = $2 WHERE id = $1", [t.id, JSON.stringify(next)]);
-    res.json(next);
+    res.json(publicSettings(next));
   }));
 
   r.get("/t/:slug/connectors", wrap(async (req, res) => {
@@ -441,6 +472,7 @@ export function apiRouter(opts: { draft?: Drafter } = {}): Router {
     const { rows } = await db().query<{ id: string }>(
       "INSERT INTO permits (tenant_id, job_id, kind, title, status, reference, due_date, notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",
       [t.id, b.data.jobId, b.data.kind, b.data.title, b.data.status ?? "needed", b.data.reference ?? null, b.data.dueDate ?? null, b.data.notes ?? null]);
+    await logPermitEvent(t.id, rows[0].id, { status: null, due: null }, { status: b.data.status ?? "needed", due: b.data.dueDate ?? null });
     await runPermitNudges(t.id, t.timezone); // a permit entered already overdue should not wait for the next tick
     res.status(201).json({ id: rows[0].id });
   }));
@@ -460,8 +492,10 @@ export function apiRouter(opts: { draft?: Drafter } = {}): Router {
     if (d.dueDate !== undefined) add("due_date", d.dueDate);
     if (d.notes !== undefined) add("notes", d.notes);
     if (!sets.length) return void res.json({ ok: true });
+    const before = (await db().query<{ status: string; due_date: string | null }>("SELECT status, due_date::text FROM permits WHERE id = $1 AND tenant_id = $2", [req.params.id, t.id])).rows[0];
     const out = await db().query(`UPDATE permits SET ${sets.join(", ")}, updated_at = now() WHERE id = $1 AND tenant_id = $2`, [req.params.id, t.id, ...vals]);
     if (!out.rowCount) return void res.status(404).json({ ok: false });
+    if (before) await logPermitEvent(t.id, String(req.params.id), { status: before.status, due: before.due_date }, { status: d.status ?? before.status, due: d.dueDate !== undefined ? d.dueDate : before.due_date });
     await runPermitNudges(t.id, t.timezone);
     res.json({ ok: true });
   }));
@@ -621,6 +655,90 @@ export function apiRouter(opts: { draft?: Drafter } = {}): Router {
     const id = `SIMSMS${Date.now()}${Math.floor(Math.random() * 1000)}`;
     await ingestEvent(t.id, "mock", { kind: "message_received", eventId: id, type: "message.received", message: { providerId: id, conversationId: null, phoneNumberId: "SIMLINE", direction: "incoming", from, to: "+15555550100", body: body.data.text, createdAt: new Date().toISOString() } }, { simulated: true });
     res.json({ ok: true });
+  }));
+
+  // ---- client progress updates and the Friday permitting report: drafts a person reviews and sends ----
+  const DraftRow = `SELECT d.id, d.address, d.to_emails, d.cc, d.subject, d.body, d.flags, d.status, d.error, d.sent_at, d.created_at,
+                           b.kind, b.source, j.name AS job_name
+                    FROM update_drafts d JOIN update_batches b ON b.id = d.batch_id LEFT JOIN jobs j ON j.id = d.job_id`;
+
+  r.post("/t/:slug/updates", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office")) return;
+    const b = z.object({ text: z.string().min(20).max(60000), subject: z.string().max(300).optional(), force: z.boolean().optional() }).safeParse(req.body);
+    if (!b.success) return void res.status(400).json({ error: "Paste the project manager's email" });
+    const a = authOf(res);
+    try {
+      res.status(201).json(await buildClientUpdates(opts.parseEmail ?? offlineEmailParser(), t, { text: b.data.text, subject: b.data.subject ?? null, source: "paste", userId: a.kind === "user" ? a.userId : null }, { force: b.data.force }));
+    } catch (err) {
+      res.status(502).json({ error: `Couldn't read that email: ${(err as Error).message}` });
+    }
+  }));
+
+  r.get("/t/:slug/updates", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office")) return;
+    const { rows } = await db().query(`${DraftRow} WHERE d.tenant_id = $1 ORDER BY d.created_at DESC LIMIT 200`, [t.id]);
+    res.json(rows);
+  }));
+
+  r.patch("/t/:slug/updates/:id", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office")) return;
+    const b = z.object({
+      toEmails: z.array(z.string()).max(15).optional(),
+      cc: z.array(z.string()).max(15).optional(),
+      subject: z.string().min(1).max(300).optional(),
+      body: z.string().max(20000).optional(),
+      status: z.enum(["draft", "skipped"]).optional(),
+    }).safeParse(req.body);
+    if (!b.success) return void res.status(400).json({ error: "Check the fields" });
+    const d = b.data;
+    for (const list of [d.toEmails, d.cc]) if (list && !validEmails(list)) return void res.status(400).json({ error: "One of the email addresses doesn't look right" });
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    const add = (col: string, v: unknown) => { vals.push(v); sets.push(`${col} = $${vals.length + 2}`); };
+    if (d.toEmails !== undefined) add("to_emails", d.toEmails);
+    if (d.cc !== undefined) add("cc", d.cc);
+    if (d.subject !== undefined) add("subject", d.subject);
+    if (d.body !== undefined) add("body", d.body);
+    if (d.status !== undefined) add("status", d.status);
+    if (!sets.length) return void res.json({ ok: true });
+    const out = await db().query(`UPDATE update_drafts SET ${sets.join(", ")} WHERE id = $1 AND tenant_id = $2 AND status IN ('draft','failed','skipped')`, [req.params.id, t.id, ...vals]);
+    res.status(out.rowCount ? 200 : 400).json(out.rowCount ? { ok: true } : { error: "That email was already sent or can't be edited" });
+  }));
+
+  r.post("/t/:slug/updates/:id/send", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office")) return;
+    const a = authOf(res);
+    let email;
+    try { email = await emailFor(t.id); } catch (err) { return void res.status(400).json({ error: (err as Error).message }); }
+    const out = await sendDraft(t, String(req.params.id), a.kind === "user" ? a.userId : null, email);
+    res.status(out.ok ? 200 : out.status).json(out.ok ? { ok: true } : { error: out.error });
+  }));
+
+  r.delete("/t/:slug/updates/:id", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office")) return;
+    const out = await db().query("DELETE FROM update_drafts WHERE id = $1 AND tenant_id = $2 AND status IN ('draft','failed','skipped')", [req.params.id, t.id]);
+    res.status(out.rowCount ? 200 : 400).json(out.rowCount ? { ok: true } : { error: "Sent emails can't be deleted" });
+  }));
+
+  r.post("/t/:slug/updates/permit-report", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner", "office")) return;
+    res.status(201).json(await createPermitReportDraft(t, new Date(), "paste"));
+  }));
+
+  r.post("/t/:slug/updates/inbound-token", wrap(async (req, res) => {
+    const t = await tenantOf(req, res);
+    if (!t || !allow(res, "owner")) return;
+    const token = crypto.randomBytes(24).toString("base64url");
+    await db().query(
+      "UPDATE tenants SET settings = jsonb_set(settings, '{weeklyUpdates}', coalesce(settings->'weeklyUpdates', '{}'::jsonb) || jsonb_build_object('inboundTokenHash', $2::text)) WHERE id = $1",
+      [t.id, crypto.createHash("sha256").update(token).digest("hex")]);
+    res.json({ token, url: `${req.protocol}://${req.get("host")}/api/inbound/email/${t.slug}` });
   }));
 
   const NewUserBody = z.object({

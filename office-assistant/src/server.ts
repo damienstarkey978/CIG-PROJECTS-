@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import express from "express";
-import { pickClassifier, pickDrafter } from "./ai/pick";
+import { pickClassifier, pickDrafter, pickEmailParser } from "./ai/pick";
+import type { EmailParser } from "./updates/parse";
 import { apiRouter } from "./api";
 import { config } from "./config";
 import { db, migrate } from "./lib/db";
@@ -11,7 +12,7 @@ import { ingestEvent } from "./pipeline/ingest";
 import { handlers, type Deps } from "./pipeline/processCall";
 import { getTenantBySlug, telephonyFor } from "./tenants";
 
-export function buildApp(deps: Pick<Deps, "telephony" | "draft">) {
+export function buildApp(deps: Pick<Deps, "telephony" | "draft"> & { parseEmail?: EmailParser }) {
   const app = express();
 
   app.get("/health", async (_req, res) => {
@@ -40,7 +41,7 @@ export function buildApp(deps: Pick<Deps, "telephony" | "draft">) {
     }
   });
 
-  app.use("/api", apiRouter({ draft: deps.draft }));
+  app.use("/api", apiRouter({ draft: deps.draft, parseEmail: deps.parseEmail }));
   const publicDir = [path.resolve(__dirname, "../public"), path.resolve(__dirname, "../../public")].find((d) => fs.existsSync(d));
   if (publicDir) app.use(express.static(publicDir));
 
@@ -58,7 +59,7 @@ async function main() {
   const tick = () => enqueue("scheduler_tick", {}, { dedupeKey: `tick:${Math.floor(Date.now() / 600_000)}` }).catch((err) => log.error("tick failed", { error: String(err) }));
   void tick();
   setInterval(tick, 600_000);
-  buildApp(deps).listen(config.port, () => log.info("listening", { port: config.port }));
+  buildApp({ ...deps, parseEmail: pickEmailParser() }).listen(config.port, () => log.info("listening", { port: config.port }));
 }
 
 if (require.main === module) {
