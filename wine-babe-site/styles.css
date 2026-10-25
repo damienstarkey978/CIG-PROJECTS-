@@ -133,20 +133,38 @@ a {
 
 .hero h1 {
   margin: 1.15rem auto 0;
-  max-width: 16rem;
+  max-width: 16em;
   font-family: var(--serif);
   font-weight: 600;
-  font-size: clamp(1.7rem, 4.2vw, 2.4rem);
+  font-size: clamp(1.85rem, 4.6vw, 2.7rem);
   letter-spacing: 0.01em;
   line-height: 1.15;
 }
 
-.hero__lede {
-  margin: 1.1rem auto 0;
-  max-width: 38rem;
+.hero__sub {
+  margin: 0.7rem auto 0;
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: clamp(1.15rem, 2.8vw, 1.5rem);
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+}
+
+.story__points {
+  list-style: none;
+  margin: 1.5rem auto 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+  font-family: var(--serif);
+  font-size: clamp(1.15rem, 2.4vw, 1.35rem);
+  line-height: 1.35;
+}
+
+.story__note {
+  margin: 1.1rem 0 0;
   color: var(--muted);
-  font-size: 1.02rem;
-  line-height: 1.6;
+  font-size: 0.85rem;
 }
 
 .hero__cta-wrap {
