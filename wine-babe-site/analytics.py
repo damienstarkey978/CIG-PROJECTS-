@@ -130,9 +130,53 @@ def summary():
                 """,
                 (windows["Last 14 days"],),
             ).fetchall()
+            visits = conn.execute(
+                """
+                SELECT ts, path, vid_hash, referrer
+                FROM views
+                ORDER BY ts ASC
+                """
+            ).fetchall()
         finally:
             conn.close()
-    return cards, days, pages
+    return cards, days, pages, visits
+
+
+def browser_name(index):
+    letters = ""
+    number = index
+    while True:
+        letters = chr(ord("A") + (number % 26)) + letters
+        number = number // 26 - 1
+        if number < 0:
+            break
+    return f"Browser {letters}"
+
+
+def source_label(referrer):
+    if not referrer:
+        return "Direct"
+    host = (urlparse(referrer).hostname or "").lower().removeprefix("www.")
+    if not host:
+        return "Direct"
+    names = {
+        "google.com": "Google",
+        "bing.com": "Bing",
+        "yahoo.com": "Yahoo",
+        "duckduckgo.com": "DuckDuckGo",
+        "facebook.com": "Facebook",
+        "instagram.com": "Instagram",
+        "t.co": "X",
+        "twitter.com": "X",
+        "x.com": "X",
+        "tiktok.com": "TikTok",
+        "pinterest.com": "Pinterest",
+        "linkedin.com": "LinkedIn",
+    }
+    for domain, name in names.items():
+        if host == domain or host.endswith("." + domain):
+            return name
+    return host
 
 
 def esc(value):
@@ -146,7 +190,17 @@ def esc(value):
 
 
 def page():
-    cards, days, pages = summary()
+    cards, days, pages, visits = summary()
+    first_seen = {}
+    for _, _, vid_hash, _ in visits:
+        if vid_hash not in first_seen:
+            first_seen[vid_hash] = len(first_seen)
+    recent = []
+    for ts, path, vid_hash, referrer in reversed(visits[-100:]):
+        moment = datetime.fromtimestamp(ts, ET)
+        hour = moment.strftime("%I").lstrip("0")
+        when = f"{moment.strftime('%a, %b')} {moment.day}, {hour}:{moment.strftime('%M')}{moment.strftime('%p').lower()}"
+        recent.append((when, browser_name(first_seen[vid_hash]), source_label(referrer), path))
     card_html = "".join(
         f"<section><h2>{esc(label)}</h2><p><strong>{views}</strong> page views</p>"
         f"<p><strong>{visitors}</strong> visitors</p></section>"
@@ -160,6 +214,10 @@ def page():
         f"<tr><td>{esc(path)}</td><td>{views}</td><td>{visitors}</td></tr>"
         for path, views, visitors in pages
     ) or "<tr><td colspan='3'>No visits yet.</td></tr>"
+    visit_rows = "".join(
+        f"<tr><td>{esc(when)}</td><td>{esc(browser)}</td><td>{esc(source)}</td><td>{esc(path)}</td></tr>"
+        for when, browser, source, path in recent
+    ) or "<tr><td colspan='4'>No visits yet.</td></tr>"
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -176,15 +234,16 @@ def page():
     section {{ background: #fffaf6; padding: 0.9rem 1rem; }}
     h2 {{ font-size: 0.95rem; margin: 0 0 0.4rem; }}
     p {{ margin: 0.15rem 0; }}
+    .table-wrap {{ overflow-x: auto; }}
     table {{ width: 100%; border-collapse: collapse; background: #fffaf6; margin-top: 0.6rem; }}
-    th, td {{ text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid #eadfd4; }}
+    th, td {{ text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid #eadfd4; white-space: nowrap; }}
     h3 {{ margin: 1.6rem 0 0.2rem; }}
   </style>
 </head>
 <body>
   <main>
     <h1>Wine Babe visitors</h1>
-    <p class="note">Times are Eastern. A visitor is one browser. Refreshing the site counts as another page view, not another visitor. Dates run through today.</p>
+    <p class="note">Times are Eastern. The same browser keeps the same letter. Direct means they opened the site themselves. This does not show IP addresses.</p>
     <div class="cards">{card_html}</div>
     <h3>Last 14 days</h3>
     <table>
@@ -192,10 +251,19 @@ def page():
       <tbody>{day_rows}</tbody>
     </table>
     <h3>Pages, last 14 days</h3>
+    <div class="table-wrap">
     <table>
       <thead><tr><th>Page</th><th>Page views</th><th>Visitors</th></tr></thead>
       <tbody>{page_rows}</tbody>
     </table>
+    </div>
+    <h3>Where they came from</h3>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Time</th><th>Browser</th><th>Came from</th><th>Page</th></tr></thead>
+      <tbody>{visit_rows}</tbody>
+    </table>
+    </div>
   </main>
 </body>
 </html>
