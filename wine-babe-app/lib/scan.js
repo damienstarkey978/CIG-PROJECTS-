@@ -1,13 +1,24 @@
 // Wine Babe scan engine: Claude reads the label, researches the web, fills the checklist.
 // Used by server.js (Fly / local) and the Netlify functions.
 
-const sdk = require("@anthropic-ai/sdk");
 const { CHECKLIST, ALL_ITEMS } = require("../public/checklist.js");
 
-const Anthropic = sdk.default || sdk;
 const MODEL = process.env.WINE_BABE_MODEL || "claude-opus-5-5";
 const HAS_KEY = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-const client = HAS_KEY ? new Anthropic() : null;
+
+// The SDK is ESM only, so load it with a dynamic import. A static require()
+// cannot resolve it and the Netlify bundler left it out of the function.
+let clientPromise = null;
+function getClient() {
+  if (!HAS_KEY) return Promise.resolve(null);
+  if (!clientPromise) {
+    clientPromise = import("@anthropic-ai/sdk").then((sdk) => {
+      const Anthropic = sdk.default || sdk.Anthropic || sdk;
+      return new Anthropic();
+    });
+  }
+  return clientPromise;
+}
 // ---------- structured output schema ----------
 
 const num = { type: ["number", "null"] };
@@ -113,6 +124,7 @@ async function runScan({ image, mediaType, query }, send) {
     { type: "web_fetch_20260209", name: "web_fetch", max_uses: 6 },
   ];
 
+  const client = await getClient();
   let final;
   for (let turn = 0; turn < 5; turn++) {
     const stream = client.beta.messages.stream({
