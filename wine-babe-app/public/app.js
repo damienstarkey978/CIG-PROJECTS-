@@ -173,6 +173,21 @@
     return { n, est, checks, score, top, tier, blurb };
   }
 
+  // ---------- sulfites ----------
+  // Wine Babe comparison scale on total SO2 (mg/L). Not a regulatory classification.
+  const SO2_SCALE = [
+    { max: 20, label: "Very low", short: "0–20", color: "#3f9d5c" },
+    { max: 75, label: "Low", short: "21–75", color: "#7bb661" },
+    { max: 125, label: "Moderate", short: "76–125", color: "#e2b93b" },
+    { max: 200, label: "High", short: "126–200", color: "#e08a3c" },
+    { max: Infinity, label: "Very high", short: "200+", color: "#c9493f" },
+  ];
+  function sulfiteRating(mgL) {
+    if (mgL == null || isNaN(mgL)) return null;
+    const band = SO2_SCALE.find((b) => mgL <= b.max);
+    return { ...band, perGlass: (mgL * SERVING_ML) / 1000 };
+  }
+
   // ---------- result ----------
   const MARK = { pass: "✓", fail: "✕", unknown: "?", na: "–" };
 
@@ -207,6 +222,7 @@
     };
     const sugarTiers = tier("zero_dosage", "Zero dosage") + tier("no_added_sugar", "No sugar added");
     const sulfite = n.total_so2_mg_l != null ? `${fmt(n.total_so2_mg_l, 0)}` : null;
+    const so2 = sulfiteRating(n.total_so2_mg_l);
     const circ = 2 * Math.PI * 42;
     const vintageNote =
       w.tech_sheet_vintage && w.vintage && w.tech_sheet_vintage !== w.vintage
@@ -258,7 +274,20 @@
         ${stat(n.calories_5oz != null ? fmt(n.calories_5oz, 0) : null, "", "Calories per 5 oz", r.est.calories ? "estimate" : null)}
         ${stat(n.carbs_5oz != null ? fmt(n.carbs_5oz, 1) : null, "g", "Carbs per 5 oz", r.est.carbs ? "estimate" : null)}
         ${stat(n.abv != null ? fmt(n.abv, 1) : null, "%", "Alcohol (ABV)")}
-        ${stat(sulfite, sulfite ? "mg/L" : "", "Total sulfites" + (n.free_so2_mg_l != null ? ` · free ${fmt(n.free_so2_mg_l, 0)}` : ""))}
+      </div>
+
+      <div class="card so2">
+        <div class="so2__top">
+          <div>
+            <div class="lbl">Sulfites</div>
+            <div class="so2__val">${sulfite == null ? "?" : `${sulfite} <small>mg/L</small>`}</div>
+            <div class="so2__sub">${so2 ? `About ${fmt(so2.perGlass, 0)} mg per 5 oz glass` : "No published sulfite level found"}${n.free_so2_mg_l != null ? ` · free ${fmt(n.free_so2_mg_l, 0)} mg/L` : ""}</div>
+          </div>
+          ${so2 ? `<span class="so2__pill" style="--c:${so2.color}">${so2.label}</span>` : ""}
+        </div>
+        <div class="so2__scale" aria-hidden="true">
+          ${SO2_SCALE.map((b) => `<span style="--c:${b.color}" class="${so2 && so2.label === b.label ? "on" : ""}"><i></i>${b.short}</span>`).join("")}
+        </div>
       </div>
 
       <div class="card summary"><p>${esc(data.summary)}</p>${vintageNote}
@@ -290,7 +319,7 @@
         <label class="btn" for="photo">Scan another bottle</label>
         <button class="btn ghost" id="backHome">Home</button>
       </div>
-      <p class="fine">The score measures how well documented a wine is, not how healthy it is. Results can vary by vintage.</p>
+      <p class="fine">The score measures how well documented a wine is, not how healthy it is. Sulfite ratings are a Wine Babe comparison scale, not a regulatory classification. Results can vary by vintage.</p>
     `;
     $("#backHome").onclick = goHome;
     show("result");

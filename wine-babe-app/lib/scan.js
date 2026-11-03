@@ -108,7 +108,7 @@ Sugar tiers: no_added_sugar covers any sugar, concentrate or sweetener added at 
 
 For any wine detail you cannot find, use an empty string.
 
-Nutrition per 5 oz (148 ml): sugar g = residual sugar g/L x 0.148. If calories or carbs are not published, calculate them (alcohol g = 148 x ABV/100 x 0.789, 7 kcal/g; carbs ~ sugar + 0.5 g; 4 kcal/g) and set the related checks to evidence "estimate". Leave a nutrition number null rather than invent it. nutrition.source is the strongest evidence behind the sugar number.
+Nutrition per 5 oz (148 ml): sugar g = residual sugar g/L x 0.148. If calories or carbs are not published, calculate them (alcohol g = 148 x ABV/100 x 0.789, 7 kcal/g; carbs ~ sugar + 0.5 g; 4 kcal/g) and set the related checks to evidence "estimate". Leave a nutrition number null rather than invent it. If the tech sheet gives a range (for example total SO2 130 to 145 mg/L), use the highest value and quote the range in the sulfites check detail. nutrition.source is the strongest evidence behind the sugar number.
 
 If the tech sheet is for a different vintage than the bottle, say so in wine.tech_sheet_vintage and in the detail of affected checks, since sugar, ABV and practices change by vintage.
 
