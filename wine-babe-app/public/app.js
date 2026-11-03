@@ -82,33 +82,34 @@
     show("scanning");
 
     try {
-      const res = await fetch("/api/scan", {
+      const res = await fetch("/api/scan-start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok || !res.body) throw new Error("The scanner is not reachable right now.");
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      let result = null;
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let nl;
-        while ((nl = buf.indexOf("\n")) >= 0) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if (!line) continue;
-          const msg = JSON.parse(line);
-          if (msg.type === "result") result = msg.data;
-          else if (msg.type === "error") throw new Error(msg.text);
-          else feed(msg.type, msg.text);
+      const start = await res.json().catch(() => ({}));
+      if (!res.ok || !start.id) throw new Error(start.error || "The scanner is not reachable right now.");
+
+      // Poll for progress until the job is done (about a minute, cap at 5).
+      let seen = 0, misses = 0, job = null;
+      const deadline = Date.now() + 5 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const s = await fetch(`/api/scan-status/${start.id}`, { cache: "no-store" }).catch(() => null);
+        if (!s || !s.ok) {
+          if (++misses > 8) throw new Error("Lost touch with the scanner. Try again.");
+          continue;
         }
+        misses = 0;
+        job = await s.json();
+        (job.events || []).slice(seen).forEach((e) => feed(e.type, e.text));
+        seen = Math.max(seen, (job.events || []).length);
+        if (job.done) break;
       }
-      if (!result) throw new Error("No result came back. Try again.");
-      renderResult(result, true);
+      if (!job || !job.done) throw new Error("The scan took too long. Try again.");
+      if (job.error) throw new Error(job.error);
+      if (!job.result) throw new Error("No result came back. Try again.");
+      renderResult(job.result, true);
     } catch (err) {
       const box = document.createElement("div");
       box.className = "error-box";
