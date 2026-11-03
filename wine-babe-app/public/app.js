@@ -157,6 +157,7 @@
     // Documentation score: evidence weight on passes, top 10 count double.
     let got = 0, max = 0;
     for (const c of checks) {
+      if (c.status === "na") continue;
       const w = c.top ? 2 : 1;
       max += w;
       if (c.status === "pass") got += w * (EVIDENCE[c.evidence]?.weight ?? 0);
@@ -173,7 +174,7 @@
   }
 
   // ---------- result ----------
-  const MARK = { pass: "✓", fail: "✕", unknown: "?" };
+  const MARK = { pass: "✓", fail: "✕", unknown: "?", na: "–" };
 
   function checkRow(c, showNum) {
     const url = safeUrl(c.source_url);
@@ -181,8 +182,9 @@
       <span class="dot ${c.status}" aria-label="${c.status}">${MARK[c.status] || "?"}</span>
       <div class="body">
         <div class="name">${showNum ? `<span class="num">${c.top}</span>` : ""}${esc(c.label)}
-          <span class="chip ${c.evidence}">${esc(EVIDENCE[c.evidence]?.label || "Not verified")}</span></div>
-        <div class="detail">${esc(c.detail)}${url ? ` <a href="${esc(url)}" target="_blank" rel="noopener">Source</a>` : ""}</div>
+          ${c.status === "na" ? `<span class="chip none">Not applicable</span>` : `<span class="chip ${c.evidence}">${esc(EVIDENCE[c.evidence]?.label || "Not verified")}</span>`}
+          ${SCOPE[c.scope] ? `<span class="chip scope">${SCOPE[c.scope]}</span>` : ""}</div>
+        <div class="detail">${esc(c.detail)}${c.as_of ? ` <span class="asof">(${esc(c.as_of)})</span>` : ""}${url ? ` <a href="${esc(url)}" target="_blank" rel="noopener">Source</a>` : ""}</div>
       </div>
     </li>`;
   }
@@ -197,6 +199,13 @@
 
     const sugar = n.sugar_5oz;
     const sugarCheck = r.checks.find((c) => c.id === "sugar_under_1g");
+    const byId = Object.fromEntries(r.checks.map((c) => [c.id, c]));
+    const tier = (id, label) => {
+      const c = byId[id];
+      return c && c.status === "pass"
+        ? `<div class="tierline">✓ ${label} <span class="chip ${c.evidence}">${EVIDENCE[c.evidence].label}</span></div>` : "";
+    };
+    const sugarTiers = tier("zero_dosage", "Zero dosage") + tier("no_added_sugar", "No sugar added");
     const sulfite = n.total_so2_mg_l != null ? `${fmt(n.total_so2_mg_l, 0)}` : null;
     const circ = 2 * Math.PI * 42;
     const vintageNote =
@@ -241,6 +250,7 @@
             ${n.residual_sugar_g_l != null ? `${fmt(n.residual_sugar_g_l, 1)} g/L residual sugar` : ""}
             ${sugarCheck ? ` <span class="chip ${sugarCheck.evidence}">${EVIDENCE[sugarCheck.evidence].label}</span>` : ""}
           </div>
+          ${sugarTiers}
         </div>
       </div>
 
@@ -265,7 +275,8 @@
         ${CHECKLIST.map((cat) => {
           const items = r.checks.filter((c) => c.category === cat.id);
           const ok = items.filter((c) => c.status === "pass").length;
-          return `<details class="cat"><summary><span>${cat.icon}</span>${esc(cat.title)}<span class="count">${ok}/${items.length}</span></summary>
+          const total = items.filter((c) => c.status !== "na").length;
+          return `<details class="cat"><summary><span>${cat.icon}</span>${esc(cat.title)}<span class="count">${ok}/${total}</span></summary>
             <ul class="checks">${items.map((c) => checkRow(c, false)).join("")}</ul></details>`;
         }).join("")}
         <div class="legend">${Object.entries(EVIDENCE).map(([k, v]) => `<span class="chip ${k}">${v.label}</span>`).join("")}</div>

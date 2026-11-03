@@ -57,11 +57,13 @@ const RESULT_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "status", "evidence", "detail", "source_url"],
+        required: ["id", "status", "evidence", "scope", "as_of", "detail", "source_url"],
         properties: {
           id: { type: "string", enum: ALL_ITEMS.map((i) => i.id) },
-          status: { type: "string", enum: ["pass", "fail", "unknown"] },
+          status: { type: "string", enum: ["pass", "fail", "unknown", "na"] },
           evidence: { type: "string", enum: ["lab", "certified", "winery", "estimate", "none"] },
+          scope: { type: "string", enum: ["this_wine", "producer", "related_wine"] },
+          as_of: { type: "string" },
           detail: { type: "string" },
           source_url: str,
         },
@@ -87,16 +89,22 @@ const CHECKLIST_TEXT = CHECKLIST.map(
 const SYSTEM = `You are the research engine behind Wine Babe, an app that scans a wine bottle and reports how transparent and clean that wine is.
 
 Your job:
-1. Identify the exact wine from the label photo or text: producer, wine name, grape, region, country, vintage.
-2. Search the web for the producer's technical sheet (tech sheet / fiche technique / scheda tecnica / ficha técnica), usually on the winery or importer site, often a PDF. Prefer the sheet for the scanned vintage. Fetch it and read the numbers.
-3. Search for certifications and production practices: organic (USDA, EU organic, CCOF, Ecocert), biodynamic (Demeter), sustainable (SIP, LODI RULES, Equalitas, SWNZ, VIVA, B Corp), vegan (winery statements, Barnivore), non GMO, ownership (family owned), harvesting, fining agents, yeast, sulfites, additives, heavy metal testing.
-4. Fill every checklist item below.
+1. Identify the exact wine from the label photo or text: producer, wine name, grape, region, country, vintage, and style (still, sparkling: Brut Nature / Pas Dosé / Dosaggio Zero / Extra Brut / Brut / Extra Dry, etc.).
+2. Find the winery's OWN website first. It is the main source. Read its product page for this wine, its downloadable technical sheets (often PDFs), and its about, sustainability, vineyard and certification pages. Search it with site:<winery domain> queries. Search in the producer's own language as well as English. Italian examples: scheda tecnica, NO OGM / senza OGM / non deriva da organismi geneticamente modificati, vegano, biologico, sostenibile, SQNPI, Equalitas, vendemmia manuale, dosaggio zero, senza zuccheri aggiunti. French: fiche technique, sans OGM, vegan, bio, HVE, non dosé, vendanges manuelles. Spanish: ficha técnica, sin OGM, vegano, ecológico, vendimia manual.
+3. Then check secondary sources: importer and distributor catalogs, Barnivore (vegan), certifier registries (organic, SQNPI, Equalitas, Demeter, SIP, LODI RULES, SWNZ, B Corp).
+4. Do not stop after one search. For every top priority item still unknown, run a targeted search before giving up.
+5. Fill every checklist item below.
 
 Rules for each check:
-- status "pass" only when a source supports it. "fail" when a source contradicts it (for example residual sugar above 6.7 g/L, or egg white fining). "unknown" when you found nothing. Never guess a pass.
-- evidence: "lab" = laboratory numbers on a tech sheet or lab report; "certified" = third party certification you found; "winery" = the producer or importer states it; "estimate" = you calculated it from other data; "none" = nothing found.
-- detail: one short plain sentence a shopper can read, with the number when there is one.
+- A clear winery statement is enough for a pass. Many wineries state non GMO, vegan, sustainable farming, hand harvest or no added sugar on their own site or tech sheet without a certifier: that is status "pass" with evidence "winery". A third party certificate or registry listing is evidence "certified". Lab numbers are "lab".
+- status "pass" when a source supports it. "fail" when a source contradicts it (residual sugar above 6.7 g/L, egg white or casein fining, sugar added at dosage). "unknown" when nothing was found. "na" when the item does not apply (zero_dosage for a still wine). Never guess a pass.
+- evidence: "lab", "certified", "winery" (producer, its tech sheet, or its importer states it), "estimate" (you calculated it), "none".
+- scope: "this_wine" when the source is about this exact wine; "producer" when it is a winery wide statement (all our wines are vegan, 70 ha certified organic); "related_wine" when it comes from a sister wine's tech sheet from the same producer (for example the Extra Dry sheet used for a Brut Nature). Say which wine in the detail.
+- as_of: the date or year of the statement or document if shown (for example "March 2020", "2024 vintage sheet"), else empty string.
+- detail: one short plain sentence a shopper can read, with the number or the quoted wording when there is one (for example: Tech sheet says "NO OGM").
 - source_url: the page that supports it, or an empty string.
+
+Sugar tiers: no_added_sugar covers any sugar, concentrate or sweetener added at any stage. zero_dosage covers sparkling wine with no sugar added at dosage (Brut Nature, Pas Dosé, Dosaggio Zero, or a stated 0 g/L dosage). A Brut Nature label alone is winery evidence for zero_dosage. Still wines get zero_dosage "na".
 
 For any wine detail you cannot find, use an empty string.
 
@@ -124,8 +132,8 @@ async function runScan({ image, mediaType, query }, send) {
 
   const messages = [{ role: "user", content }];
   const tools = [
-    { type: "web_search_20260209", name: "web_search", max_uses: 8 },
-    { type: "web_fetch_20260209", name: "web_fetch", max_uses: 6 },
+    { type: "web_search_20260209", name: "web_search", max_uses: 14 },
+    { type: "web_fetch_20260209", name: "web_fetch", max_uses: 12 },
   ];
 
   const client = await getClient();
@@ -170,8 +178,8 @@ async function runScan({ image, mediaType, query }, send) {
 // ---------- demo mode (no API key) ----------
 
 function demoResult() {
-  const pass = (id, evidence, detail) => ({ id, status: "pass", evidence, detail, source_url: null });
-  const unk = (id) => ({ id, status: "unknown", evidence: "none", detail: "No public information found.", source_url: null });
+  const pass = (id, evidence, detail, scope = "this_wine", as_of = "") => ({ id, status: "pass", evidence, scope, as_of, detail, source_url: null });
+  const unk = (id) => ({ id, status: "unknown", evidence: "none", scope: "this_wine", as_of: "", detail: "No public information found.", source_url: null });
   const known = {
     tech_sheet: pass("tech_sheet", "lab", "Tech sheet lists 2.1 g/L residual sugar."),
     sugar_under_1g: pass("sugar_under_1g", "lab", "About 0.3 g sugar per 5 oz."),
@@ -179,13 +187,15 @@ function demoResult() {
     calories: pass("calories", "estimate", "About 108 calories per 5 oz, calculated from ABV and sugar."),
     carbs: pass("carbs", "estimate", "About 0.8 g carbs per 5 oz, calculated."),
     abv: pass("abv", "lab", "12.5% ABV on the tech sheet."),
-    vegan: pass("vegan", "winery", "Fined with pea protein, no animal products."),
+    vegan: pass("vegan", "winery", "Winery states no animal proteins are used in any of its wines.", "producer", "March 2020"),
+    non_gmo: pass("non_gmo", "winery", 'Tech sheet says "NO OGM": not derived from GMOs.', "related_wine", "Extra Dry sheet"),
+    zero_dosage: pass("zero_dosage", "winery", "Brut Nature: no sugar added at dosage."),
     organic: pass("organic", "certified", "EU organic certified vineyards."),
     sustainable: pass("sustainable", "certified", "Equalitas sustainability certified."),
     hand_harvested: pass("hand_harvested", "winery", "Grapes picked by hand in September."),
     sulfites: pass("sulfites", "lab", "Total SO2 78 mg/L, free 22 mg/L. Sulfites added."),
-    origin: pass("origin", "certified", "DOC Friuli, Italy."),
-    grape_variety: pass("grape_variety", "winery", "100% Pinot Grigio."),
+    origin: pass("origin", "certified", "Prosecco DOC Treviso, Italy."),
+    grape_variety: pass("grape_variety", "winery", "100% Glera."),
     vintage: pass("vintage", "winery", "2024 vintage."),
     family_owned: pass("family_owned", "winery", "Third generation family estate."),
   };
@@ -193,12 +203,12 @@ function demoResult() {
     demo: true,
     identified: true,
     wine: {
-      name: "Sample Pinot Grigio (demo)", producer: "Demo Estate", vintage: "2024", region: "Friuli",
-      country: "Italy", grapes: "Pinot Grigio", style: "Dry white", tech_sheet_url: null, tech_sheet_vintage: null,
+      name: "Sample Prosecco Brut Nature (demo)", producer: "Demo Estate", vintage: "2024", region: "Treviso",
+      country: "Italy", grapes: "Glera", style: "Sparkling, Brut Nature", tech_sheet_url: null, tech_sheet_vintage: null,
     },
     nutrition: { abv: 12.5, residual_sugar_g_l: 2.1, calories_5oz: 108, carbs_5oz: 0.8, total_so2_mg_l: 78, free_so2_mg_l: 22, ph: 3.3, ta_g_l: 5.8, source: "lab" },
     checks: ALL_ITEMS.map((i) => known[i.id] || unk(i.id)),
-    summary: "Demo result. Add an ANTHROPIC_API_KEY on the server to scan real bottles. This sample shows how a well documented dry white looks.",
+    summary: "Demo result. Add an ANTHROPIC_API_KEY on the server to scan real bottles. This sample shows how a well documented sparkling wine looks.",
     sources: [],
   };
 }

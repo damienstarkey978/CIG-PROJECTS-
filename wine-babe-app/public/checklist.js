@@ -10,7 +10,8 @@ const CHECKLIST = [
     items: [
       { id: "tech_sheet", label: "Technical sheet available", ask: "Laboratory analysis showing residual sugar (g/L)." },
       { id: "sugar_under_1g", label: "Less than 1g sugar per 5 oz", ask: "Residual sugar about 6.7 g/L or less.", top: 1 },
-      { id: "no_added_sugar", label: "No added sugar", ask: "No sugar, grape concentrate, or other sweeteners added.", top: 7 },
+      { id: "no_added_sugar", label: "No added sugar", ask: "No sugar, grape concentrate, or other sweeteners added at any stage.", top: 7 },
+      { id: "zero_dosage", label: "Zero dosage", ask: "Sparkling only: no sugar added at dosage (Brut Nature, Pas Dosé, Dosaggio Zero)." },
       { id: "calories", label: "Calories per 5 oz", ask: "Lab verified or calculated from reliable data.", top: 10 },
       { id: "carbs", label: "Carbohydrates per serving", ask: "Verified nutritional information." },
       { id: "abv", label: "Alcohol by volume (ABV)", ask: "Confirmed on technical sheet." },
@@ -21,8 +22,8 @@ const CHECKLIST = [
     title: "Ingredients & Dietary Standards",
     icon: "🌱",
     items: [
-      { id: "non_gmo", label: "Non GMO", ask: "Including ingredients and fermentation yeast.", top: 2 },
-      { id: "vegan", label: "Vegan friendly", ask: "No animal derived fining agents or processing aids.", top: 3 },
+      { id: "non_gmo", label: "Non GMO", ask: "Including ingredients and fermentation yeast. Often stated on the winery tech sheet (e.g. NO OGM).", top: 2 },
+      { id: "vegan", label: "Vegan friendly", ask: "No animal derived fining agents or processing aids. Winery statement is enough.", top: 3 },
       { id: "organic", label: "Organic grapes", ask: "Certified organic or documented organic cultivation.", top: 4 },
       { id: "no_artificial_flavors", label: "No artificial flavors", ask: "Verify ingredients and flavor additives.", top: 8 },
       { id: "no_natural_flavors", label: "No added natural flavors", ask: "Flavor comes from grapes and fermentation only." },
@@ -37,7 +38,7 @@ const CHECKLIST = [
     icon: "🌿",
     items: [
       { id: "hand_harvested", label: "Hand harvested grapes", ask: "All or some grapes harvested by hand.", top: 5 },
-      { id: "sustainable", label: "Sustainable farming", ask: "Documentation or recognized certification.", top: 6 },
+      { id: "sustainable", label: "Sustainable farming", ask: "Winery documentation or a recognized certification (SQNPI, Equalitas, SIP, etc.).", top: 6 },
       { id: "minimal_pesticide", label: "Minimal pesticide use", ask: "Vineyard pest management practices." },
       { id: "no_synthetic_herbicides", label: "No synthetic herbicides", ask: "Verify vineyard practices." },
       { id: "biodiversity", label: "Biodiversity protection", ask: "Cover crops, natural habitats, soil health." },
@@ -89,11 +90,17 @@ const CHECKLIST = [
 const EVIDENCE = {
   lab: { label: "Lab report", weight: 1 },
   certified: { label: "Certified", weight: 1 },
-  winery: { label: "Winery declared", weight: 0.6 },
+  winery: { label: "Winery confirmed", weight: 0.8 },
   estimate: { label: "Estimate", weight: 0.3 },
   none: { label: "Not verified", weight: 0 },
 };
 
+const SCOPE = {
+  this_wine: null,
+  producer: "Producer wide",
+  related_wine: "Sister wine",
+};
+
 const ALL_ITEMS = CHECKLIST.flatMap((c) => c.items.map((i) => ({ ...i, category: c.id })));
 
-if (typeof module !== "undefined") module.exports = { CHECKLIST, EVIDENCE, ALL_ITEMS };
+if (typeof module !== "undefined") module.exports = { CHECKLIST, EVIDENCE, SCOPE, ALL_ITEMS };

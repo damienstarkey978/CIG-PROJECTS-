@@ -277,6 +277,10 @@ h1 {
 .chip.winery { background: #f6ecd9; color: #8a6a2f; }
 .chip.estimate { background: var(--blush-soft); color: var(--wine); }
 .chip.none { background: var(--unk-bg); color: var(--unk); }
+.chip.scope { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.asof { color: var(--unk); font-size: 0.8rem; }
+.tierline { margin-top: 0.35rem; font-size: 0.85rem; font-weight: 500; color: var(--pass); }
+.dot.na { background: var(--unk-bg); color: var(--unk); }
 
 details.cat { margin-top: 0.6rem; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
 details.cat summary {
