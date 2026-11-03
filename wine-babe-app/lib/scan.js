@@ -461,7 +461,7 @@ const cacheKey = (w) =>
 
 // ---------- main ----------
 
-async function runScan({ image, mediaType, query }, send, cache) {
+async function runScan({ image, mediaType, query, fresh }, send, cache) {
   const t0 = Date.now();
 
   // 1. Identify.
@@ -493,7 +493,7 @@ async function runScan({ image, mediaType, query }, send, cache) {
 
   // 2. Cache.
   const key = cacheKey(wine);
-  if (cache && key.replace(/_/g, "")) {
+  if (cache && !fresh && key.replace(/_/g, "")) {
     const hit = await cache.get(key).catch(() => null);
     if (hit && Date.now() - (hit.cached_at || 0) < CACHE_DAYS * 864e5) {
       send({ type: "status", text: "Already checked this wine" });
