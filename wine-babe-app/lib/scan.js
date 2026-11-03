@@ -273,6 +273,7 @@ function pickPdf(links, wine) {
       let score = words.filter((w) => hay.includes(w)).length;
       if (/\b(en|eng|english)\b/.test(hay)) score += 0.5;
       if (/\b(scheda|tecnica|technical|tech|sheet|fiche|ficha)\b/.test(hay)) score += 0.5;
+      if (/\b(award|medal|gold|silver|bronze|decanter|trophy|press|menu|price|listino)\b/.test(hay)) score -= 3;
       return { ...l, score };
     })
     .filter((l) => l.score >= 1)
@@ -299,12 +300,46 @@ async function fetchPdf(url, ms = 8000) {
   }
 }
 
+// WordPress sites (very common for wineries) expose uploaded files through a
+// public search API. Returns [{url, text}] PDF candidates, or [].
+async function wpMediaSearch(origin, term) {
+  const u = new URL("/wp-json/wp/v2/media", origin);
+  u.searchParams.set("search", term);
+  u.searchParams.set("mime_type", "application/pdf");
+  u.searchParams.set("per_page", "20");
+  u.searchParams.set("_fields", "source_url,title");
+  if (!isPublicHost(u)) return [];
+  try {
+    const res = await fetch(u, { signal: AbortSignal.timeout(5000), headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)", Accept: "application/json" } });
+    if (!res.ok) return [];
+    const list = await res.json();
+    return Array.isArray(list)
+      ? list.filter((m) => typeof m.source_url === "string").map((m) => ({ url: m.source_url, text: String(m.title?.rendered || "") }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+// Search terms for the wine: its name without the producer, and the last two words.
+function wineTerms(wine) {
+  const prod = (wine.producer || "").toLowerCase().split(/\s+/);
+  const words = (wine.name || "").split(/\s+/).filter((w) => w && !prod.includes(w.toLowerCase()));
+  const terms = [words.join(" "), words.slice(-2).join(" ")].map((t) => t.trim()).filter(Boolean);
+  return [...new Set(terms)];
+}
+
 // Returns { url, data } for the best matching tech sheet PDF, or null.
-async function findTechSheet(wine, pageUrl, send) {
-  if (!pageUrl) return null;
-  const page = await findPageLinks(pageUrl);
-  if (page.error) return null;
-  const pick = pickPdf(page.links, wine);
+// Tries the product page links and the WordPress media search in parallel.
+async function findTechSheet(wine, pageUrl, siteUrl, send) {
+  let origin = "";
+  try { origin = new URL(pageUrl || siteUrl).origin; } catch {}
+  const [page, ...wp] = await Promise.all([
+    pageUrl ? findPageLinks(pageUrl) : Promise.resolve({ links: [] }),
+    ...(origin ? wineTerms(wine).map((t) => wpMediaSearch(origin, t)) : []),
+  ]);
+  const candidates = [...(page.links || []), ...wp.flat()];
+  const pick = pickPdf(candidates, wine);
   if (!pick) return null;
   send({ type: "fetch", text: pick.url });
   const data = await fetchPdf(pick.url);
@@ -477,7 +512,7 @@ async function runScan({ image, mediaType, query }, send, cache) {
   ];
 
   const techLookup = async () => {
-    const sheet = await findTechSheet(wine, page, send);
+    const sheet = await findTechSheet(wine, page, site, send);
     if (sheet) {
       send({ type: "status", text: "Reading the tech sheet" });
       return runAgent({
