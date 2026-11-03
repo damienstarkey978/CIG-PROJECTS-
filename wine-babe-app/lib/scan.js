@@ -22,7 +22,9 @@ function getClient() {
 // ---------- structured output schema ----------
 
 const num = { type: ["number", "null"] };
-const str = { type: ["string", "null"] };
+// Only the nutrition numbers are nullable: the API allows at most 16
+// union-typed fields in a schema. Text fields use "" for unknown.
+const str = { type: "string" };
 
 const RESULT_SCHEMA = {
   type: "object",
@@ -37,7 +39,7 @@ const RESULT_SCHEMA = {
       properties: {
         name: str, producer: str, vintage: str, region: str, country: str, grapes: str,
         style: str, tech_sheet_url: str,
-        tech_sheet_vintage: { type: ["string", "null"], description: "Vintage the tech sheet covers, if it differs or is stated." },
+        tech_sheet_vintage: { type: "string", description: "Vintage the tech sheet covers, if stated. Empty string if unknown." },
       },
     },
     nutrition: {
@@ -94,7 +96,9 @@ Rules for each check:
 - status "pass" only when a source supports it. "fail" when a source contradicts it (for example residual sugar above 6.7 g/L, or egg white fining). "unknown" when you found nothing. Never guess a pass.
 - evidence: "lab" = laboratory numbers on a tech sheet or lab report; "certified" = third party certification you found; "winery" = the producer or importer states it; "estimate" = you calculated it from other data; "none" = nothing found.
 - detail: one short plain sentence a shopper can read, with the number when there is one.
-- source_url: the page that supports it, or null.
+- source_url: the page that supports it, or an empty string.
+
+For any wine detail you cannot find, use an empty string.
 
 Nutrition per 5 oz (148 ml): sugar g = residual sugar g/L x 0.148. If calories or carbs are not published, calculate them (alcohol g = 148 x ABV/100 x 0.789, 7 kcal/g; carbs ~ sugar + 0.5 g; 4 kcal/g) and set the related checks to evidence "estimate". Leave a nutrition number null rather than invent it. nutrition.source is the strongest evidence behind the sugar number.
 
