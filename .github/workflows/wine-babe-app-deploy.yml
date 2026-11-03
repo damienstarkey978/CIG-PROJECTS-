@@ -1,0 +1,32 @@
+name: Deploy Wine Babe Scanner
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "wine-babe-app/**"
+      - ".github/workflows/wine-babe-app-deploy.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency: wine-babe-app-deploy
+    defaults:
+      run:
+        working-directory: wine-babe-app
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl apps create wine-babe-app --org personal || true
+      - name: Set Anthropic key
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            flyctl secrets set ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" --stage -a wine-babe-app
+          fi
+      - run: flyctl deploy --remote-only -a wine-babe-app

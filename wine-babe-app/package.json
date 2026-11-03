@@ -1,0 +1,13 @@
+{
+  "name": "wine-babe-app",
+  "version": "0.1.0",
+  "description": "Wine Babe bottle scanner",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.4.0"
+  },
+  "private": true
+}
