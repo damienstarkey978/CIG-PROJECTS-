@@ -92,7 +92,7 @@ Your job:
 1. Identify the exact wine from the label photo or text: producer, wine name, grape, region, country, vintage, and style (still, sparkling: Brut Nature / Pas Dosé / Dosaggio Zero / Extra Brut / Brut / Extra Dry, etc.).
 2. Find the winery's OWN website first. It is the main source. Read its product page for this wine, its downloadable technical sheets (often PDFs), and its about, sustainability, vineyard and certification pages. Search it with site:<winery domain> queries. Search in the producer's own language as well as English. Italian examples: scheda tecnica, NO OGM / senza OGM / non deriva da organismi geneticamente modificati, vegano, biologico, sostenibile, SQNPI, Equalitas, vendemmia manuale, dosaggio zero, senza zuccheri aggiunti. French: fiche technique, sans OGM, vegan, bio, HVE, non dosé, vendanges manuelles. Spanish: ficha técnica, sin OGM, vegano, ecológico, vendimia manual.
 3. Then check secondary sources: importer and distributor catalogs, Barnivore (vegan), certifier registries (organic, SQNPI, Equalitas, Demeter, SIP, LODI RULES, SWNZ, B Corp).
-3b. The tech sheet is required, not optional. Before anything else after identifying the wine, find and FETCH it. Try in order until one works: the product page on the winery site (look for PDF / download / scheda tecnica / technical sheet links and fetch them); searches like "<winery> <wine> scheda tecnica pdf", "<winery> <wine> technical sheet", "<winery> <wine> tech sheet filetype:pdf", "site:<winery domain> pdf"; then importer or distributor pages that host the sheet. If no sheet exists for this exact wine, fetch the closest sister wine's sheet from the same producer (scope "related_wine") because winery wide declarations like NO OGM / GMO Free, allergens and fining usually appear on every sheet. Read the whole sheet: residual sugar, ABV, total and free SO2, pH, acidity, GMO, allergen, vegan and dosage lines.
+3b. The tech sheet is required, not optional. Before anything else after identifying the wine, find and FETCH it. Try in order until one works: find the wine's product page on the winery site and call find_page_links on it (and on the winery's downloads or schede tecniche page if there is one), then web_fetch the PDF that matches this wine (match the wine name in the file name or link text, prefer English if there are several); searches like "<winery> <wine> scheda tecnica pdf", "<winery> <wine> technical sheet", "<winery> <wine> tech sheet filetype:pdf", "site:<winery domain> pdf"; then importer or distributor pages that host the sheet. If no sheet exists for this exact wine, fetch the closest sister wine's sheet from the same producer (scope "related_wine") because winery wide declarations like NO OGM / GMO Free, allergens and fining usually appear on every sheet. Read the whole sheet: residual sugar, ABV, total and free SO2, pH, acidity, GMO, allergen, vegan and dosage lines.
 4. Do not stop after one search. For every top priority item still unknown, run a targeted search before giving up.
 5. Sustainability and certifications are often only on the winery's news, press, blog or "about" pages, in press releases, or in wine trade press, not on the product page. Always run these searches by winery name: "<winery> sustainability", "<winery> certified" / "certificazione", "<winery> news" or "press release", and the certifiers for that country by name. Italy: SQNPI, Equalitas, VIVA, biologico, ISO 14001. France: HVE, Terra Vitis, AB / Agriculture Biologique. Spain: ecológico, Wineries for Climate Protection. USA: SIP Certified, LODI RULES, Napa Green, CCOF, California Certified Sustainable. New Zealand: SWNZ. Germany: FairChoice, Ecovin. A dated winery announcement (for example "150 hectares certified SQNPI", February 2024) is a pass for sustainable with evidence "certified" if it names the certification, scope "producer", and as_of the announcement date.
 6. Fill every checklist item below.
@@ -123,6 +123,73 @@ ${CHECKLIST_TEXT}`;
 
 // ---------- Claude call ----------
 
+// ---------- custom tool: find document links on a page ----------
+// web_fetch returns page text, not its links, so PDF tech sheets linked from
+// a product page are easy to miss. This tool reads the raw HTML and returns
+// the PDF and download links so Claude can web_fetch them next.
+
+const LINK_WORDS = /(\.pdf\b|scheda|tecnic|technical|tech[-_ ]?sheet|fiche|ficha|datasheet|download|allegat|wp-content\/uploads)/i;
+
+async function findPageLinks(url) {
+  let u;
+  try { u = new URL(url); } catch { return { error: "Invalid URL" }; }
+  if (!/^https?:$/.test(u.protocol)) return { error: "Only http(s) URLs" };
+  // Public sites only: never let a page steer this fetch at internal hosts.
+  const h = u.hostname.toLowerCase();
+  if (
+    h === "localhost" || h.endsWith(".local") || h.endsWith(".internal") || !h.includes(".") ||
+    /^(127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h) || h.startsWith("[")
+  ) return { error: "Only public websites" };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const res = await fetch(u, {
+      signal: ctrl.signal,
+      redirect: "follow",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)", Accept: "text/html,*/*" },
+    });
+    if (!res.ok) return { error: `HTTP ${res.status}` };
+    const html = (await res.text()).slice(0, 3_000_000);
+    const title = (html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || "";
+    const seen = new Set();
+    const links = [];
+    const re = /<a\b[^>]*href\s*=\s*["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    let m;
+    while ((m = re.exec(html)) && links.length < 40) {
+      let href;
+      try { href = new URL(m[1].trim(), res.url).href; } catch { continue; }
+      const text = m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
+      if (!/^https?:/.test(href) || seen.has(href)) continue;
+      if (!LINK_WORDS.test(href) && !LINK_WORDS.test(text)) continue;
+      seen.add(href);
+      links.push({ url: href, text });
+    }
+    // Bare PDF URLs in scripts or data attributes.
+    for (const pm of html.matchAll(/https?:\/\/[^"'\s<>()]+?\.pdf/gi)) {
+      if (links.length >= 40) break;
+      if (!seen.has(pm[0])) { seen.add(pm[0]); links.push({ url: pm[0], text: "" }); }
+    }
+    return { page: res.url, title: title.trim(), links };
+  } catch (err) {
+    return { error: err.name === "AbortError" ? "Timed out" : String(err.message || err) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const FIND_LINKS_TOOL = {
+  name: "find_page_links",
+  description:
+    "Read a web page's HTML and list its PDF, tech sheet and download links (url + link text). Use it on the winery's product page and downloads page to discover the tech sheet PDF, then call web_fetch on the PDF url it returns.",
+  input_schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["url"],
+    properties: { url: { type: "string", description: "Full http(s) URL of the page to inspect." } },
+  },
+  strict: true,
+};
+
 async function runScan({ image, mediaType, query }, send) {
   const content = [];
   if (image) {
@@ -136,11 +203,13 @@ async function runScan({ image, mediaType, query }, send) {
   const tools = [
     { type: "web_search_20260209", name: "web_search", max_uses: 18 },
     { type: "web_fetch_20260209", name: "web_fetch", max_uses: 16 },
+    FIND_LINKS_TOOL,
   ];
 
   const client = await getClient();
   let final;
-  for (let turn = 0; turn < 5; turn++) {
+  let linkCalls = 0;
+  for (let turn = 0; turn < 14; turn++) {
     const stream = client.beta.messages.stream({
       model: MODEL,
       max_tokens: 32000,
@@ -165,9 +234,33 @@ async function runScan({ image, mediaType, query }, send) {
     });
 
     final = await stream.finalMessage();
-    if (final.stop_reason !== "pause_turn") break;
-    messages.push({ role: "assistant", content: final.content });
-    send({ type: "status", text: "Still digging" });
+
+    if (final.stop_reason === "pause_turn") {
+      messages.push({ role: "assistant", content: final.content });
+      send({ type: "status", text: "Still digging" });
+      continue;
+    }
+
+    if (final.stop_reason === "tool_use") {
+      messages.push({ role: "assistant", content: final.content });
+      const calls = final.content.filter((b) => b.type === "tool_use");
+      const results = await Promise.all(
+        calls.map(async (call) => {
+          if (call.name !== FIND_LINKS_TOOL.name || typeof call.input?.url !== "string") {
+            return { type: "tool_result", tool_use_id: call.id, is_error: true, content: "Unknown tool or bad input." };
+          }
+          if (++linkCalls > 8) {
+            return { type: "tool_result", tool_use_id: call.id, is_error: true, content: "Link lookup limit reached. Use what you have." };
+          }
+          send({ type: "status", text: "Looking for the tech sheet" });
+          const out = await findPageLinks(call.input.url);
+          return { type: "tool_result", tool_use_id: call.id, is_error: Boolean(out.error), content: JSON.stringify(out) };
+        })
+      );
+      messages.push({ role: "user", content: results });
+      continue;
+    }
+    break;
   }
 
   if (final.stop_reason === "refusal") throw new Error("This scan could not be completed. Try another photo.");
