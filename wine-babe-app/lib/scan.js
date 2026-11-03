@@ -16,7 +16,9 @@ const { CHECKLIST, ALL_ITEMS, EVIDENCE } = require("../public/checklist.js");
 
 const MODEL = process.env.WINE_BABE_MODEL || "claude-sonnet-5-5";
 const HAS_KEY = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-const AGENT_TIME_LIMIT_MS = Number(process.env.WINE_BABE_AGENT_MS || 45000);
+// Time budget (target: about 30s per scan).
+const IDENTIFY_MS = Number(process.env.WINE_BABE_IDENTIFY_MS || 12000);
+const LOOKUP_MS = Number(process.env.WINE_BABE_LOOKUP_MS || 20000);
 const CACHE_DAYS = 30;
 
 // The SDK is ESM only, so load it with a dynamic import. A static require()
@@ -135,7 +137,7 @@ const wineLine = (w) =>
 
 const IDENTIFY_SYSTEM = `You identify wines for the Wine Babe app, fast.
 From the label photo or text, identify producer, wine name, vintage, region, country, grapes and style (for sparkling, the dosage term on the label: Brut Nature, Pas Dosé, Dosaggio Zero, Extra Brut, Brut, Extra Dry...).
-Then find the winery's official website and this wine's product page on it, with at most two web searches. Prefer the winery's own domain over shops.
+Then find the winery's official website and this wine's product page on it, with at most one web search. Be quick. Prefer the winery's own domain over shops.
 If the photo is not a wine label or is unreadable, set identified false and explain in note. Unknown text fields are "".`;
 
 const techPrompt = (w, site, page) => `You read a wine's technical sheet for the Wine Babe app. Wine: ${wineLine(w)}.
@@ -161,8 +163,7 @@ const farmPrompt = (w, site) => `You check farming practices and certifications 
 Winery website: ${site || "unknown"}.
 
 Most reliable sources, in order, stop once you have the answers:
-1. The winery's own sustainability / about / vineyards / news pages: fetch the website and the most relevant one or two pages.
-2. One web search for certifications by winery name with that country's certifiers. Italy: SQNPI, Equalitas, VIVA, biologico. France: HVE, Terra Vitis, AB. Spain: ecológico. USA: SIP Certified, LODI RULES, Napa Green, CCOF, CCSW. New Zealand: SWNZ. Germany: Ecovin, FairChoice. Organic: EU organic, USDA Organic, Demeter.
+1. One web search for certifications by winery name with that country's certifiers, then fetch the single most useful result (the winery's sustainability page if it shows up). Italy: SQNPI, Equalitas, VIVA, biologico. France: HVE, Terra Vitis, AB. Spain: ecológico. USA: SIP Certified, LODI RULES, Napa Green, CCOF, CCSW. New Zealand: SWNZ. Germany: Ecovin, FairChoice. Organic: EU organic, USDA Organic, Demeter.
 A winery page or dated announcement that names a certification is "certified", scope "producer", with as_of the date.
 
 ${RULES}
@@ -201,7 +202,7 @@ async function findPageLinks(url) {
     /^(127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h) || h.startsWith("[")
   ) return { error: "Only public websites" };
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 15000);
+  const timer = setTimeout(() => ctrl.abort(), 6000);
   try {
     const res = await fetch(u, {
       signal: ctrl.signal,
@@ -250,37 +251,110 @@ const FIND_LINKS_TOOL = {
   strict: true,
 };
 
-// ---------- one Claude call with tools, under a time limit ----------
+// ---------- server side tech sheet fetch ----------
+// Fastest, most reliable path: read the product page's links ourselves, pick
+// the PDF that best matches this wine, download it, and hand it to Claude as a
+// document. No searching.
 
-async function runAgent({ name, system, content, schema, tools, effort = "low", send }) {
+function isPublicHost(u) {
+  const h = u.hostname.toLowerCase();
+  return !(
+    h === "localhost" || h.endsWith(".local") || h.endsWith(".internal") || !h.includes(".") ||
+    /^(127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h) || h.startsWith("[")
+  );
+}
+
+function pickPdf(links, wine) {
+  const words = `${wine.name} ${wine.style}`.toLowerCase().normalize("NFKD").replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length > 2);
+  const scored = links
+    .filter((l) => /\.pdf(\?|$)/i.test(l.url))
+    .map((l) => {
+      const hay = `${decodeURIComponent(l.url)} ${l.text}`.toLowerCase().replace(/[^a-z0-9]+/g, " ");
+      let score = words.filter((w) => hay.includes(w)).length;
+      if (/\b(en|eng|english)\b/.test(hay)) score += 0.5;
+      if (/\b(scheda|tecnica|technical|tech|sheet|fiche|ficha)\b/.test(hay)) score += 0.5;
+      return { ...l, score };
+    })
+    .filter((l) => l.score >= 1)
+    .sort((a, b) => b.score - a.score);
+  return scored[0] || null;
+}
+
+async function fetchPdf(url, ms = 8000) {
+  let u;
+  try { u = new URL(url); } catch { return null; }
+  if (!/^https?:$/.test(u.protocol) || !isPublicHost(u)) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const res = await fetch(u, { signal: ctrl.signal, redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > 15 * 1024 * 1024 || buf.subarray(0, 4).toString() !== "%PDF") return null;
+    return buf.toString("base64");
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Returns { url, data } for the best matching tech sheet PDF, or null.
+async function findTechSheet(wine, pageUrl, send) {
+  if (!pageUrl) return null;
+  const page = await findPageLinks(pageUrl);
+  if (page.error) return null;
+  const pick = pickPdf(page.links, wine);
+  if (!pick) return null;
+  send({ type: "fetch", text: pick.url });
+  const data = await fetchPdf(pick.url);
+  return data ? { url: pick.url, data } : null;
+}
+
+// ---------- one Claude call with tools, under a deadline ----------
+// At the deadline the call is cut and, if earlier turns gathered anything, a
+// quick no-tools follow up turns what was found into the JSON answer.
+
+async function runAgent({ name, system, content, schema, tools = [], effort = "low", send, deadline }) {
   const client = await getClient();
   const messages = [{ role: "user", content }];
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), AGENT_TIME_LIMIT_MS);
+  const timer = setTimeout(() => ctrl.abort(), Math.max(1000, deadline - Date.now()));
   let linkCalls = 0;
+
+  const call = (extra = {}, signal) => {
+    const stream = client.beta.messages.stream(
+      {
+        model: MODEL,
+        max_tokens: 16000,
+        system,
+        messages,
+        ...(tools.length ? { tools } : {}),
+        output_config: { effort, format: { type: "json_schema", schema } },
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
+        ...extra,
+      },
+      signal ? { signal } : undefined
+    );
+    stream.on("contentBlock", (block) => {
+      if (block.type === "server_tool_use" && block.input) {
+        if (block.input.query) send({ type: "search", text: block.input.query });
+        if (block.input.url) send({ type: "fetch", text: block.input.url });
+      }
+    });
+    return stream.finalMessage();
+  };
+  const parse = (msg) => {
+    if (!msg || msg.stop_reason === "refusal") return null;
+    const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+    const start = text.indexOf("{");
+    try { return start < 0 ? null : JSON.parse(text.slice(start)); } catch { return null; }
+  };
+
   try {
     for (let turn = 0; turn < 8; turn++) {
-      const stream = client.beta.messages.stream(
-        {
-          model: MODEL,
-          max_tokens: 16000,
-          system,
-          tools,
-          messages,
-          output_config: { effort, format: { type: "json_schema", schema } },
-          betas: ["server-side-fallback-2026-07-01"],
-          fallbacks: "default",
-        },
-        { signal: ctrl.signal }
-      );
-      stream.on("contentBlock", (block) => {
-        if (block.type === "server_tool_use" && block.input) {
-          if (block.input.query) send({ type: "search", text: block.input.query });
-          if (block.input.url) send({ type: "fetch", text: block.input.url });
-        }
-      });
-      const msg = await stream.finalMessage();
-
+      const msg = await call({}, ctrl.signal);
       if (msg.stop_reason === "pause_turn") {
         messages.push({ role: "assistant", content: msg.content });
         continue;
@@ -289,27 +363,31 @@ async function runAgent({ name, system, content, schema, tools, effort = "low", 
         messages.push({ role: "assistant", content: msg.content });
         const calls = msg.content.filter((b) => b.type === "tool_use");
         const results = await Promise.all(
-          calls.map(async (call) => {
-            if (call.name !== FIND_LINKS_TOOL.name || typeof call.input?.url !== "string" || ++linkCalls > 3) {
-              return { type: "tool_result", tool_use_id: call.id, is_error: true, content: "Not available. Use what you have." };
+          calls.map(async (c) => {
+            if (c.name !== FIND_LINKS_TOOL.name || typeof c.input?.url !== "string" || ++linkCalls > 2) {
+              return { type: "tool_result", tool_use_id: c.id, is_error: true, content: "Not available. Use what you have." };
             }
-            send({ type: "status", text: "Opening the tech sheet" });
-            const out = await findPageLinks(call.input.url);
-            return { type: "tool_result", tool_use_id: call.id, is_error: Boolean(out.error), content: JSON.stringify(out) };
+            const out = await findPageLinks(c.input.url);
+            return { type: "tool_result", tool_use_id: c.id, is_error: Boolean(out.error), content: JSON.stringify(out) };
           })
         );
         messages.push({ role: "user", content: results });
         continue;
       }
-      if (msg.stop_reason === "refusal") return null;
-      const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-      const start = text.indexOf("{");
-      return start < 0 ? null : JSON.parse(text.slice(start));
+      return parse(msg);
     }
     return null;
   } catch (err) {
-    console.error(`[${name}]`, ctrl.signal.aborted ? "time limit reached" : err);
-    return null;
+    if (!ctrl.signal.aborted) { console.error(`[${name}]`, err); return null; }
+    console.error(`[${name}] deadline reached`);
+    if (messages.length < 3) return null; // nothing gathered yet
+    try {
+      messages.push({ role: "user", content: [{ type: "text", text: "Time is up. Using only what you found so far, return the JSON answer now. Mark anything not yet confirmed as unknown." }] });
+      return parse(await call({ tool_choice: { type: "none" } }, AbortSignal.timeout(6000)));
+    } catch (e) {
+      console.error(`[${name}] wrap up failed`, e.message);
+      return null;
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -360,8 +438,9 @@ async function runScan({ image, mediaType, query }, send, cache) {
     system: IDENTIFY_SYSTEM,
     content: idContent,
     schema: IDENTIFY_SCHEMA,
-    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 2 }],
+    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 1 }],
     send,
+    deadline: t0 + IDENTIFY_MS,
   });
   if (!id) throw new Error("Could not read that label. Try a clearer photo or type the wine name.");
   if (!id.identified) {
@@ -391,31 +470,41 @@ async function runScan({ image, mediaType, query }, send, cache) {
   send({ type: "status", text: "Checking the tech sheet, farming and vegan status" });
   const site = id.winery_website, page = id.product_page_url;
   const ask = (text) => [{ type: "text", text }];
+  const deadline = Date.now() + LOOKUP_MS;
+  const webTools = (searches, fetches) => [
+    { type: "web_search_20260209", name: "web_search", max_uses: searches },
+    { type: "web_fetch_20260209", name: "web_fetch", max_uses: fetches },
+  ];
+
+  const techLookup = async () => {
+    const sheet = await findTechSheet(wine, page, send);
+    if (sheet) {
+      send({ type: "status", text: "Reading the tech sheet" });
+      return runAgent({
+        name: "tech", system: techPrompt(wine, site, page), schema: agentSchema(TECH_IDS, true), send, deadline,
+        content: [
+          { type: "document", source: { type: "base64", media_type: "application/pdf", data: sheet.data } },
+          { type: "text", text: `This is the winery's tech sheet, from ${sheet.url}. Read it and fill the items. tech_sheet_url is that url. Do not search.` },
+        ],
+      });
+    }
+    // No PDF on the product page: let Claude find it, with a small budget.
+    return runAgent({
+      name: "tech", system: techPrompt(wine, site, page), schema: agentSchema(TECH_IDS, true), send, deadline,
+      content: ask("Find and read the tech sheet and fill the items."),
+      tools: [...webTools(1, 2), FIND_LINKS_TOOL],
+    });
+  };
+
   const [tech, farm, vegan] = await Promise.all([
+    techLookup(),
     runAgent({
-      name: "tech", system: techPrompt(wine, site, page), content: ask("Read the tech sheet and fill the items."),
-      schema: agentSchema(TECH_IDS, true), send,
-      tools: [
-        { type: "web_search_20260209", name: "web_search", max_uses: 2 },
-        { type: "web_fetch_20260209", name: "web_fetch", max_uses: 3 },
-        FIND_LINKS_TOOL,
-      ],
+      name: "farm", system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline,
+      content: ask("Check farming and certifications and fill the items."), tools: webTools(1, 2),
     }),
     runAgent({
-      name: "farm", system: farmPrompt(wine, site), content: ask("Check farming and certifications and fill the items."),
-      schema: agentSchema(FARM_IDS, false), send,
-      tools: [
-        { type: "web_search_20260209", name: "web_search", max_uses: 2 },
-        { type: "web_fetch_20260209", name: "web_fetch", max_uses: 3 },
-      ],
-    }),
-    runAgent({
-      name: "vegan", system: veganPrompt(wine, site), content: ask("Check vegan status and fill the items."),
-      schema: agentSchema(VEGAN_IDS, false), send,
-      tools: [
-        { type: "web_search_20260209", name: "web_search", max_uses: 2 },
-        { type: "web_fetch_20260209", name: "web_fetch", max_uses: 2 },
-      ],
+      name: "vegan", system: veganPrompt(wine, site), schema: agentSchema(VEGAN_IDS, false), send, deadline,
+      content: ask("Check vegan status and fill the items."), tools: webTools(1, 1),
     }),
   ]);
 
