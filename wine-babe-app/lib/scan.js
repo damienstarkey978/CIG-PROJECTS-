@@ -140,6 +140,17 @@ From the label photo or text, identify producer, wine name, vintage, region, cou
 Then find the winery's official website and this wine's product page on it, with at most one web search. Be quick. Prefer the winery's own domain over shops.
 If the photo is not a wine label or is unreadable, set identified false and explain in note. Unknown text fields are "".`;
 
+const PDF_URLS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["pdf_urls"],
+  properties: { pdf_urls: { type: "array", items: { type: "string" } } },
+};
+
+const SHEET_SEARCH_SYSTEM = `You find a wine's official technical sheet PDF for the Wine Babe app, fast.
+Run exactly one web search, such as: <producer> <wine> tech sheet pdf (use the producer's language too: scheda tecnica, fiche technique, ficha técnica). Prefer the winery's or importer's own site.
+Return up to 5 direct PDF URLs from the results, best match for this exact wine first. Return an empty list if none.`;
+
 const techPrompt = (w, site, page) => `You read a wine's technical sheet for the Wine Babe app. Wine: ${wineLine(w)}.
 Winery website: ${site || "unknown"}. Product page: ${page || "unknown"}.
 
@@ -511,23 +522,36 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     { type: "web_fetch_20260209", name: "web_fetch", max_uses: fetches },
   ];
 
+  // Tech sheet: three routes at once. Fast routes (product page links and
+  // the WordPress media search) need no AI; a one search lookup for the PDF
+  // runs alongside in case the fast routes find nothing.
   const techLookup = async () => {
-    const sheet = await findTechSheet(wine, page, site, send);
-    if (sheet) {
-      send({ type: "status", text: "Reading the tech sheet" });
-      return runAgent({
-        name: "tech", system: techPrompt(wine, site, page), schema: agentSchema(TECH_IDS, true), send, deadline,
-        content: [
-          { type: "document", source: { type: "base64", media_type: "application/pdf", data: sheet.data } },
-          { type: "text", text: `This is the winery's tech sheet, from ${sheet.url}. Read it and fill the items. tech_sheet_url is that url. Do not search.` },
-        ],
-      });
+    const searched = runAgent({
+      name: "sheet-search", system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline: deadline - 9000,
+      content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}.`),
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 1 }],
+    });
+    let sheet = await findTechSheet(wine, page, site, send);
+    if (!sheet) {
+      const found = await searched;
+      const cands = (found?.pdf_urls || []).filter((u) => /^https?:\/\//.test(u)).slice(0, 5).map((url) => ({ url, text: "" }));
+      const first = pickPdf(cands, wine) || cands[0];
+      const order = first ? [first, ...cands.filter((c) => c.url !== first.url)].slice(0, 2) : [];
+      for (const c of order) {
+        send({ type: "fetch", text: c.url });
+        const data = await fetchPdf(c.url, 6000);
+        if (data) { sheet = { url: c.url, data }; break; }
+      }
     }
-    // No PDF on the product page: let Claude find it, with a small budget.
+    if (!sheet) return null;
+    send({ type: "status", text: "Reading the tech sheet" });
     return runAgent({
-      name: "tech", system: techPrompt(wine, site, page), schema: agentSchema(TECH_IDS, true), send, deadline,
-      content: ask("Find and read the tech sheet and fill the items."),
-      tools: [...webTools(1, 2), FIND_LINKS_TOOL],
+      name: "tech", system: techPrompt(wine, site, page), schema: agentSchema(TECH_IDS, true), send,
+      deadline: Math.max(deadline, Date.now() + 9000),
+      content: [
+        { type: "document", source: { type: "base64", media_type: "application/pdf", data: sheet.data } },
+        { type: "text", text: `This is the winery's tech sheet, from ${sheet.url}. Read it and fill the items. tech_sheet_url is that url. Do not search.` },
+      ],
     });
   };
 
