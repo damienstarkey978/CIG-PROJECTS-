@@ -6,4 +6,5 @@
 
 [functions]
   node_bundler = "esbuild"
-  included_files = ["public/checklist.js"]
+  external_node_modules = ["@anthropic-ai/sdk", "@netlify/blobs"]
+  included_files = ["public/checklist.js", "lib/**"]
