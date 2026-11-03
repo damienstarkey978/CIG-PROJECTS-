@@ -2,14 +2,13 @@
 
 Real-time, location-based BOGO discovery for the Jacksonville Beaches.
 
-**Tagline:** When it's ON, you GO.  
-**Supporting:** Every hour. Every appetite. Something's ON.
+**When it's ON, you GO.** · Every hour. Every appetite. Something's ON.
 
-This folder is the Phase 1 working app for the CIG monorepo. It evolves the [Wix Headless demo](https://headless-ayyjspbhfuj-joshdespain-140b.wix-site-host.com) into a persistent Node + SQLite product: Beaches directory, Leaflet/OSM map, customer & business accounts, timed offers, and QR redemption.
+Canonical product lives in this folder (`on-go/`). The old hosted placeholder page is historical brand reference only — we are **not** building on that host or any site-builder CMS.
 
-Project docs (audit, architecture, schema, roadmap) live in the Project agent store under `docs/`.
+Project docs (audit, architecture, schema, roadmap, venue coords) live in the Project agent store `docs/`.
 
-## Quick start
+## Quick start (local)
 
 ```bash
 cd on-go
@@ -19,40 +18,44 @@ npm start
 
 Open http://localhost:3847
 
-### Demo accounts (seeded on first boot)
+### Demo accounts
 
-| Role | Email | Password | Notes |
-|---|---|---|---|
-| Customer | `customer@ongo.demo` | `demo1234` | Claim offers, show QR |
-| Business | `business@ongo.demo` | `demo1234` | Manages Pete's Bar |
+| Role | Email | Password |
+|---|---|---|
+| Customer | `customer@ongo.demo` | `demo1234` |
+| Business | `business@ongo.demo` | `demo1234` (Pete's Bar) |
 
 ## Phase 1 walkthrough
 
-1. Sign in as **business@ongo.demo** → **For businesses** → activate a BOGO for 60 minutes.
-2. Sign out → sign in as **customer@ongo.demo** → **Explore** → claim the live offer → show QR.
-3. Sign back in as the business account → paste the token under **Verify QR redemption**.
-4. Customer **Rewards** shows points only after verification.
+1. Business login → activate a BOGO for 60 minutes.
+2. Customer login → Explore → Claim & get QR.
+3. Business → paste token under Verify QR.
+4. Customer Rewards shows points **after** verification.
+5. Try **Next Stop**, favorites, radius filter, analytics / plan scaffolds.
 
 ## Stack
 
-- Express API + static mobile-first UI
-- SQLite (`better-sqlite3`) in `data/on-go.db`
-- Leaflet + OpenStreetMap
-- HTTP-only session cookies; bcrypt passwords
-- QR via `qrcode` (token format `ongo:<token>`)
+- Express API + mobile-first static UI
+- `sql.js` (WASM SQLite) — local file under `data/`; **Netlify Blobs** when `NETLIFY=true`
+- Leaflet + OpenStreetMap (verified seed coords — see Project `docs/venue-coords.md`)
+- HTTP-only sessions; bcrypt; QR via `qrcode`
 
-No API secrets are shipped to the browser. Configure `SESSION_SECRET` via env in production (see `.env.example`).
+## Netlify (test hosting)
+
+```bash
+cd on-go
+npx netlify login          # if needed
+npx netlify init           # link or create site (first time)
+npx netlify env:set SESSION_SECRET "$(openssl rand -hex 24)"
+npx netlify deploy --prod
+```
+
+Config: `netlify.toml` publishes `public/`, routes `/api/*` to `netlify/functions/api.js`.
 
 ## Scripts
 
 | Command | Purpose |
 |---|---|
-| `npm start` | Run server (seeds DB if empty) |
-| `npm run dev` | `node --watch server.js` |
-| `npm run seed` | Force re-seed helper (see `scripts/seed.js`) |
-
-## Notes
-
-- Unclaimed directory listings are labeled so they do not imply endorsement.
-- Ad slot bidding is **simulation only** (schema ready for Phase 2 payments).
-- Coordinates are approximate public locations for MVP mapping — verify before launch marketing.
+| `npm start` | Local server |
+| `npm run dev` | `--watch` |
+| `npm run seed` | Reset DB file and re-seed |

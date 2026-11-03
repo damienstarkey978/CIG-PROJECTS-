@@ -1,0 +1,1280 @@
+[
+  {
+    "id": 9281084317,
+    "type": "node",
+    "lat": 30.3248354,
+    "lng": -81.4016949,
+    "name": "ABBC BBQ",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 13962898060,
+    "type": "node",
+    "lat": 30.285852,
+    "lng": -81.4396164,
+    "name": "Al's Pizza",
+    "amenity": "restaurant",
+    "addr": "14286 Beach Blvd Jacksonville"
+  },
+  {
+    "id": 450613221,
+    "type": "way",
+    "lat": 30.3228534,
+    "lng": -81.3983433,
+    "name": "Al's Pizza",
+    "amenity": "restaurant",
+    "addr": "240 3rd Street Neptune Beach"
+  },
+  {
+    "id": 13913304501,
+    "type": "node",
+    "lat": 30.2876537,
+    "lng": -81.4067815,
+    "name": "Angie’s Subs",
+    "amenity": "restaurant",
+    "addr": "1436 Beach Boulevard"
+  },
+  {
+    "id": 8649327968,
+    "type": "node",
+    "lat": 30.2693712,
+    "lng": -81.3898644,
+    "name": "Another Broken Egg Cafe",
+    "amenity": "cafe",
+    "addr": "2230 3rd Street South Jacksonville Beach"
+  },
+  {
+    "id": 668689355,
+    "type": "way",
+    "lat": 30.2037277,
+    "lng": -81.3813434,
+    "name": "Aqua Grill",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 6179774275,
+    "type": "node",
+    "lat": 30.3248746,
+    "lng": -81.3949788,
+    "name": "Azurea",
+    "amenity": "restaurant",
+    "addr": "1 Ocean Blvd Atlantic Beach"
+  },
+  {
+    "id": 7176480318,
+    "type": "node",
+    "lat": 30.2569349,
+    "lng": -81.3904512,
+    "name": "Bagels R Us",
+    "amenity": "fast_food",
+    "addr": "4146 3rd Street South Jacksonville Beach"
+  },
+  {
+    "id": 7176682433,
+    "type": "node",
+    "lat": 30.1747008,
+    "lng": -81.401344,
+    "name": "Barbara Jean's On The Water - Southern Restaurant",
+    "amenity": "restaurant",
+    "addr": "15 S Roscoe Blvd Ponte Vedra Beac"
+  },
+  {
+    "id": 3752286325,
+    "type": "node",
+    "lat": 30.1891044,
+    "lng": -81.3809196,
+    "name": "Beach Diner",
+    "amenity": "restaurant",
+    "addr": "# 2 Ponte Vedra"
+  },
+  {
+    "id": 5060247035,
+    "type": "node",
+    "lat": 30.3248224,
+    "lng": -81.4023715,
+    "name": "Beaches Diner",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 9503435918,
+    "type": "node",
+    "lat": 30.291376,
+    "lng": -81.3922114,
+    "name": "Biggie’s Pizza",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 3575765638,
+    "type": "node",
+    "lat": 30.2907717,
+    "lng": -81.3897722,
+    "name": "Blue Water Daiquiri & Oyster Bar",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 3575765708,
+    "type": "node",
+    "lat": 30.2920283,
+    "lng": -81.3896463,
+    "name": "Boardwalk Raw Bar & Grill",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 7183553958,
+    "type": "node",
+    "lat": 30.2677077,
+    "lng": -81.3887446,
+    "name": "Bold Bean Coffee",
+    "amenity": "cafe",
+    "addr": ""
+  },
+  {
+    "id": 7183553957,
+    "type": "node",
+    "lat": 30.2677769,
+    "lng": -81.3901933,
+    "name": "Bonefish Grill",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 456456360,
+    "type": "way",
+    "lat": 30.3230922,
+    "lng": -81.4105073,
+    "name": "Bono's BBQ",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 433151141,
+    "type": "way",
+    "lat": 30.286851,
+    "lng": -81.4372387,
+    "name": "Bono's Pit Bar-B-Q",
+    "amenity": "restaurant",
+    "addr": "3303 San Pablo Rd S Jacksonville"
+  },
+  {
+    "id": 351754107,
+    "type": "way",
+    "lat": 30.291341,
+    "lng": -81.3914126,
+    "name": "Brix Taphouse & Bar",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 6264980468,
+    "type": "node",
+    "lat": 30.2030698,
+    "lng": -81.3854639,
+    "name": "Cafe on the Green",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 668688250,
+    "type": "way",
+    "lat": 30.2047138,
+    "lng": -81.3825887,
+    "name": "Caffe Andiamo",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 351754098,
+    "type": "way",
+    "lat": 30.2905185,
+    "lng": -81.390704,
+    "name": "Campeche Bay Mexican Restaurant",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 351669857,
+    "type": "way",
+    "lat": 30.2891809,
+    "lng": -81.3913896,
+    "name": "Carrabba's Italian Grill",
+    "amenity": "restaurant",
+    "addr": "9 3rd Street North"
+  },
+  {
+    "id": 7176497494,
+    "type": "node",
+    "lat": 30.2680269,
+    "lng": -81.3878508,
+    "name": "Casa Maria",
+    "amenity": "restaurant",
+    "addr": "2429 3rd St S Jacksonville Beach"
+  },
+  {
+    "id": 13791883928,
+    "type": "node",
+    "lat": 30.2875119,
+    "lng": -81.4076888,
+    "name": "Cedar and Olive",
+    "amenity": "restaurant",
+    "addr": "1500 Beach Boulevard Jacksonville Beach"
+  },
+  {
+    "id": 83304366,
+    "type": "way",
+    "lat": 30.2549844,
+    "lng": -81.3915222,
+    "name": "Chick-fil-A",
+    "amenity": "fast_food",
+    "addr": "590 Marsh Landing Parkway Jacksonville Beach"
+  },
+  {
+    "id": 83304384,
+    "type": "way",
+    "lat": 30.2547943,
+    "lng": -81.389461,
+    "name": "Chili's",
+    "amenity": "restaurant",
+    "addr": "385 Marsh Landing Parkway Jacksonville Beach"
+  },
+  {
+    "id": 7196305215,
+    "type": "node",
+    "lat": 30.2717573,
+    "lng": -81.388922,
+    "name": "Chipotle",
+    "amenity": "fast_food",
+    "addr": ""
+  },
+  {
+    "id": 434303845,
+    "type": "way",
+    "lat": 30.2712635,
+    "lng": -81.388879,
+    "name": "Chipotle",
+    "amenity": "fast_food",
+    "addr": "1758 3rd Street South Jacksonville Beach"
+  },
+  {
+    "id": 363613876,
+    "type": "way",
+    "lat": 30.3249791,
+    "lng": -81.3972703,
+    "name": "Coop 303",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 14246481402,
+    "type": "node",
+    "lat": 30.2884946,
+    "lng": -81.4429337,
+    "name": "Darbys dungeon",
+    "amenity": "bar",
+    "addr": "14185 Beach Boulevard"
+  },
+  {
+    "id": 6733333359,
+    "type": "node",
+    "lat": 30.3538476,
+    "lng": -81.4142,
+    "name": "Dick's Wings and Grill",
+    "amenity": "fast_food",
+    "addr": ""
+  },
+  {
+    "id": 13962898058,
+    "type": "node",
+    "lat": 30.2858382,
+    "lng": -81.439496,
+    "name": "Dick's Wings and Grill",
+    "amenity": "restaurant",
+    "addr": "14286 Beach Blvd Jacksonville"
+  },
+  {
+    "id": 9565873217,
+    "type": "node",
+    "lat": 30.2899712,
+    "lng": -81.4195836,
+    "name": "Dockside Seafood",
+    "amenity": "restaurant",
+    "addr": "2510 Second Ave N"
+  },
+  {
+    "id": 6248296467,
+    "type": "node",
+    "lat": 30.2258875,
+    "lng": -81.3873583,
+    "name": "Domino's",
+    "amenity": "fast_food",
+    "addr": "236 Solana Road Ponte Vedra Beach"
+  },
+  {
+    "id": 7697563730,
+    "type": "node",
+    "lat": 30.2874711,
+    "lng": -81.4088624,
+    "name": "Donatos Pizza",
+    "amenity": "restaurant",
+    "addr": "1500 Beach Boulevard Jacksonville Beach"
+  },
+  {
+    "id": 6179773072,
+    "type": "node",
+    "lat": 30.3243162,
+    "lng": -81.39626,
+    "name": "Doro",
+    "amenity": "restaurant",
+    "addr": "106 1st Street"
+  },
+  {
+    "id": 6248296465,
+    "type": "node",
+    "lat": 30.2263843,
+    "lng": -81.3874246,
+    "name": "Dunkin'",
+    "amenity": "fast_food",
+    "addr": "226 Solana Road Ponte Vedra Beach"
+  },
+  {
+    "id": 6179774311,
+    "type": "node",
+    "lat": 30.3229905,
+    "lng": -81.3973154,
+    "name": "Ellen's Kitchen",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 8755758317,
+    "type": "node",
+    "lat": 30.2878177,
+    "lng": -81.3989652,
+    "name": "European Street Cafe",
+    "amenity": "cafe",
+    "addr": ""
+  },
+  {
+    "id": 6179774315,
+    "type": "node",
+    "lat": 30.3229211,
+    "lng": -81.3973087,
+    "name": "Fancy Sushi",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 6179774314,
+    "type": "node",
+    "lat": 30.3231192,
+    "lng": -81.3973338,
+    "name": "Firehouse Subs",
+    "amenity": "fast_food",
+    "addr": ""
+  },
+  {
+    "id": 7175461703,
+    "type": "node",
+    "lat": 30.2543123,
+    "lng": -81.3891011,
+    "name": "Firehouse Subs",
+    "amenity": "fast_food",
+    "addr": "357 Marsh Landing Parkway Jacksonville Beach"
+  },
+  {
+    "id": 7196126969,
+    "type": "node",
+    "lat": 30.2878628,
+    "lng": -81.4027359,
+    "name": "Firehouse Subs",
+    "amenity": "fast_food",
+    "addr": ""
+  },
+  {
+    "id": 7175461702,
+    "type": "node",
+    "lat": 30.2550025,
+    "lng": -81.3910458,
+    "name": "First Watch",
+    "amenity": "restaurant",
+    "addr": "544 Marsh Landing Parkway Jacksonville Beach"
+  },
+  {
+    "id": 12707520473,
+    "type": "node",
+    "lat": 30.2680582,
+    "lng": -81.3880907,
+    "name": "Fla. Juice and Bowl",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 4544937950,
+    "type": "node",
+    "lat": 30.3257705,
+    "lng": -81.4068543,
+    "name": "Fly's Tie Irish Pub",
+    "amenity": "bar",
+    "addr": "177 Sailfish Drive East Atlantic Beach"
+  },
+  {
+    "id": 4532620825,
+    "type": "node",
+    "lat": 30.324432,
+    "lng": -81.396446,
+    "name": "Flying Iguana Taqueria & Tequila Bar",
+    "amenity": "restaurant",
+    "addr": "207 Atlantic Boulevard Neptune Beach"
+  },
+  {
+    "id": 13939498501,
+    "type": "node",
+    "lat": 30.2050456,
+    "lng": -81.381979,
+    "name": "Foxtail Coffee",
+    "amenity": "cafe",
+    "addr": "620 Front Street"
+  },
+  {
+    "id": 450613222,
+    "type": "way",
+    "lat": 30.3231631,
+    "lng": -81.3984703,
+    "name": "Grumpy's Restaurant",
+    "amenity": "restaurant",
+    "addr": "200 3rd Street Neptune Beach"
+  },
+  {
+    "id": 351754111,
+    "type": "way",
+    "lat": 30.2916228,
+    "lng": -81.3903863,
+    "name": "Habibi Mediterainian Foods",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 6179774194,
+    "type": "node",
+    "lat": 30.3244191,
+    "lng": -81.3968805,
+    "name": "Hawkers Asian Street Fare",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 6179774251,
+    "type": "node",
+    "lat": 30.3248677,
+    "lng": -81.3967929,
+    "name": "Homespun Kitchen",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 3575765709,
+    "type": "node",
+    "lat": 30.2918685,
+    "lng": -81.3899575,
+    "name": "Hoptinger Bier Garden & Sausage House",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 13962839380,
+    "type": "node",
+    "lat": 30.2884786,
+    "lng": -81.4386379,
+    "name": "Hot Wok",
+    "amenity": "restaurant",
+    "addr": "14333 Beach Boulevard Jacksonville"
+  },
+  {
+    "id": 4547957587,
+    "type": "node",
+    "lat": 30.3241054,
+    "lng": -81.4048406,
+    "name": "Hurricane Grill & Wings",
+    "amenity": "restaurant",
+    "addr": "628 Atlantic Boulevard Neptune Beach"
+  },
+  {
+    "id": 6179773073,
+    "type": "node",
+    "lat": 30.3241963,
+    "lng": -81.3962405,
+    "name": "Island Girl Wine and Cigar Bar",
+    "amenity": "bar",
+    "addr": "108 1st Street"
+  },
+  {
+    "id": 6268921160,
+    "type": "node",
+    "lat": 30.2358308,
+    "lng": -81.3869009,
+    "name": "JJ's Liberty Bistro",
+    "amenity": "restaurant",
+    "addr": "Ponte Vedra Beach"
+  },
+  {
+    "id": 351669846,
+    "type": "way",
+    "lat": 30.288164,
+    "lng": -81.3890222,
+    "name": "Joe's Crab Shack",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 6179774265,
+    "type": "node",
+    "lat": 30.3250325,
+    "lng": -81.3963828,
+    "name": "Joseph's Pizza and Italian Restaurant",
+    "amenity": "restaurant",
+    "addr": "30 Ocean Boulevard"
+  },
+  {
+    "id": 9010415411,
+    "type": "node",
+    "lat": 30.3252792,
+    "lng": -81.4127946,
+    "name": "Jumpin' Jax House of Food",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 13919244724,
+    "type": "node",
+    "lat": 30.1883367,
+    "lng": -81.3803188,
+    "name": "Kamiya 86",
+    "amenity": "restaurant",
+    "addr": "2 Fairfield Boulevard Ponte Vedra Beach"
+  },
+  {
+    "id": 13962898061,
+    "type": "node",
+    "lat": 30.2858389,
+    "lng": -81.4397098,
+    "name": "Karai Ramen Bistro",
+    "amenity": "restaurant",
+    "addr": "14286 Beach Blvd Jacksonville"
+  },
+  {
+    "id": 6179774219,
+    "type": "node",
+    "lat": 30.3251728,
+    "lng": -81.39825,
+    "name": "Le Petit Paris",
+    "amenity": "restaurant",
+    "addr": "363 Atlantic Boulevard Atlantic Beach"
+  },
+  {
+    "id": 13962827348,
+    "type": "node",
+    "lat": 30.2875162,
+    "lng": -81.4341964,
+    "name": "Le Petit Paris Cafe San Pablo",
+    "amenity": "cafe",
+    "addr": "14474 Beach Boulevard Jacksonville"
+  },
+  {
+    "id": 7178268018,
+    "type": "node",
+    "lat": 30.2554118,
+    "lng": -81.3933423,
+    "name": "LongHorn Steakhouse",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 1947089415,
+    "type": "node",
+    "lat": 30.3233622,
+    "lng": -81.3973704,
+    "name": "Loop Pizza Grill",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 7176682902,
+    "type": "node",
+    "lat": 30.2104614,
+    "lng": -81.4097968,
+    "name": "LuLu's Waterfront Grille",
+    "amenity": "restaurant",
+    "addr": "301 Roscoe Blvd N Ponte Vedra Beach"
+  },
+  {
+    "id": 6744299634,
+    "type": "node",
+    "lat": 30.2935016,
+    "lng": -81.3906216,
+    "name": "Lynch's Irish Pub",
+    "amenity": "bar",
+    "addr": ""
+  },
+  {
+    "id": 6179774250,
+    "type": "node",
+    "lat": 30.3248573,
+    "lng": -81.3966459,
+    "name": "M Shack",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 438157993,
+    "type": "way",
+    "lat": 30.2921633,
+    "lng": -81.3930591,
+    "name": "Maple Street Biscuit Company",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 450822564,
+    "type": "way",
+    "lat": 30.2892187,
+    "lng": -81.4321309,
+    "name": "Marker 32",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 8649265042,
+    "type": "node",
+    "lat": 30.325029,
+    "lng": -81.4006078,
+    "name": "McDonald's",
+    "amenity": "fast_food",
+    "addr": "435 Atlantic Boulevard Atlantic Beach"
+  },
+  {
+    "id": 12291969007,
+    "type": "node",
+    "lat": 30.2873518,
+    "lng": -81.4410561,
+    "name": "McDonald's",
+    "amenity": "fast_food",
+    "addr": "14200 Beach Boulevard"
+  },
+  {
+    "id": 83304357,
+    "type": "way",
+    "lat": 30.2534211,
+    "lng": -81.389098,
+    "name": "McDonald's",
+    "amenity": "fast_food",
+    "addr": "317 Marsh Landing Parkway Jacksonville Beach"
+  },
+  {
+    "id": 434971736,
+    "type": "way",
+    "lat": 30.2876082,
+    "lng": -81.3911861,
+    "name": "McDonald's",
+    "amenity": "fast_food",
+    "addr": "51 South 3rd Street Jacksonville Beach"
+  },
+  {
+    "id": 622461169,
+    "type": "way",
+    "lat": 30.1922923,
+    "lng": -81.3808567,
+    "name": "McDonald's",
+    "amenity": "fast_food",
+    "addr": "100 Ponte Vedra boulevard ponte vedra beach"
+  },
+  {
+    "id": 13767153429,
+    "type": "node",
+    "lat": 30.1893638,
+    "lng": -81.3816024,
+    "name": "McFlamingo",
+    "amenity": "restaurant",
+    "addr": "880 a1a north Ponte Vedra Beach"
+  },
+  {
+    "id": 445703533,
+    "type": "way",
+    "lat": 30.2980126,
+    "lng": -81.3941305,
+    "name": "Mellow Mushroom",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 6262063915,
+    "type": "node",
+    "lat": 30.2041873,
+    "lng": -81.3813776,
+    "name": "Metro Diner",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 8649336208,
+    "type": "node",
+    "lat": 30.302793,
+    "lng": -81.3953121,
+    "name": "Metro Diner",
+    "amenity": "restaurant",
+    "addr": "1534 3rd Street North Jacksonville Beach"
+  },
+  {
+    "id": 660050789,
+    "type": "way",
+    "lat": 30.3240184,
+    "lng": -81.3963251,
+    "name": "Mezza Luna",
+    "amenity": "restaurant",
+    "addr": "110 1st Street"
+  },
+  {
+    "id": 7183553959,
+    "type": "node",
+    "lat": 30.2680595,
+    "lng": -81.389645,
+    "name": "Moe's Southwest Grill",
+    "amenity": "fast_food",
+    "addr": "2400-107 South 3rd Street Jacksonville"
+  },
+  {
+    "id": 627613019,
+    "type": "way",
+    "lat": 30.1905473,
+    "lng": -81.3807582,
+    "name": "Mr. Chubby's Wings",
+    "amenity": "fast_food",
+    "addr": "150 Valley Circle Ponte Vedra Beach"
+  },
+  {
+    "id": 6264980406,
+    "type": "node",
+    "lat": 30.2054742,
+    "lng": -81.3836653,
+    "name": "Mulligans Pub",
+    "amenity": "pub",
+    "addr": ""
+  },
+  {
+    "id": 9461191717,
+    "type": "node",
+    "lat": 30.1988411,
+    "lng": -81.3951215,
+    "name": "Nineteen",
+    "amenity": "restaurant",
+    "addr": "110 Championship Way Ponte Vedra Beach"
+  },
+  {
+    "id": 668689351,
+    "type": "way",
+    "lat": 30.2047984,
+    "lng": -81.3813241,
+    "name": "Nona Blue Modern Tavern",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 4532625708,
+    "type": "node",
+    "lat": 30.3244437,
+    "lng": -81.3962908,
+    "name": "North Beach Fish Camp",
+    "amenity": "restaurant",
+    "addr": "100 1st Street Neptune Beach"
+  },
+  {
+    "id": 444563929,
+    "type": "way",
+    "lat": 30.2933179,
+    "lng": -81.3906601,
+    "name": "O-Ku",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 7176507400,
+    "type": "node",
+    "lat": 30.2587593,
+    "lng": -81.3882483,
+    "name": "Outback Steakhouse",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 7176682914,
+    "type": "node",
+    "lat": 30.2102397,
+    "lng": -81.4096577,
+    "name": "Palm Valley Fish Camp",
+    "amenity": "restaurant",
+    "addr": "299 Roscoe Blvd N Ponte Vedra Beach"
+  },
+  {
+    "id": 434303851,
+    "type": "way",
+    "lat": 30.2698819,
+    "lng": -81.3888898,
+    "name": "Panera Bread",
+    "amenity": "fast_food",
+    "addr": "2104 South 3rd Street Jacksonville Beach"
+  },
+  {
+    "id": 1526514638,
+    "type": "way",
+    "lat": 30.1901637,
+    "lng": -81.3805128,
+    "name": "Panera Bread",
+    "amenity": "fast_food",
+    "addr": "876 A1A North Ponte Vedra Beach"
+  },
+  {
+    "id": 6268921089,
+    "type": "node",
+    "lat": 30.2401518,
+    "lng": -81.3877649,
+    "name": "Papa John's",
+    "amenity": "fast_food",
+    "addr": "240 A1A North Ponte Vedra"
+  },
+  {
+    "id": 13962839379,
+    "type": "node",
+    "lat": 30.2884689,
+    "lng": -81.438698,
+    "name": "Papa John's",
+    "amenity": "fast_food",
+    "addr": "14333 Beach Boulevard Jacksonville"
+  },
+  {
+    "id": 660050787,
+    "type": "way",
+    "lat": 30.3239091,
+    "lng": -81.3958732,
+    "name": "Pete's Bar",
+    "amenity": "bar",
+    "addr": ""
+  },
+  {
+    "id": 7183553966,
+    "type": "node",
+    "lat": 30.2717219,
+    "lng": -81.3892774,
+    "name": "Pieology Pizzeria",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 363613890,
+    "type": "way",
+    "lat": 30.3249079,
+    "lng": -81.3976548,
+    "name": "Poe's Tavern",
+    "amenity": "pub",
+    "addr": ""
+  },
+  {
+    "id": 13962898064,
+    "type": "node",
+    "lat": 30.2858397,
+    "lng": -81.4398384,
+    "name": "Pura Bean Coffee Company",
+    "amenity": "cafe",
+    "addr": "14286 Beach Blvd Jacksonville"
+  },
+  {
+    "id": 7175476245,
+    "type": "node",
+    "lat": 30.2537717,
+    "lng": -81.3915626,
+    "name": "Renna's Pizza",
+    "amenity": "restaurant",
+    "addr": "592 Marsh Landing Parkway Jacksonville Beach"
+  },
+  {
+    "id": 14275376901,
+    "type": "node",
+    "lat": 30.2950368,
+    "lng": -81.3938232,
+    "name": "Sage Coffee",
+    "amenity": "cafe",
+    "addr": "318 7th Avenue North"
+  },
+  {
+    "id": 169975228,
+    "type": "way",
+    "lat": 30.297761,
+    "lng": -81.3940776,
+    "name": "Salt Life Food Shack",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 6179774270,
+    "type": "node",
+    "lat": 30.3252355,
+    "lng": -81.3964148,
+    "name": "Salumeria 104",
+    "amenity": "restaurant",
+    "addr": "60 Ocean Boulevard"
+  },
+  {
+    "id": 7422364096,
+    "type": "node",
+    "lat": 30.2875768,
+    "lng": -81.4356287,
+    "name": "Shrimp Shack",
+    "amenity": "fast_food",
+    "addr": ""
+  },
+  {
+    "id": 7175476242,
+    "type": "node",
+    "lat": 30.253752,
+    "lng": -81.389201,
+    "name": "Sierra Grille",
+    "amenity": "fast_food",
+    "addr": "331 Marsh Landing Parkway Jacksonville Beach"
+  },
+  {
+    "id": 450596333,
+    "type": "way",
+    "lat": 30.3231117,
+    "lng": -81.3962131,
+    "name": "Sliders Oyster Bar",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 4547959631,
+    "type": "node",
+    "lat": 30.3241401,
+    "lng": -81.404492,
+    "name": "Smashburger",
+    "amenity": "fast_food",
+    "addr": "630 Atlantic Boulevard Neptune Beach"
+  },
+  {
+    "id": 434590407,
+    "type": "way",
+    "lat": 30.2785305,
+    "lng": -81.3901154,
+    "name": "Smoothie King",
+    "amenity": "fast_food",
+    "addr": ""
+  },
+  {
+    "id": 351669855,
+    "type": "way",
+    "lat": 30.2887689,
+    "lng": -81.3898352,
+    "name": "Sneakers Sports Grille",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 6179774287,
+    "type": "node",
+    "lat": 30.3233845,
+    "lng": -81.3961643,
+    "name": "Southern Grounds & Co.",
+    "amenity": "cafe",
+    "addr": ""
+  },
+  {
+    "id": 6264980469,
+    "type": "node",
+    "lat": 30.203179,
+    "lng": -81.3856583,
+    "name": "Starbucks",
+    "amenity": "cafe",
+    "addr": ""
+  },
+  {
+    "id": 7422364262,
+    "type": "node",
+    "lat": 30.2885672,
+    "lng": -81.4356858,
+    "name": "Starbucks",
+    "amenity": "cafe",
+    "addr": "14447 Beach Boulevard Jacksonville"
+  },
+  {
+    "id": 8978592917,
+    "type": "node",
+    "lat": 30.2884145,
+    "lng": -81.4383164,
+    "name": "Starbucks",
+    "amenity": "cafe",
+    "addr": "14355 Beach Boulevard Jacksonville"
+  },
+  {
+    "id": 13915112391,
+    "type": "node",
+    "lat": 30.1880399,
+    "lng": -81.3803126,
+    "name": "Starbucks",
+    "amenity": "cafe",
+    "addr": "2 Fairfield Boulevard Ponte Vedra Beach"
+  },
+  {
+    "id": 14088619565,
+    "type": "node",
+    "lat": 30.2930005,
+    "lng": -81.390238,
+    "name": "Starbucks",
+    "amenity": "cafe",
+    "addr": "467"
+  },
+  {
+    "id": 363613874,
+    "type": "way",
+    "lat": 30.3242977,
+    "lng": -81.3978226,
+    "name": "Starbucks",
+    "amenity": "cafe",
+    "addr": "327 Atlantic Boulevard Neptune Beach"
+  },
+  {
+    "id": 6248296468,
+    "type": "node",
+    "lat": 30.2258745,
+    "lng": -81.3880296,
+    "name": "Subway",
+    "amenity": "fast_food",
+    "addr": "254 Solana Road Ponte Vedra Beach"
+  },
+  {
+    "id": 13588443801,
+    "type": "node",
+    "lat": 30.2872038,
+    "lng": -81.4460338,
+    "name": "Subway",
+    "amenity": "fast_food",
+    "addr": "unit 2 Beach Boulevard"
+  },
+  {
+    "id": 351754096,
+    "type": "way",
+    "lat": 30.2905574,
+    "lng": -81.390134,
+    "name": "Surfer the Bar",
+    "amenity": "bar",
+    "addr": "200 1st Street North Jacksonville Beach"
+  },
+  {
+    "id": 13919300213,
+    "type": "node",
+    "lat": 30.1513787,
+    "lng": -81.3761169,
+    "name": "Sushi House",
+    "amenity": "restaurant",
+    "addr": "3787 Palm Valley Road Ponte Vedra"
+  },
+  {
+    "id": 7175476244,
+    "type": "node",
+    "lat": 30.2537698,
+    "lng": -81.3916425,
+    "name": "Sushi Palace",
+    "amenity": "restaurant",
+    "addr": "626 Marsh Landing Parkway Jacksonville Beach"
+  },
+  {
+    "id": 13939498601,
+    "type": "node",
+    "lat": 30.2854839,
+    "lng": -81.3915702,
+    "name": "Taco Bell",
+    "amenity": "fast_food",
+    "addr": "280 3rd Street South"
+  },
+  {
+    "id": 13962898066,
+    "type": "node",
+    "lat": 30.2858567,
+    "lng": -81.4399938,
+    "name": "Taco Libre",
+    "amenity": "restaurant",
+    "addr": "14286 Beach Blvd Jacksonville"
+  },
+  {
+    "id": 435316841,
+    "type": "way",
+    "lat": 30.2875034,
+    "lng": -81.4102019,
+    "name": "TacoLu",
+    "amenity": "restaurant",
+    "addr": "1712 Beach Boulevard Jacksonville Beach"
+  },
+  {
+    "id": 450596345,
+    "type": "way",
+    "lat": 30.3239297,
+    "lng": -81.3950339,
+    "name": "The Lemon Bar",
+    "amenity": "bar",
+    "addr": ""
+  },
+  {
+    "id": 351754115,
+    "type": "way",
+    "lat": 30.2926741,
+    "lng": -81.389819,
+    "name": "The Pier Cantina Sandbar",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 351754114,
+    "type": "way",
+    "lat": 30.2924628,
+    "lng": -81.3899486,
+    "name": "The Tavern on 1st Street",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 6248296455,
+    "type": "node",
+    "lat": 30.2269634,
+    "lng": -81.3890729,
+    "name": "Tony's Pizza",
+    "amenity": "restaurant",
+    "addr": "302 Solana Road Ponte Vedra Beach"
+  },
+  {
+    "id": 6264980401,
+    "type": "node",
+    "lat": 30.2053445,
+    "lng": -81.383263,
+    "name": "Trasca & Co Eatery",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 7176497496,
+    "type": "node",
+    "lat": 30.2878712,
+    "lng": -81.4025147,
+    "name": "Tropical Smoothie Cafe",
+    "amenity": "fast_food",
+    "addr": "1230 Beach Boulevard Jacksonville Beach"
+  },
+  {
+    "id": 6248296471,
+    "type": "node",
+    "lat": 30.2258927,
+    "lng": -81.387548,
+    "name": "Tuptim Thai Four",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 6248296470,
+    "type": "node",
+    "lat": 30.2258719,
+    "lng": -81.3882644,
+    "name": "Two Dudes Seafood Restaurant",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 8761543718,
+    "type": "node",
+    "lat": 30.1775476,
+    "lng": -81.3978599,
+    "name": "V pizza",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 7277557174,
+    "type": "node",
+    "lat": 30.2938201,
+    "lng": -81.3907128,
+    "name": "V Pizza",
+    "amenity": "restaurant",
+    "addr": "528 1st Street North Jacksonville Beach"
+  },
+  {
+    "id": 7176682476,
+    "type": "node",
+    "lat": 30.1752966,
+    "lng": -81.4011813,
+    "name": "Valley Smoke Restaurant - Barbecue Restaurant",
+    "amenity": "restaurant",
+    "addr": "11 S Roscoe Blvd Ponte Vedra Beac"
+  },
+  {
+    "id": 351669864,
+    "type": "way",
+    "lat": 30.288051,
+    "lng": -81.3924635,
+    "name": "Waffle House",
+    "amenity": "restaurant",
+    "addr": ""
+  },
+  {
+    "id": 8649331442,
+    "type": "node",
+    "lat": 30.2840983,
+    "lng": -81.3912266,
+    "name": "Wendy's",
+    "amenity": "fast_food",
+    "addr": "400 3rd Street South Jacksonville Beach"
+  },
+  {
+    "id": 261546394,
+    "type": "way",
+    "lat": 30.3240545,
+    "lng": -81.4094137,
+    "name": "Whataburger",
+    "amenity": "fast_food",
+    "addr": "1201 Atlantic Boulevard Neptune Beach"
+  },
+  {
+    "id": 7175476243,
+    "type": "node",
+    "lat": 30.2537596,
+    "lng": -81.389103,
+    "name": "Wok N Roll",
+    "amenity": "restaurant",
+    "addr": "335 Marsh Landing Parkway Jacksonville Beach"
+  },
+  {
+    "id": 13919300212,
+    "type": "node",
+    "lat": 30.1513857,
+    "lng": -81.3761618,
+    "name": "Wok'n Roll",
+    "amenity": "fast_food",
+    "addr": "3787 Palm Valley Road Ponte Vedra"
+  },
+  {
+    "id": 6248296464,
+    "type": "node",
+    "lat": 30.2266548,
+    "lng": -81.3874366,
+    "name": "Woody's BBQ",
+    "amenity": "restaurant",
+    "addr": "226 Solana Road Ponte Vedra Beach"
+  },
+  {
+    "id": 6268921090,
+    "type": "node",
+    "lat": 30.239907,
+    "lng": -81.387704,
+    "name": "Zoës Kitchen",
+    "amenity": "fast_food",
+    "addr": ""
+  }
+]

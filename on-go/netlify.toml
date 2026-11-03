@@ -1,0 +1,25 @@
+# ON GO — Netlify test hosting (run CLI from this on-go/ directory)
+#   cd on-go && npx netlify deploy --prod
+#
+# Required site env: SESSION_SECRET
+
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+  command = "npm install --omit=dev"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["lib/**", "node_modules/sql.js/dist/sql-wasm-inline.js"]
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
