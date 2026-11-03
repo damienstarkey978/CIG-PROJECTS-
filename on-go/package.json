@@ -1,0 +1,23 @@
+{
+  "name": "on-go",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ON GO — real-time BOGO discovery for the Jacksonville Beaches",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node scripts/seed.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.7.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4",
+    "uuid": "^11.0.5"
+  }
+}

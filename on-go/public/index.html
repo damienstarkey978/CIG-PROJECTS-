@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#087d32" />
+  <title>ON GO — When it's ON, you GO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&family=Teko:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="bg-wash" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <div class="brand-row">
+      <img class="brand-logo" src="/assets/on-go-logo.jpg" alt="ON GO logo" width="56" height="56" />
+      <div>
+        <h1 class="brand-name">ON GO</h1>
+        <p class="brand-tag">WHEN IT'S ON, YOU GO.</p>
+      </div>
+    </div>
+    <p class="brand-support">Every hour. Every appetite. Something's ON.</p>
+    <div id="session-chip" class="session-chip muted">Not signed in</div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="ON GO sections">
+    <button type="button" class="tab active" data-view="explore" role="tab" aria-selected="true">Explore</button>
+    <button type="button" class="tab" data-view="rewards" role="tab" aria-selected="false">Rewards</button>
+    <button type="button" class="tab" data-view="business" role="tab" aria-selected="false">For businesses</button>
+    <button type="button" class="tab" data-view="account" role="tab" aria-selected="false">Account</button>
+  </nav>
+
+  <main>
+    <section id="view-explore" class="view" role="tabpanel">
+      <h2 class="view-title">What's ON near the Beaches?</h2>
+      <div id="map" class="map" role="img" aria-label="Map of Beaches businesses"></div>
+
+      <div class="filters">
+        <select id="filter-area" aria-label="Filter by beach area">
+          <option value="">All Beaches</option>
+        </select>
+        <select id="filter-category" aria-label="Filter by category">
+          <option value="">All food &amp; drink</option>
+        </select>
+        <label class="check">
+          <input type="checkbox" id="filter-live" />
+          Live offers only
+        </label>
+        <input id="filter-q" type="search" placeholder="Search name…" aria-label="Search by business name" />
+      </div>
+
+      <p id="listing-count" class="muted count-line">Loading directory…</p>
+      <div id="business-list" class="list"></div>
+    </section>
+
+    <section id="view-rewards" class="view" hidden role="tabpanel">
+      <h2 class="view-title">Your ON GO rewards</h2>
+      <div class="panel points-panel">
+        <p class="points-value" id="points-value">0</p>
+        <p class="muted">Points award only after a venue verifies your QR — not when you open a deal.</p>
+      </div>
+      <div id="active-claim" class="panel" hidden></div>
+      <h3 class="subhead">History</h3>
+      <div id="loyalty-history" class="list compact"></div>
+    </section>
+
+    <section id="view-business" class="view" hidden role="tabpanel">
+      <h2 class="view-title">Turn it ON. Bring them IN.</h2>
+      <p class="lede">Activate a live offer, verify customer QR codes, and try the ad slot simulator (no charges).</p>
+
+      <div id="biz-gate" class="panel">
+        <p class="muted">Sign in with a business account to manage offers. Demo: <code>business@ongo.demo</code> / <code>demo1234</code> (Pete's Bar).</p>
+      </div>
+
+      <div id="biz-dashboard" hidden>
+        <div class="panel">
+          <h3 class="subhead">Activate live offer</h3>
+          <form id="offer-form" class="stack">
+            <label>Venue
+              <select id="offer-business" required></select>
+            </label>
+            <label>Title
+              <input id="offer-title" value="BOGO draft beer" required maxlength="120" />
+            </label>
+            <label>Product
+              <input id="offer-product" value="Any draft beer" maxlength="120" />
+            </label>
+            <label>Duration (minutes)
+              <input id="offer-duration" type="number" min="5" max="1440" value="60" />
+            </label>
+            <label>Redemption limit (optional)
+              <input id="offer-limit" type="number" min="1" placeholder="Unlimited" />
+            </label>
+            <button type="submit" class="btn primary">Activate offer</button>
+          </form>
+        </div>
+
+        <div class="panel">
+          <h3 class="subhead">Verify QR redemption</h3>
+          <form id="verify-form" class="stack">
+            <label>Scan / paste token
+              <input id="verify-token" placeholder="ongo:… or raw token" autocomplete="off" />
+            </label>
+            <button type="submit" class="btn primary">Verify &amp; award points</button>
+          </form>
+          <p id="verify-result" class="muted" aria-live="polite"></p>
+        </div>
+
+        <div class="panel">
+          <h3 class="subhead">Your offers</h3>
+          <div id="biz-offers" class="list compact"></div>
+        </div>
+
+        <div class="panel">
+          <h3 class="subhead">Featured placement simulator</h3>
+          <p class="muted warn">Simulation only. No charge or placement guarantee.</p>
+          <form id="bid-form" class="stack">
+            <label>Time slot
+              <select id="bid-slot" required></select>
+            </label>
+            <label>Venue
+              <select id="bid-business" required></select>
+            </label>
+            <label>Demo bid ($)
+              <input id="bid-amount" type="number" min="1" step="1" value="10" />
+            </label>
+            <button type="submit" class="btn ghost">Place simulated bid</button>
+          </form>
+          <p id="bid-result" class="muted" aria-live="polite"></p>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-account" class="view" hidden role="tabpanel">
+      <h2 class="view-title">Account</h2>
+      <div id="account-signed-in" class="panel" hidden>
+        <p id="account-summary"></p>
+        <button type="button" id="logout-btn" class="btn ghost">Sign out</button>
+      </div>
+
+      <div id="account-forms" class="auth-grid">
+        <form id="login-form" class="panel stack">
+          <h3 class="subhead">Sign in</h3>
+          <label>Email <input name="email" type="email" required autocomplete="username" /></label>
+          <label>Password <input name="password" type="password" required autocomplete="current-password" /></label>
+          <button type="submit" class="btn primary">Sign in</button>
+          <p class="muted small">Demo customer: customer@ongo.demo / demo1234</p>
+        </form>
+
+        <form id="register-form" class="panel stack">
+          <h3 class="subhead">Create account</h3>
+          <label>Name <input name="display_name" required maxlength="80" /></label>
+          <label>Email <input name="email" type="email" required /></label>
+          <label>Password <input name="password" type="password" required minlength="6" /></label>
+          <label>I am a
+            <select name="role" id="register-role">
+              <option value="customer">Customer</option>
+              <option value="business">Business claiming a listing</option>
+            </select>
+          </label>
+          <label id="claim-business-wrap" hidden>Claim listing
+            <select name="business_id" id="register-business"></select>
+          </label>
+          <button type="submit" class="btn primary">Register</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="claim-dialog">
+    <form method="dialog" class="stack claim-dialog-inner">
+      <h3 class="subhead">Your redemption QR</h3>
+      <img id="claim-qr" alt="Redemption QR code" width="280" height="280" />
+      <p id="claim-token" class="mono muted"></p>
+      <p class="muted">Staff verifies this QR. Points are awarded only after verification.</p>
+      <button value="close" class="btn primary">Done</button>
+    </form>
+  </dialog>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
