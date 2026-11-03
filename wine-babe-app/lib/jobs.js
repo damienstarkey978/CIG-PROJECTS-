@@ -17,13 +17,14 @@ const newId = () => crypto.randomBytes(12).toString("hex");
 const validId = (id) => typeof id === "string" && /^[a-f0-9]{24}$/.test(id);
 
 // Runs one scan, calling save(job) whenever it changes.
-async function runJob(input, save, engine) {
+// cache (optional): { get(key) -> value|null, set(key, value) } for finished scans.
+async function runJob(input, save, engine, cache) {
   const job = { events: [], done: false, result: null, error: null, at: Date.now() };
   const push = async (ev) => { job.events.push(ev); await save(job); };
   try {
     await push({ type: "status", text: input.image ? "Reading the label" : "Looking up the wine" });
     const send = (ev) => { push(ev).catch(() => {}); };
-    job.result = engine.HAS_KEY ? await engine.runScan(input, send) : await engine.runDemo(send);
+    job.result = engine.HAS_KEY ? await engine.runScan(input, send, cache) : await engine.runDemo(send);
   } catch (err) {
     console.error(err);
     job.error = err.message || "Something went wrong.";

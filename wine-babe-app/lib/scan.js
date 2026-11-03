@@ -1,10 +1,23 @@
-// Wine Babe scan engine: Claude reads the label, researches the web, fills the checklist.
+// Wine Babe scan engine. Built for speed (target: under a minute).
+//
+//   1. Identify (one fast call): read the label, find the winery website and
+//      the wine's product page.
+//   2. Cache: if this wine was scanned before, return that result at once.
+//   3. Three focused lookups run in parallel, each going straight to the most
+//      reliable source for its items, with a hard time limit:
+//        - techSheet:   the winery's own tech sheet PDF (sugar, ABV, SO2, GMO, dosage, additives)
+//        - farming:     winery sustainability / about / news pages and certifier listings
+//        - vegan:       winery statement, then Barnivore
+//   4. Merge: for each checklist item keep the strongest finding.
+//
 // Used by server.js (Fly / local) and the Netlify functions.
 
-const { CHECKLIST, ALL_ITEMS } = require("../public/checklist.js");
+const { CHECKLIST, ALL_ITEMS, EVIDENCE } = require("../public/checklist.js");
 
-const MODEL = process.env.WINE_BABE_MODEL || "claude-opus-5-5";
+const MODEL = process.env.WINE_BABE_MODEL || "claude-sonnet-5-5";
 const HAS_KEY = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+const AGENT_TIME_LIMIT_MS = Number(process.env.WINE_BABE_AGENT_MS || 45000);
+const CACHE_DAYS = 30;
 
 // The SDK is ESM only, so load it with a dynamic import. A static require()
 // cannot resolve it and the Netlify bundler left it out of the function.
@@ -19,109 +32,156 @@ function getClient() {
   }
   return clientPromise;
 }
-// ---------- structured output schema ----------
 
+// ---------- schemas ----------
+
+// The API allows at most 16 union typed fields per schema, so only the
+// nutrition numbers are nullable. Text fields use "" for unknown.
 const num = { type: ["number", "null"] };
-// Only the nutrition numbers are nullable: the API allows at most 16
-// union-typed fields in a schema. Text fields use "" for unknown.
 const str = { type: "string" };
+const EVIDENCE_ENUM = ["lab", "certified", "winery", "estimate", "none"];
 
-const RESULT_SCHEMA = {
+const checkSchema = (ids) => ({
   type: "object",
   additionalProperties: false,
-  required: ["identified", "wine", "nutrition", "checks", "summary", "sources"],
+  required: ["id", "status", "evidence", "scope", "as_of", "detail", "source_url"],
   properties: {
-    identified: { type: "boolean", description: "False if the label could not be read or the wine could not be identified." },
+    id: { type: "string", enum: ids },
+    status: { type: "string", enum: ["pass", "fail", "unknown", "na"] },
+    evidence: { type: "string", enum: EVIDENCE_ENUM },
+    scope: { type: "string", enum: ["this_wine", "producer", "related_wine"] },
+    as_of: str,
+    detail: str,
+    source_url: str,
+  },
+});
+
+const SOURCES = {
+  type: "array",
+  items: { type: "object", additionalProperties: false, required: ["title", "url"], properties: { title: str, url: str } },
+};
+
+const IDENTIFY_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["identified", "wine", "winery_website", "product_page_url", "note"],
+  properties: {
+    identified: { type: "boolean" },
     wine: {
       type: "object",
       additionalProperties: false,
-      required: ["name", "producer", "vintage", "region", "country", "grapes", "style", "tech_sheet_url", "tech_sheet_vintage"],
-      properties: {
-        name: str, producer: str, vintage: str, region: str, country: str, grapes: str,
-        style: str, tech_sheet_url: str,
-        tech_sheet_vintage: { type: "string", description: "Vintage the tech sheet covers, if stated. Empty string if unknown." },
-      },
+      required: ["name", "producer", "vintage", "region", "country", "grapes", "style"],
+      properties: { name: str, producer: str, vintage: str, region: str, country: str, grapes: str, style: str },
     },
-    nutrition: {
+    winery_website: str,
+    product_page_url: str,
+    note: str,
+  },
+};
+
+const agentSchema = (ids, withNutrition) => {
+  const props = { checks: { type: "array", items: checkSchema(ids) }, sources: SOURCES };
+  const required = ["checks", "sources"];
+  if (withNutrition) {
+    props.nutrition = {
       type: "object",
       additionalProperties: false,
       required: ["abv", "residual_sugar_g_l", "calories_5oz", "carbs_5oz", "total_so2_mg_l", "free_so2_mg_l", "ph", "ta_g_l", "source"],
       properties: {
         abv: num, residual_sugar_g_l: num, calories_5oz: num, carbs_5oz: num,
         total_so2_mg_l: num, free_so2_mg_l: num, ph: num, ta_g_l: num,
-        source: { type: "string", enum: ["lab", "certified", "winery", "estimate", "none"] },
+        source: { type: "string", enum: EVIDENCE_ENUM },
       },
-    },
-    checks: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["id", "status", "evidence", "scope", "as_of", "detail", "source_url"],
-        properties: {
-          id: { type: "string", enum: ALL_ITEMS.map((i) => i.id) },
-          status: { type: "string", enum: ["pass", "fail", "unknown", "na"] },
-          evidence: { type: "string", enum: ["lab", "certified", "winery", "estimate", "none"] },
-          scope: { type: "string", enum: ["this_wine", "producer", "related_wine"] },
-          as_of: { type: "string" },
-          detail: { type: "string" },
-          source_url: str,
-        },
-      },
-    },
-    summary: { type: "string" },
-    sources: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["title", "url"],
-        properties: { title: { type: "string" }, url: { type: "string" } },
-      },
-    },
-  },
+    };
+    props.tech_sheet_url = str;
+    props.tech_sheet_vintage = str;
+    required.push("nutrition", "tech_sheet_url", "tech_sheet_vintage");
+  }
+  return { type: "object", additionalProperties: false, required, properties: props };
 };
 
-const CHECKLIST_TEXT = CHECKLIST.map(
-  (c) => `${c.title}\n` + c.items.map((i) => `  - ${i.id}: ${i.label}. ${i.ask}`).join("\n")
-).join("\n");
+// ---------- which lookup owns which items ----------
+// Items may appear in more than one lookup; the merge keeps the best finding.
 
-const SYSTEM = `You are the research engine behind Wine Babe, an app that scans a wine bottle and reports how transparent and clean that wine is.
+const TECH_IDS = [
+  "tech_sheet", "sugar_under_1g", "no_added_sugar", "zero_dosage", "calories", "carbs", "abv",
+  "non_gmo", "no_artificial_flavors", "no_natural_flavors", "no_artificial_colors", "no_artificial_sweeteners",
+  "gluten_free", "traditional_fermentation", "no_added_water", "no_unnecessary_additives", "sulfites", "yeast",
+  "minimal_intervention", "no_concentrates", "temp_controlled", "origin", "single_vineyard", "grape_variety",
+  "vintage", "traceability", "vegan", "organic", "hand_harvested",
+];
+const FARM_IDS = [
+  "organic", "sustainable", "hand_harvested", "minimal_pesticide", "no_synthetic_herbicides", "biodiversity",
+  "water_conservation", "regenerative", "estate_grown", "family_owned", "certifications", "non_gmo",
+];
+const VEGAN_IDS = ["vegan", "gluten_free", "heavy_metals"];
 
-Your job:
-1. Identify the exact wine from the label photo or text: producer, wine name, grape, region, country, vintage, and style (still, sparkling: Brut Nature / Pas Dosé / Dosaggio Zero / Extra Brut / Brut / Extra Dry, etc.).
-2. Find the winery's OWN website first. It is the main source. Read its product page for this wine, its downloadable technical sheets (often PDFs), and its about, sustainability, vineyard and certification pages. Search it with site:<winery domain> queries. Search in the producer's own language as well as English. Italian examples: scheda tecnica, NO OGM / senza OGM / non deriva da organismi geneticamente modificati, vegano, biologico, sostenibile, SQNPI, Equalitas, vendemmia manuale, dosaggio zero, senza zuccheri aggiunti. French: fiche technique, sans OGM, vegan, bio, HVE, non dosé, vendanges manuelles. Spanish: ficha técnica, sin OGM, vegano, ecológico, vendimia manual.
-3. Then check secondary sources: importer and distributor catalogs, Barnivore (vegan), certifier registries (organic, SQNPI, Equalitas, Demeter, SIP, LODI RULES, SWNZ, B Corp).
-3b. The tech sheet is required, not optional. Before anything else after identifying the wine, find and FETCH it. Try in order until one works: find the wine's product page on the winery site and call find_page_links on it (and on the winery's downloads or schede tecniche page if there is one), then web_fetch the PDF that matches this wine (match the wine name in the file name or link text, prefer English if there are several); searches like "<winery> <wine> scheda tecnica pdf", "<winery> <wine> technical sheet", "<winery> <wine> tech sheet filetype:pdf", "site:<winery domain> pdf"; then importer or distributor pages that host the sheet. If no sheet exists for this exact wine, fetch the closest sister wine's sheet from the same producer (scope "related_wine") because winery wide declarations like NO OGM / GMO Free, allergens and fining usually appear on every sheet. Read the whole sheet: residual sugar, ABV, total and free SO2, pH, acidity, GMO, allergen, vegan and dosage lines.
-4. Do not stop after one search. For every top priority item still unknown, run a targeted search before giving up.
-5. Sustainability and certifications are often only on the winery's news, press, blog or "about" pages, in press releases, or in wine trade press, not on the product page. Always run these searches by winery name: "<winery> sustainability", "<winery> certified" / "certificazione", "<winery> news" or "press release", and the certifiers for that country by name. Italy: SQNPI, Equalitas, VIVA, biologico, ISO 14001. France: HVE, Terra Vitis, AB / Agriculture Biologique. Spain: ecológico, Wineries for Climate Protection. USA: SIP Certified, LODI RULES, Napa Green, CCOF, California Certified Sustainable. New Zealand: SWNZ. Germany: FairChoice, Ecovin. A dated winery announcement (for example "150 hectares certified SQNPI", February 2024) is a pass for sustainable with evidence "certified" if it names the certification, scope "producer", and as_of the announcement date.
-6. Fill every checklist item below.
+const itemList = (ids) =>
+  ALL_ITEMS.filter((i) => ids.includes(i.id)).map((i) => `- ${i.id}: ${i.label}. ${i.ask}`).join("\n");
 
-Rules for each check:
-- A clear winery statement is enough for a pass. Many wineries state non GMO, vegan, sustainable farming, hand harvest or no added sugar on their own site or tech sheet without a certifier: that is status "pass" with evidence "winery". A third party certificate or registry listing is evidence "certified". Lab numbers are "lab".
-- status "pass" when a source supports it. "fail" when a source contradicts it (residual sugar above 6.7 g/L, egg white or casein fining, sugar added at dosage). "unknown" when nothing was found. "na" when the item does not apply (zero_dosage for a still wine). Never guess a pass.
-- evidence: "lab", "certified", "winery" (producer, its tech sheet, or its importer states it), "estimate" (you calculated it), "none".
-- scope: "this_wine" when the source is about this exact wine; "producer" when it is a winery wide statement (all our wines are vegan, 70 ha certified organic); "related_wine" when it comes from a sister wine's tech sheet from the same producer (for example the Extra Dry sheet used for a Brut Nature). Say which wine in the detail.
-- as_of: the date or year of the statement or document if shown (for example "March 2020", "2024 vintage sheet"), else empty string.
-- detail: one short plain sentence a shopper can read, with the number or the quoted wording when there is one (for example: Tech sheet says "NO OGM").
-- source_url: the page that supports it, or an empty string.
+// ---------- prompts ----------
 
-Sugar tiers: no_added_sugar covers any sugar, concentrate or sweetener added at any stage. zero_dosage covers sparkling wine with no sugar added at dosage (Brut Nature, Pas Dosé, Dosaggio Zero, or a stated 0 g/L dosage). A Brut Nature label alone is winery evidence for zero_dosage. Still wines get zero_dosage "na".
+const RULES = `Rules for each check:
+- A clear winery statement is enough for a pass (evidence "winery"): on the winery's site, its tech sheet, or its importer's page. A certificate or certifier listing is "certified". Lab numbers on a tech sheet are "lab". A calculation is "estimate".
+- status "pass" when a source supports it, "fail" when a source contradicts it (residual sugar above 6.7 g/L, egg white or casein fining, sugar added at dosage), "unknown" when you found nothing, "na" when it does not apply (zero_dosage for a still wine). Never guess a pass.
+- scope: "this_wine" (source is about this exact wine), "producer" (winery wide statement, e.g. "all our wines are vegan", "150 ha certified SQNPI"), "related_wine" (a sister wine's tech sheet from the same producer; name it in the detail).
+- as_of: date or year of the statement or document if shown, else "".
+- detail: one short plain sentence for a shopper, with the number or quoted wording when there is one.
+- source_url: the page that supports it, or "".
+- Return one check for every id listed. Be fast: stop as soon as you have the answers; do not research beyond your listed sources.`;
 
-For any wine detail you cannot find, use an empty string.
+const wineLine = (w) =>
+  `${w.producer} ${w.name}${w.vintage ? ` ${w.vintage}` : ""} (${[w.style, w.grapes, w.region, w.country].filter(Boolean).join(", ")})`;
 
-Nutrition per 5 oz (148 ml): sugar g = residual sugar g/L x 0.148. If calories or carbs are not published, calculate them (alcohol g = 148 x ABV/100 x 0.789, 7 kcal/g; carbs ~ sugar + 0.5 g; 4 kcal/g) and set the related checks to evidence "estimate". Leave a nutrition number null rather than invent it. If the tech sheet gives a range (for example total SO2 130 to 145 mg/L), use the highest value and quote the range in the sulfites check detail. nutrition.source is the strongest evidence behind the sugar number.
+const IDENTIFY_SYSTEM = `You identify wines for the Wine Babe app, fast.
+From the label photo or text, identify producer, wine name, vintage, region, country, grapes and style (for sparkling, the dosage term on the label: Brut Nature, Pas Dosé, Dosaggio Zero, Extra Brut, Brut, Extra Dry...).
+Then find the winery's official website and this wine's product page on it, with at most two web searches. Prefer the winery's own domain over shops.
+If the photo is not a wine label or is unreadable, set identified false and explain in note. Unknown text fields are "".`;
 
-If the tech sheet is for a different vintage than the bottle, say so in wine.tech_sheet_vintage and in the detail of affected checks, since sugar, ABV and practices change by vintage.
+const techPrompt = (w, site, page) => `You read a wine's technical sheet for the Wine Babe app. Wine: ${wineLine(w)}.
+Winery website: ${site || "unknown"}. Product page: ${page || "unknown"}.
 
-If the photo is not a wine label or is unreadable, set identified false, explain in summary, and mark all checks unknown.
+Most reliable source: the winery's own tech sheet (PDF). Steps, in order, stop once you have it:
+1. Call find_page_links on the product page (or the winery's products / downloads page) and web_fetch the PDF that matches this wine (match the name in the file name or link text; prefer English).
+2. If that fails, one web search: "<producer> <wine> scheda tecnica OR technical sheet OR fiche technique pdf", then fetch the best PDF.
+3. If there is no sheet for this exact wine, use a sister wine's sheet from the same producer (scope "related_wine"); winery wide lines like NO OGM / GMO free, allergens and fining usually appear on every sheet.
+Read every line: residual sugar, ABV, total and free SO2 (if a range, use the highest value and quote the range), pH, acidity, GMO, allergens, vegan, fining, yeast, dosage, harvest, vineyard.
 
-summary: two or three friendly sentences for a shopper: what the wine is, how well documented it is, and the headline on sugar.
+Nutrition per 5 oz (148 ml): if calories or carbs are not published, calculate them (alcohol g = 148 x ABV/100 x 0.789 x 7 kcal; carbs ~ sugar g + 0.5; sugar g = residual sugar g/L x 0.148) and mark those checks "estimate". Leave numbers null rather than invent them. nutrition.source = evidence behind the sugar number.
+zero_dosage: sparkling with no sugar added at dosage (Brut Nature, Pas Dosé, Dosaggio Zero, or 0 g/L dosage); the label term alone is winery evidence. Still wines: "na".
+no_added_sugar: any sugar, concentrate or sweetener added at any stage.
+tech_sheet_vintage: vintage the sheet covers if stated, else "".
 
-Checklist (use these exact ids, one check per id):
-${CHECKLIST_TEXT}`;
+${RULES}
 
-// ---------- Claude call ----------
+Items:
+${itemList(TECH_IDS)}`;
+
+const farmPrompt = (w, site) => `You check farming practices and certifications for the Wine Babe app. Wine: ${wineLine(w)}.
+Winery website: ${site || "unknown"}.
+
+Most reliable sources, in order, stop once you have the answers:
+1. The winery's own sustainability / about / vineyards / news pages: fetch the website and the most relevant one or two pages.
+2. One web search for certifications by winery name with that country's certifiers. Italy: SQNPI, Equalitas, VIVA, biologico. France: HVE, Terra Vitis, AB. Spain: ecológico. USA: SIP Certified, LODI RULES, Napa Green, CCOF, CCSW. New Zealand: SWNZ. Germany: Ecovin, FairChoice. Organic: EU organic, USDA Organic, Demeter.
+A winery page or dated announcement that names a certification is "certified", scope "producer", with as_of the date.
+
+${RULES}
+
+Items:
+${itemList(FARM_IDS)}`;
+
+const veganPrompt = (w, site) => `You check vegan status for the Wine Babe app. Wine: ${wineLine(w)}.
+Winery website: ${site || "unknown"}.
+
+Most reliable sources, in order, stop once you have the answer:
+1. Barnivore (barnivore.com): one web search "barnivore <producer>" and fetch the producer's entry; it quotes the winery's own reply and date. That is evidence "winery", scope "producer", as_of the date.
+2. If not on Barnivore: one search for the winery's own vegan statement (site or importer).
+gluten_free: only pass if a source states it. heavy_metals: only pass if lab results for lead / arsenic / cadmium are published; otherwise "unknown".
+
+${RULES}
+
+Items:
+${itemList(VEGAN_IDS)}`;
 
 // ---------- custom tool: find document links on a page ----------
 // web_fetch returns page text, not its links, so PDF tech sheets linked from
@@ -180,7 +240,7 @@ async function findPageLinks(url) {
 const FIND_LINKS_TOOL = {
   name: "find_page_links",
   description:
-    "Read a web page's HTML and list its PDF, tech sheet and download links (url + link text). Use it on the winery's product page and downloads page to discover the tech sheet PDF, then call web_fetch on the PDF url it returns.",
+    "Read a web page's HTML and list its PDF, tech sheet and download links (url + link text). Use it on the winery's product or downloads page to find the tech sheet PDF, then web_fetch the PDF url it returns.",
   input_schema: {
     type: "object",
     additionalProperties: false,
@@ -190,84 +250,202 @@ const FIND_LINKS_TOOL = {
   strict: true,
 };
 
-async function runScan({ image, mediaType, query }, send) {
-  const content = [];
-  if (image) {
-    content.push({ type: "image", source: { type: "base64", media_type: mediaType || "image/jpeg", data: image } });
-    content.push({ type: "text", text: `Scan this wine label and complete the Wine Babe checklist.${query ? ` Extra info from the shopper: ${query}` : ""}` });
-  } else {
-    content.push({ type: "text", text: `Find this wine and complete the Wine Babe checklist: ${query}` });
-  }
+// ---------- one Claude call with tools, under a time limit ----------
 
-  const messages = [{ role: "user", content }];
-  const tools = [
-    { type: "web_search_20260209", name: "web_search", max_uses: 18 },
-    { type: "web_fetch_20260209", name: "web_fetch", max_uses: 16 },
-    FIND_LINKS_TOOL,
-  ];
-
+async function runAgent({ name, system, content, schema, tools, effort = "low", send }) {
   const client = await getClient();
-  let final;
+  const messages = [{ role: "user", content }];
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), AGENT_TIME_LIMIT_MS);
   let linkCalls = 0;
-  for (let turn = 0; turn < 14; turn++) {
-    const stream = client.beta.messages.stream({
-      model: MODEL,
-      max_tokens: 32000,
-      system: SYSTEM,
-      tools,
-      messages,
-      output_config: { effort: "high", format: { type: "json_schema", schema: RESULT_SCHEMA } },
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-    });
-
-    stream.on("streamEvent", (ev) => {
-      if (ev.type === "content_block_start" && ev.content_block.type === "server_tool_use") {
-        send({ type: "status", text: ev.content_block.name === "web_fetch" ? "Reading a source" : "Searching the web" });
-      }
-    });
-    stream.on("contentBlock", (block) => {
-      if (block.type === "server_tool_use" && block.input) {
-        if (block.input.query) send({ type: "search", text: block.input.query });
-        if (block.input.url) send({ type: "fetch", text: block.input.url });
-      }
-    });
-
-    final = await stream.finalMessage();
-
-    if (final.stop_reason === "pause_turn") {
-      messages.push({ role: "assistant", content: final.content });
-      send({ type: "status", text: "Still digging" });
-      continue;
-    }
-
-    if (final.stop_reason === "tool_use") {
-      messages.push({ role: "assistant", content: final.content });
-      const calls = final.content.filter((b) => b.type === "tool_use");
-      const results = await Promise.all(
-        calls.map(async (call) => {
-          if (call.name !== FIND_LINKS_TOOL.name || typeof call.input?.url !== "string") {
-            return { type: "tool_result", tool_use_id: call.id, is_error: true, content: "Unknown tool or bad input." };
-          }
-          if (++linkCalls > 8) {
-            return { type: "tool_result", tool_use_id: call.id, is_error: true, content: "Link lookup limit reached. Use what you have." };
-          }
-          send({ type: "status", text: "Looking for the tech sheet" });
-          const out = await findPageLinks(call.input.url);
-          return { type: "tool_result", tool_use_id: call.id, is_error: Boolean(out.error), content: JSON.stringify(out) };
-        })
+  try {
+    for (let turn = 0; turn < 8; turn++) {
+      const stream = client.beta.messages.stream(
+        {
+          model: MODEL,
+          max_tokens: 16000,
+          system,
+          tools,
+          messages,
+          output_config: { effort, format: { type: "json_schema", schema } },
+          betas: ["server-side-fallback-2026-07-01"],
+          fallbacks: "default",
+        },
+        { signal: ctrl.signal }
       );
-      messages.push({ role: "user", content: results });
-      continue;
+      stream.on("contentBlock", (block) => {
+        if (block.type === "server_tool_use" && block.input) {
+          if (block.input.query) send({ type: "search", text: block.input.query });
+          if (block.input.url) send({ type: "fetch", text: block.input.url });
+        }
+      });
+      const msg = await stream.finalMessage();
+
+      if (msg.stop_reason === "pause_turn") {
+        messages.push({ role: "assistant", content: msg.content });
+        continue;
+      }
+      if (msg.stop_reason === "tool_use") {
+        messages.push({ role: "assistant", content: msg.content });
+        const calls = msg.content.filter((b) => b.type === "tool_use");
+        const results = await Promise.all(
+          calls.map(async (call) => {
+            if (call.name !== FIND_LINKS_TOOL.name || typeof call.input?.url !== "string" || ++linkCalls > 3) {
+              return { type: "tool_result", tool_use_id: call.id, is_error: true, content: "Not available. Use what you have." };
+            }
+            send({ type: "status", text: "Opening the tech sheet" });
+            const out = await findPageLinks(call.input.url);
+            return { type: "tool_result", tool_use_id: call.id, is_error: Boolean(out.error), content: JSON.stringify(out) };
+          })
+        );
+        messages.push({ role: "user", content: results });
+        continue;
+      }
+      if (msg.stop_reason === "refusal") return null;
+      const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+      const start = text.indexOf("{");
+      return start < 0 ? null : JSON.parse(text.slice(start));
     }
-    break;
+    return null;
+  } catch (err) {
+    console.error(`[${name}]`, ctrl.signal.aborted ? "time limit reached" : err);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ---------- merge ----------
+
+const STATUS_RANK = { pass: 3, fail: 3, na: 2, unknown: 0 };
+function better(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  const ra = STATUS_RANK[a.status] ?? 0, rb = STATUS_RANK[b.status] ?? 0;
+  if (ra !== rb) return ra > rb ? a : b;
+  const wa = EVIDENCE[a.evidence]?.weight ?? 0, wb = EVIDENCE[b.evidence]?.weight ?? 0;
+  if (wa !== wb) return wa > wb ? a : b;
+  if ((a.scope === "this_wine") !== (b.scope === "this_wine")) return a.scope === "this_wine" ? a : b;
+  return a;
+}
+
+function summarize(wine, checks, nutrition) {
+  const top = ALL_ITEMS.filter((i) => i.top);
+  const byId = Object.fromEntries(checks.map((c) => [c.id, c]));
+  const ok = top.filter((i) => byId[i.id]?.status === "pass").length;
+  const rs = nutrition.residual_sugar_g_l;
+  const sugar =
+    rs == null ? "We could not find a published sugar number."
+    : rs * 0.148 < 1 ? `It has about ${(rs * 0.148).toFixed(1)} g of sugar per 5 oz glass, under the 1 g mark.`
+    : `It has about ${(rs * 0.148).toFixed(1)} g of sugar per 5 oz glass, over the 1 g mark.`;
+  return `${[wine.producer, wine.name].filter(Boolean).join(" ")}${wine.vintage ? ` ${wine.vintage}` : ""}: ${ok} of the Wine Babe top 10 are backed by a source. ${sugar}`;
+}
+
+const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
+
+const cacheKey = (w) =>
+  [w.producer, w.name, w.vintage].map((x) => String(x || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")).join("__");
+
+// ---------- main ----------
+
+async function runScan({ image, mediaType, query }, send, cache) {
+  const t0 = Date.now();
+
+  // 1. Identify.
+  const idContent = [];
+  if (image) idContent.push({ type: "image", source: { type: "base64", media_type: mediaType || "image/jpeg", data: image } });
+  idContent.push({ type: "text", text: image ? `Identify this wine.${query ? ` Shopper note: ${query}` : ""}` : `Identify this wine: ${query}` });
+  const id = await runAgent({
+    name: "identify",
+    system: IDENTIFY_SYSTEM,
+    content: idContent,
+    schema: IDENTIFY_SCHEMA,
+    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 2 }],
+    send,
+  });
+  if (!id) throw new Error("Could not read that label. Try a clearer photo or type the wine name.");
+  if (!id.identified) {
+    return {
+      identified: false,
+      wine: { ...id.wine, tech_sheet_url: "", tech_sheet_vintage: "" },
+      nutrition: EMPTY_NUTRITION,
+      checks: [],
+      summary: id.note || "We couldn't identify this wine. Try a clearer photo of the front label, or type the name.",
+      sources: [],
+    };
+  }
+  const wine = id.wine;
+  send({ type: "status", text: `Found ${[wine.producer, wine.name].filter(Boolean).join(" ")}` });
+
+  // 2. Cache.
+  const key = cacheKey(wine);
+  if (cache && key.replace(/_/g, "")) {
+    const hit = await cache.get(key).catch(() => null);
+    if (hit && Date.now() - (hit.cached_at || 0) < CACHE_DAYS * 864e5) {
+      send({ type: "status", text: "Already checked this wine" });
+      return { ...hit.result, cached: true };
+    }
   }
 
-  if (final.stop_reason === "refusal") throw new Error("This scan could not be completed. Try another photo.");
-  const text = final.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-  const start = text.indexOf("{");
-  if (start < 0) throw new Error("No result came back. Try again.");
-  return JSON.parse(text.slice(start));
+  // 3. Parallel lookups.
+  send({ type: "status", text: "Checking the tech sheet, farming and vegan status" });
+  const site = id.winery_website, page = id.product_page_url;
+  const ask = (text) => [{ type: "text", text }];
+  const [tech, farm, vegan] = await Promise.all([
+    runAgent({
+      name: "tech", system: techPrompt(wine, site, page), content: ask("Read the tech sheet and fill the items."),
+      schema: agentSchema(TECH_IDS, true), send,
+      tools: [
+        { type: "web_search_20260209", name: "web_search", max_uses: 2 },
+        { type: "web_fetch_20260209", name: "web_fetch", max_uses: 3 },
+        FIND_LINKS_TOOL,
+      ],
+    }),
+    runAgent({
+      name: "farm", system: farmPrompt(wine, site), content: ask("Check farming and certifications and fill the items."),
+      schema: agentSchema(FARM_IDS, false), send,
+      tools: [
+        { type: "web_search_20260209", name: "web_search", max_uses: 2 },
+        { type: "web_fetch_20260209", name: "web_fetch", max_uses: 3 },
+      ],
+    }),
+    runAgent({
+      name: "vegan", system: veganPrompt(wine, site), content: ask("Check vegan status and fill the items."),
+      schema: agentSchema(VEGAN_IDS, false), send,
+      tools: [
+        { type: "web_search_20260209", name: "web_search", max_uses: 2 },
+        { type: "web_fetch_20260209", name: "web_fetch", max_uses: 2 },
+      ],
+    }),
+  ]);
+
+  // 4. Merge.
+  const best = {};
+  for (const part of [tech, farm, vegan]) for (const c of part?.checks || []) best[c.id] = better(best[c.id], c);
+  const checks = ALL_ITEMS.map(
+    (i) => best[i.id] || { id: i.id, status: "unknown", evidence: "none", scope: "this_wine", as_of: "", detail: "No public information found.", source_url: "" }
+  );
+  const nutrition = tech?.nutrition || EMPTY_NUTRITION;
+  const seen = new Set();
+  const sources = [tech, farm, vegan]
+    .flatMap((p) => p?.sources || [])
+    .filter((s) => s.url && !seen.has(s.url) && seen.add(s.url))
+    .slice(0, 12);
+
+  const result = {
+    identified: true,
+    wine: { ...wine, tech_sheet_url: tech?.tech_sheet_url || "", tech_sheet_vintage: tech?.tech_sheet_vintage || "" },
+    nutrition,
+    checks,
+    summary: summarize(wine, checks, nutrition),
+    sources,
+    seconds: Math.round((Date.now() - t0) / 1000),
+    partial: [tech, farm, vegan].some((p) => !p),
+  };
+
+  // Only cache complete results, so a timed out lookup gets retried next time.
+  if (cache && !result.partial) await cache.set(key, { cached_at: Date.now(), result }).catch(() => {});
+  return result;
 }
 
 // ---------- demo mode (no API key) ----------

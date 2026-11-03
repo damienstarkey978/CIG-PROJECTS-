@@ -10,6 +10,11 @@ export default async (req) => {
   const store = getStore("scans");
   const input = await store.get(`${id}/input`, { type: "json" });
   if (!input) return;
-  await jobs.runJob(input, (job) => store.setJSON(`${id}/job`, job), engine);
+  const results = getStore("wine-cache");
+  const cache = {
+    get: (key) => results.get(key, { type: "json" }),
+    set: (key, value) => results.setJSON(key, value),
+  };
+  await jobs.runJob(input, (job) => store.setJSON(`${id}/job`, job), engine, cache);
   await store.delete(`${id}/input`);
 };

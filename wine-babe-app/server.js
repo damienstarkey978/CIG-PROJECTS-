@@ -39,6 +39,8 @@ function readBody(req, limit = 12 * 1024 * 1024) {
 
 // Jobs live in memory here; on Netlify they live in Blobs (see netlify/functions).
 const JOBS = new Map();
+const RESULTS = new Map(); // scan cache, in memory
+const cache = { get: async (k) => RESULTS.get(k) || null, set: async (k, v) => { RESULTS.set(k, v); } };
 const json = (res, code, obj) => res.writeHead(code, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify(obj));
 
 async function handleStart(req, res) {
@@ -50,7 +52,7 @@ async function handleStart(req, res) {
   }
   const id = jobs.newId();
   JOBS.set(id, { events: [], done: false });
-  jobs.runJob(input, (job) => { JOBS.set(id, job); }, engine);
+  jobs.runJob(input, (job) => { JOBS.set(id, job); }, engine, cache);
   setTimeout(() => JOBS.delete(id), 30 * 60 * 1000).unref();
   json(res, 200, { id });
 }

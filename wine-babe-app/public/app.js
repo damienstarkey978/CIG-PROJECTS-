@@ -90,11 +90,11 @@
       const start = await res.json().catch(() => ({}));
       if (!res.ok || !start.id) throw new Error(start.error || "The scanner is not reachable right now.");
 
-      // Poll for progress until the job is done (a few minutes, cap at 8).
+      // Poll for progress until the job is done (under a minute, cap at 3).
       let seen = 0, misses = 0, job = null;
-      const deadline = Date.now() + 8 * 60 * 1000;
+      const deadline = Date.now() + 3 * 60 * 1000;
       while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 1000));
         const s = await fetch(`/api/scan-status/${start.id}`, { cache: "no-store" }).catch(() => null);
         if (!s || !s.ok) {
           if (++misses > 8) throw new Error("Lost touch with the scanner. Try again.");
