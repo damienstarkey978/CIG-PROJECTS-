@@ -92,6 +92,7 @@ Your job:
 1. Identify the exact wine from the label photo or text: producer, wine name, grape, region, country, vintage, and style (still, sparkling: Brut Nature / Pas Dosé / Dosaggio Zero / Extra Brut / Brut / Extra Dry, etc.).
 2. Find the winery's OWN website first. It is the main source. Read its product page for this wine, its downloadable technical sheets (often PDFs), and its about, sustainability, vineyard and certification pages. Search it with site:<winery domain> queries. Search in the producer's own language as well as English. Italian examples: scheda tecnica, NO OGM / senza OGM / non deriva da organismi geneticamente modificati, vegano, biologico, sostenibile, SQNPI, Equalitas, vendemmia manuale, dosaggio zero, senza zuccheri aggiunti. French: fiche technique, sans OGM, vegan, bio, HVE, non dosé, vendanges manuelles. Spanish: ficha técnica, sin OGM, vegano, ecológico, vendimia manual.
 3. Then check secondary sources: importer and distributor catalogs, Barnivore (vegan), certifier registries (organic, SQNPI, Equalitas, Demeter, SIP, LODI RULES, SWNZ, B Corp).
+3b. The tech sheet is required, not optional. Before anything else after identifying the wine, find and FETCH it. Try in order until one works: the product page on the winery site (look for PDF / download / scheda tecnica / technical sheet links and fetch them); searches like "<winery> <wine> scheda tecnica pdf", "<winery> <wine> technical sheet", "<winery> <wine> tech sheet filetype:pdf", "site:<winery domain> pdf"; then importer or distributor pages that host the sheet. If no sheet exists for this exact wine, fetch the closest sister wine's sheet from the same producer (scope "related_wine") because winery wide declarations like NO OGM / GMO Free, allergens and fining usually appear on every sheet. Read the whole sheet: residual sugar, ABV, total and free SO2, pH, acidity, GMO, allergen, vegan and dosage lines.
 4. Do not stop after one search. For every top priority item still unknown, run a targeted search before giving up.
 5. Sustainability and certifications are often only on the winery's news, press, blog or "about" pages, in press releases, or in wine trade press, not on the product page. Always run these searches by winery name: "<winery> sustainability", "<winery> certified" / "certificazione", "<winery> news" or "press release", and the certifiers for that country by name. Italy: SQNPI, Equalitas, VIVA, biologico, ISO 14001. France: HVE, Terra Vitis, AB / Agriculture Biologique. Spain: ecológico, Wineries for Climate Protection. USA: SIP Certified, LODI RULES, Napa Green, CCOF, California Certified Sustainable. New Zealand: SWNZ. Germany: FairChoice, Ecovin. A dated winery announcement (for example "150 hectares certified SQNPI", February 2024) is a pass for sustainable with evidence "certified" if it names the certification, scope "producer", and as_of the announcement date.
 6. Fill every checklist item below.
@@ -134,7 +135,7 @@ async function runScan({ image, mediaType, query }, send) {
   const messages = [{ role: "user", content }];
   const tools = [
     { type: "web_search_20260209", name: "web_search", max_uses: 18 },
-    { type: "web_fetch_20260209", name: "web_fetch", max_uses: 12 },
+    { type: "web_fetch_20260209", name: "web_fetch", max_uses: 16 },
   ];
 
   const client = await getClient();
@@ -146,7 +147,7 @@ async function runScan({ image, mediaType, query }, send) {
       system: SYSTEM,
       tools,
       messages,
-      output_config: { effort: "medium", format: { type: "json_schema", schema: RESULT_SCHEMA } },
+      output_config: { effort: "high", format: { type: "json_schema", schema: RESULT_SCHEMA } },
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
     });
