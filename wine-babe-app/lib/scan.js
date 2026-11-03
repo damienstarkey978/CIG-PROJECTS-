@@ -93,7 +93,8 @@ Your job:
 2. Find the winery's OWN website first. It is the main source. Read its product page for this wine, its downloadable technical sheets (often PDFs), and its about, sustainability, vineyard and certification pages. Search it with site:<winery domain> queries. Search in the producer's own language as well as English. Italian examples: scheda tecnica, NO OGM / senza OGM / non deriva da organismi geneticamente modificati, vegano, biologico, sostenibile, SQNPI, Equalitas, vendemmia manuale, dosaggio zero, senza zuccheri aggiunti. French: fiche technique, sans OGM, vegan, bio, HVE, non dosé, vendanges manuelles. Spanish: ficha técnica, sin OGM, vegano, ecológico, vendimia manual.
 3. Then check secondary sources: importer and distributor catalogs, Barnivore (vegan), certifier registries (organic, SQNPI, Equalitas, Demeter, SIP, LODI RULES, SWNZ, B Corp).
 4. Do not stop after one search. For every top priority item still unknown, run a targeted search before giving up.
-5. Fill every checklist item below.
+5. Sustainability and certifications are often only on the winery's news, press, blog or "about" pages, in press releases, or in wine trade press, not on the product page. Always run these searches by winery name: "<winery> sustainability", "<winery> certified" / "certificazione", "<winery> news" or "press release", and the certifiers for that country by name. Italy: SQNPI, Equalitas, VIVA, biologico, ISO 14001. France: HVE, Terra Vitis, AB / Agriculture Biologique. Spain: ecológico, Wineries for Climate Protection. USA: SIP Certified, LODI RULES, Napa Green, CCOF, California Certified Sustainable. New Zealand: SWNZ. Germany: FairChoice, Ecovin. A dated winery announcement (for example "150 hectares certified SQNPI", February 2024) is a pass for sustainable with evidence "certified" if it names the certification, scope "producer", and as_of the announcement date.
+6. Fill every checklist item below.
 
 Rules for each check:
 - A clear winery statement is enough for a pass. Many wineries state non GMO, vegan, sustainable farming, hand harvest or no added sugar on their own site or tech sheet without a certifier: that is status "pass" with evidence "winery". A third party certificate or registry listing is evidence "certified". Lab numbers are "lab".
@@ -132,7 +133,7 @@ async function runScan({ image, mediaType, query }, send) {
 
   const messages = [{ role: "user", content }];
   const tools = [
-    { type: "web_search_20260209", name: "web_search", max_uses: 14 },
+    { type: "web_search_20260209", name: "web_search", max_uses: 18 },
     { type: "web_fetch_20260209", name: "web_fetch", max_uses: 12 },
   ];
 
