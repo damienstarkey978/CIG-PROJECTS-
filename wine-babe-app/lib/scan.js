@@ -195,7 +195,8 @@ const NUTRITION_SCHEMA = {
   },
 };
 const NUTRITION_SEARCH_SYSTEM = `You look up a wine's published nutrition facts and specs for the Wine Babe app, fast.
-Run exactly one web search, with exactly the query you are given (the full wine name followed by "nutrition facts").
+First run a web search with exactly the query you are given (the full wine name followed by "nutrition facts").
+If those results don't state this wine's ABV, either search "<full wine name> ABV" or fetch one retailer listing for this exact wine (Total Wine, Spec's, Wine.com, Drizly and similar list "ABV" or "Alcohol %"), and take the ABV from it.
 Return:
 - pages: up to 4 result pages, the winery's own product / specs / nutrition page first, each tagged winery, importer, retailer or other.
 - The figures given for THIS wine by the best source (winery first; otherwise importer, then any page in the results that states them for this wine, such as a wine site, nutrition database or retailer): calories, carbohydrates and sugar per 5 oz (148 ml) serving (convert other serving sizes), residual sugar in g/L if stated, ABV. Use null for anything not stated. Ranges count: use the midpoint for calories and carbs, the highest value for sugar.
@@ -810,7 +811,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v27";
+const ENGINE_VERSION = "v28";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -898,7 +899,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   const nutritionSearch = runAgent({ diag,
     name: "nutrition-search", model: SMART_MODEL, system: NUTRITION_SEARCH_SYSTEM, schema: NUTRITION_SCHEMA, send, deadline: deadline - 4000,
     content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. Search exactly: ${brandAndName(wine)} nutrition facts`),
-    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
+    tools: webTools(2, 1),
   });
 
   const techLookup = async () => {
