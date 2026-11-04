@@ -600,7 +600,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v4";
+const ENGINE_VERSION = "v5";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -687,8 +687,28 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       const found = await searched;
       const searchUrls = (found?.pdf_urls || []).filter((u) => /^https?:\/\//.test(u)).slice(0, 5);
       diag.push({ name: "sheet-search-urls", outcome: JSON.stringify(searchUrls).slice(0, 400) });
-      ranked = rankPdfs([...fast, ...searchUrls.map((url) => ({ url, text: "" }))], wine, site);
-      searchPool = searchUrls.filter((u) => /\.pdf(\?|$)/i.test(u));
+      // No winery site from identify: if a search result is on the producer's
+      // own domain, run the fast routes on that domain too.
+      let extra = [];
+      if (!page && !site) {
+        const prod = norm(wine.producer).split(" ").filter((w) => w.length > 3);
+        const own = searchUrls.find((u) => { try { const h = new URL(u).hostname.toLowerCase(); return prod.some((w) => h.includes(w)); } catch { return false; } });
+        if (own) {
+          const origin = new URL(own).origin;
+          extra = await findTechCandidates(wine, null, origin, diag);
+          diag.push({ name: "sheet-fast-producer-domain", outcome: `${origin}: ${extra.filter((l) => /\.pdf/i.test(l.url)).length} pdf links` });
+        }
+      }
+      ranked = rankPdfs([...fast, ...extra, ...searchUrls.map((url) => ({ url, text: "" }))], wine, site || (extra.length ? extra[0].url : ""));
+      // Only truly unnamed files (no wine words in the file name) get a text
+      // check; named files were judged by the ranking rules already.
+      searchPool = searchUrls.filter((u) => {
+        if (!/\.pdf(\?|$)/i.test(u)) return false;
+        let f = u.split("/").pop();
+        try { f = decodeURIComponent(f); } catch {}
+        const fw = new Set(norm(f).split(" "));
+        return !norm(wine.name).split(" ").filter((w) => w.length > 2).some((w) => fw.has(w));
+      });
     }
     diag.push({ name: "sheet-ranked", outcome: JSON.stringify(ranked.slice(0, 3).map((r) => `${r.score.toFixed(1)} ${r.url}`)).slice(0, 600) });
     // Download the best ranked PDFs in order; for unhelpfully named search
@@ -704,7 +724,9 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       const textNorm = norm(await pdfText(got.data));
       const words = new Set(textNorm.split(" "));
       const hits = nameWords.filter((w) => words.has(w)).length;
-      const ok = prodWords.some((w) => words.has(w)) && hits >= Math.ceil(nameWords.length * 0.5) && (!needYear || words.has(needYear));
+      const styleNeeded = STYLE_WORDS.filter((w) => norm(wine.name).split(" ").includes(w));
+      const ok = prodWords.some((w) => words.has(w)) && hits >= Math.ceil(nameWords.length * 0.5) &&
+        styleNeeded.every((w) => words.has(w)) && (!needYear || words.has(needYear));
       diag.push({ name: "sheet-text-check", outcome: `${ok ? "match" : "no match"} (${hits}/${nameWords.length}${needYear ? `, vintage ${needYear}` : ""}): ${url}`.slice(0, 300) });
       return ok ? { url, data: got.data } : null;
     };
@@ -767,7 +789,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     });
   };
 
-  const [tech, farm, vegan, cert] = await Promise.all([
+  let [tech, farm, vegan, cert] = await Promise.all([
     techLookup(),
     runAgent({ diag,
       name: "farm", system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline,
@@ -779,6 +801,18 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     }),
     certScan(site, wine.country, diag),
   ]);
+
+  // A sheet whose sugar is impossible for the wine's style is the wrong wine
+  // (e.g. a Brut sheet at 10 g/L for a Brut Nature, which is 3 g/L at most).
+  if (tech?.nutrition?.residual_sugar_g_l != null) {
+    const styleText = norm(`${wine.name} ${wine.style}`);
+    const maxSugar = /\b(nature|pas dose|dosaggio zero|zero dosage|non dose|brut zero)\b/.test(styleText) ? 3
+      : /\bextra brut\b/.test(styleText) ? 6 : null;
+    if (maxSugar != null && tech.nutrition.residual_sugar_g_l > maxSugar + 0.5) {
+      diag.push({ name: "sheet-rejected", outcome: `sugar ${tech.nutrition.residual_sugar_g_l} g/L impossible for this style (max ${maxSugar}): ${tech.tech_sheet_url}` });
+      tech = null;
+    }
+  }
 
   // Tech sheet sanity: a sheet with analysis numbers is a lab sheet, and a
   // sheet for another vintage is marked as such on every item it supports.
