@@ -17,6 +17,9 @@ const { CHECKLIST, ALL_ITEMS, EVIDENCE } = require("../public/checklist.js");
 // Haiku 5.5 is the fastest model and every step is a simple job. If a Haiku
 // call errors, that step retries once on Sonnet 5.5.
 const MODEL = process.env.WINE_BABE_MODEL || "claude-haiku-5-5";
+// Steps that need judgment (naming the wine and its site, choosing sources)
+// run on Sonnet: in live tests Haiku often refused to name a wine from text.
+const SMART_MODEL = process.env.WINE_BABE_SMART_MODEL || "claude-sonnet-5-5";
 const BACKUP_MODEL = process.env.WINE_BABE_BACKUP_MODEL || "claude-sonnet-5-5";
 // Reading an attached tech sheet is simple extraction, so it uses the fastest model.
 const READ_MODEL = process.env.WINE_BABE_READ_MODEL || "claude-haiku-5-5";
@@ -149,7 +152,7 @@ const wineLine = (w) =>
 const IDENTIFY_SYSTEM = `You identify wines for the Wine Babe app, fast.
 From the label photo or text, identify producer, wine name, vintage, region, country, grapes and style (for sparkling, the dosage term on the label: Brut Nature, Pas Dosé, Dosaggio Zero, Extra Brut, Brut, Extra Dry...).
 Then find the winery's official website and this wine's product page on it, with at most one web search. Be quick. Prefer the winery's own domain over shops.
-If the photo is not a wine label or is unreadable, set identified false and explain in note. Unknown text fields are "".`;
+A name without a vintage is fine: identify the wine and leave vintage "" (non vintage or latest). Never ask for a photo or more details. Only set identified false when the input is clearly not a wine or is unreadable, and explain in note. Unknown text fields are "".`;
 
 const PDF_URLS_SCHEMA = {
   type: "object",
@@ -698,7 +701,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v10";
+const ENGINE_VERSION = "v11";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -726,7 +729,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     schema: IDENTIFY_SCHEMA,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
     send,
-    deadline: t0 + IDENTIFY_MS,
+    model: SMART_MODEL, deadline: t0 + IDENTIFY_MS,
   });
   if (!id) throw new Error("Could not read that label. Try a clearer photo or type the wine name.");
   if (!id.identified) {
@@ -776,7 +779,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
 
   const techLookup = async () => {
     const searched = runAgent({ diag,
-      name: "sheet-search", system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline,
+      name: "sheet-search", model: SMART_MODEL, system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline,
       content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}.`),
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
     });
@@ -874,7 +877,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       let host = "";
       try { host = new URL(site).hostname.replace(/^www\./, ""); } catch {}
       const retry = await runAgent({ diag,
-        name: "sheet-search-2", system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline: deadline - 5000,
+        name: "sheet-search-2", model: SMART_MODEL, system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline: deadline - 5000,
         content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. A first search found nothing usable${searchSeen.length ? ` (already tried: ${searchSeen.join(", ")})` : ""}. Use different wording this time, for example "${wine.producer} ${wine.name} fact sheet pdf"${host ? ` or site:${host} pdf` : ""}.`),
         tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
       });
@@ -888,11 +891,18 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       // Spec pages from the "tech specs" search on the producer's own domain
       // come first, then winery / importer pages from the nutrition search.
       const prodW = norm(wine.producer).split(" ").filter((w) => w.length > 3);
+      const onProducerSite = (u) => {
+        try {
+          const h = new URL(u).hostname.toLowerCase();
+          return prodW.some((w) => h.includes(w)) || (site && h.endsWith(new URL(site).hostname.replace(/^www\./, "")));
+        } catch { return false; }
+      };
       const ownSpec = searchSeen
         .filter((u) => !/\.pdf(\?|$)/i.test(u))
         .find((u) => { try { const h = new URL(u).hostname.toLowerCase(); return prodW.some((w) => h.includes(w)) || (site && h.endsWith(new URL(site).hostname.replace(/^www\./, ""))); } catch { return false; } });
       const specPage = (ownSpec && { url: ownSpec, kind: "winery" })
-        || (ns?.pages || []).find((p) => p.kind === "winery") || (ns?.pages || []).find((p) => p.kind === "importer");
+        || (ns?.pages || []).find((p) => p.kind === "winery" && onProducerSite(p.url))
+        || (ns?.pages || []).find((p) => p.kind === "importer");
       if (!specPage) return null;
       send({ type: "fetch", text: specPage.url });
       const text = await pageText(specPage.url);
@@ -935,7 +945,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
   let [tech, farm, vegan, cert, barnivore] = await Promise.all([
     techLookup(),
     runAgent({ diag,
-      name: "farm", system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline,
+      name: "farm", model: SMART_MODEL, system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline,
       content: ask("Check farming and certifications and fill the items."), tools: webTools(1, 2),
     }),
     runAgent({ diag,
