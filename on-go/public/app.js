@@ -777,17 +777,25 @@
 
     showView('account');
     if (verify) {
-      try {
-        const data = await api('/api/auth/verify', {
-          method: 'POST',
-          body: JSON.stringify({ token: verify }),
-        });
-        state.user = data.user;
-        setSessionChip();
-        refreshAccount();
-        setAuthFlash(data.message || 'Email verified — you are signed in.');
-      } catch (err) {
-        setAuthFlash(err.message || 'Verification failed');
+      let verified = false;
+      for (let attempt = 0; attempt < 4 && !verified; attempt += 1) {
+        try {
+          if (attempt) await new Promise((r) => setTimeout(r, 800 * attempt));
+          const data = await api('/api/auth/verify', {
+            method: 'POST',
+            body: JSON.stringify({ token: verify }),
+          });
+          state.user = data.user;
+          setSessionChip();
+          refreshAccount();
+          setAuthFlash(data.message || 'Email verified — you are signed in.');
+          verified = true;
+        } catch (err) {
+          if (attempt === 3 || !/syncing|sync_pending|Invalid or expired/i.test(err.message || '')) {
+            setAuthFlash(err.message || 'Verification failed');
+            break;
+          }
+        }
       }
       params.delete('verify');
     }

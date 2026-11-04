@@ -127,6 +127,39 @@ function randomToken() {
   return crypto.randomBytes(24).toString('base64url');
 }
 
+function signingSecret() {
+  return process.env.SESSION_SECRET || 'on-go-dev-secret';
+}
+
+/** Self-contained verify token (survives Blobs lag — no DB token lookup required). */
+function makeEmailVerifyToken(userId, ttlMs = 48 * 3600 * 1000) {
+  const payload = Buffer.from(
+    JSON.stringify({ uid: userId, exp: Date.now() + ttlMs, p: 'ev' }),
+    'utf8'
+  ).toString('base64url');
+  const sig = crypto.createHmac('sha256', signingSecret()).update(payload).digest('base64url');
+  return `${payload}.${sig}`;
+}
+
+function parseEmailVerifyToken(token) {
+  const raw = String(token || '');
+  const i = raw.lastIndexOf('.');
+  if (i < 1) return null;
+  const payload = raw.slice(0, i);
+  const sig = raw.slice(i + 1);
+  const expect = crypto.createHmac('sha256', signingSecret()).update(payload).digest('base64url');
+  if (sig.length !== expect.length) return null;
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (!data || data.p !== 'ev' || !data.uid || !data.exp) return null;
+    if (Date.now() > Number(data.exp)) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   COOKIE_NAME,
   UID_COOKIE,
@@ -146,5 +179,7 @@ module.exports = {
   businessIdsForUser,
   userCanManageBusiness,
   randomToken,
+  makeEmailVerifyToken,
+  parseEmailVerifyToken,
   uuid,
 };

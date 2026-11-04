@@ -213,8 +213,10 @@ function wrapDb(raw) {
     raw,
     dirty: false,
     exec(sql) {
+      // DDL / PRAGMA — do not mark dirty. Marking dirty here caused every
+      // Netlify request to rewrite Blobs and clobber fresher writes under
+      // eventual consistency.
       raw.exec(sql);
-      api.dirty = true;
     },
     prepare(sql) {
       return {

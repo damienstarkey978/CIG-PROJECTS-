@@ -31,6 +31,8 @@ const {
   businessIdsForUser,
   userCanManageBusiness,
   randomToken,
+  makeEmailVerifyToken,
+  parseEmailVerifyToken,
 } = require('./lib/auth');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('./lib/email');
 const {
@@ -536,7 +538,7 @@ function createApp() {
     const ts = nowIso();
     const id = uuid();
     const autoVerify = isTrustedDemoEmail(email);
-    const verifyToken = autoVerify ? null : randomToken();
+    const verifyToken = autoVerify ? null : makeEmailVerifyToken(id);
     const verifyExpires = autoVerify
       ? null
       : new Date(Date.now() + 48 * 3600 * 1000).toISOString();
@@ -641,10 +643,34 @@ function createApp() {
     ensureAuthColumns(db);
     const token = String(req.body.token || req.query.token || '').trim();
     if (!token) return res.status(400).json({ error: 'token required' });
-    const user = db.prepare('SELECT * FROM users WHERE verify_token = ?').get(token);
-    if (!user) return res.status(400).json({ error: 'Invalid or expired verification link' });
-    if (user.verify_expires && new Date(user.verify_expires) <= new Date()) {
+
+    // Prefer HMAC token (no DB token row needed — Blobs-lag safe).
+    let user = null;
+    const parsed = parseEmailVerifyToken(token);
+    if (parsed) {
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(parsed.uid);
+      // Fallback: signed cookie from the register response on this device
+      if (!user && req.signedCookies && req.signedCookies[UID_COOKIE] === parsed.uid) {
+        return res.status(409).json({
+          error: 'Account is still syncing — tap verify again in a few seconds',
+          code: 'sync_pending',
+        });
+      }
+    }
+    if (!user) {
+      user = db.prepare('SELECT * FROM users WHERE verify_token = ?').get(token);
+    }
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired verification link' });
+    }
+    if (!parsed && user.verify_expires && new Date(user.verify_expires) <= new Date()) {
       return res.status(400).json({ error: 'Verification link expired — request a new one' });
+    }
+    if (user.email_verified_at) {
+      const session = createSession(db, user.id);
+      setSessionCookie(res, session, req);
+      delete user.password_hash;
+      return res.json({ ok: true, user: publicUser(user), message: 'Email already verified' });
     }
     const ts = nowIso();
     db.prepare(`
@@ -674,7 +700,7 @@ function createApp() {
     if (user.email_verified_at || isTrustedDemoEmail(email)) {
       return res.json({ ok: true, message: 'Email already verified' });
     }
-    const token = randomToken();
+    const token = makeEmailVerifyToken(user.id);
     const expires = new Date(Date.now() + 48 * 3600 * 1000).toISOString();
     db.prepare(`
       UPDATE users SET verify_token = ?, verify_expires = ?, updated_at = ? WHERE id = ?
