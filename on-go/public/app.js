@@ -303,13 +303,13 @@
   }
 
   function venueMarkerIcon(live) {
-    // Div icons read brighter on dark OSM tiles than thin circle strokes.
-    const size = live ? 28 : 22;
+    // Solid neon DivIcons — large enough to read when zoomed out on Beaches.
+    const size = live ? 34 : 28;
     return L.divIcon({
       className: 'venue-marker-wrap',
       html: `<div class="venue-marker ${live ? 'is-live' : 'is-directory'}" title="${
         live ? 'Live offer' : 'Venue'
-      }"><span class="venue-marker-core"></span></div>`,
+      }"><span class="venue-marker-core" aria-hidden="true"></span></div>`,
       iconSize: [size, size],
       iconAnchor: [size / 2, size / 2],
       popupAnchor: [0, -size / 2],
