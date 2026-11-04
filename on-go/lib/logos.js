@@ -29,6 +29,7 @@ const KNOWN_WEBSITES = {
 const KNOWN_OFFICIAL_LOGOS = {
   "Cinotti's Bakery": '/assets/venues/cinottis-bakery.jpg',
   "Lynch's Irish Pub": '/assets/venues/lynchs-irish-pub.jpg',
+  "Poe's Tavern": '/assets/venues/poes-tavern.jpg',
 };
 
 const WEAK_LOGO_SOURCES = new Set(['missing', 'google_favicon', 'duckduckgo', 'clearbit', null, '']);
