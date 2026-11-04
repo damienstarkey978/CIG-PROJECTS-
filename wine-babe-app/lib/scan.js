@@ -809,7 +809,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v25";
+const ENGINE_VERSION = "v26";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1238,6 +1238,11 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     const n = tech?.nutrition;
     if (n && n.abv != null) {
       const sugarG = n.residual_sugar_g_l != null ? n.residual_sugar_g_l * 0.148 : null;
+      // A published figure (winery or lab) wins; anything the model worked out
+      // itself is replaced by the standard formula, so numbers are consistent.
+      const stated = (c) => c?.status === "pass" && (c.evidence === "winery" || c.evidence === "lab");
+      if (!stated(best.calories)) { n.calories_5oz = null; delete best.calories; }
+      if (!stated(best.carbs)) { n.carbs_5oz = null; delete best.carbs; }
       if (n.calories_5oz == null) {
         n.calories_5oz = Math.round(148 * (n.abv / 100) * 0.789 * 7 + (sugarG || 0) * 4);
         if (!(best.calories?.status === "pass")) best.calories = { id: "calories", status: "pass", evidence: "estimate", scope: "this_wine", as_of: "", detail: `About ${n.calories_5oz} calories per 5 oz, calculated from ${n.abv}% ABV${sugarG != null ? ` and ${n.residual_sugar_g_l} g/L sugar` : ""}.`, source_url: tech.tech_sheet_url || "" };
