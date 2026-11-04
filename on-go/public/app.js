@@ -676,25 +676,47 @@
         .join('') || '<p class="meta">No venues yet.</p>';
 
       const subs = await api('/api/subscriptions');
+      const billingOn = Boolean(subs.billing_enabled);
       $('#biz-plans').innerHTML = `
         ${(subs.subscriptions || [])
           .map((s) => {
             const label = s.label || s.plan;
-            const ends = s.ends_at ? ` · ends ${new Date(s.ends_at).toLocaleDateString()}` : '';
+            const ends = s.current_period_end || s.ends_at
+              ? ` · renews/ends ${new Date(s.current_period_end || s.ends_at).toLocaleDateString()}`
+              : '';
             const badge = s.entitled_pro
               ? '<span class="badge featured">Pro unlocked</span>'
-              : '';
+              : '<span class="badge">Limited</span>';
+            let actions = '';
+            if (billingOn) {
+              if (s.can_manage) {
+                actions = `<button type="button" class="btn ghost" data-billing-portal="${escapeHtml(s.business_id)}">Manage billing</button>`;
+              } else if (s.can_upgrade || !s.entitled_pro) {
+                actions = `<button type="button" class="btn primary" data-billing-checkout="${escapeHtml(s.business_id)}">Upgrade to Pro</button>`;
+              } else if (s.entitled_pro && s.trial) {
+                actions = `<button type="button" class="btn ghost" data-billing-checkout="${escapeHtml(s.business_id)}">Subscribe after trial</button>`;
+              }
+            }
             return `<div class="listing">
               <strong>${escapeHtml(s.business_name)}</strong>
               ${badge}
               <p class="meta">${escapeHtml(label)}${ends}</p>
+              ${actions}
             </div>`;
           })
           .join('')}
-        <p class="meta">${escapeHtml(subs.notice || '')}</p>
-        <p class="meta">Catalog (after trial): ${(subs.plans || [])
-          .map((p) => `${p.label} $${(p.price_monthly_cents / 100).toFixed(0)}/mo`)
-          .join(' · ')}</p>`;
+        <p class="meta">${escapeHtml(
+          billingOn
+            ? subs.notice || ''
+            : 'Pro (beta — billing coming soon). Full Pro features stay unlocked for claimed venues until Damien flips ONGO_BILLING_ENABLED.'
+        )}</p>
+        ${
+          billingOn
+            ? `<p class="meta">Catalog: ${(subs.plans || [])
+                .map((p) => `${p.label} $${(p.price_monthly_cents / 100).toFixed(0)}/mo`)
+                .join(' · ')}</p>`
+            : ''
+        }`;
 
       const ads = await api('/api/ads/inventory');
       $('#bid-slot').innerHTML = ads.inventory
@@ -1071,6 +1093,29 @@
         await api(`/api/offers/${btn.dataset.deactivate}/deactivate`, { method: 'POST', body: '{}' });
         await refreshBusiness();
         await loadDirectory();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+
+    $('#biz-plans').addEventListener('click', async (e) => {
+      const checkoutBtn = e.target.closest('[data-billing-checkout]');
+      const portalBtn = e.target.closest('[data-billing-portal]');
+      if (!checkoutBtn && !portalBtn) return;
+      const businessId = checkoutBtn
+        ? checkoutBtn.dataset.billingCheckout
+        : portalBtn.dataset.billingPortal;
+      try {
+        const path = checkoutBtn ? '/api/billing/checkout-session' : '/api/billing/portal-session';
+        const data = await api(path, {
+          method: 'POST',
+          body: JSON.stringify({ business_id: businessId, interval: 'month' }),
+        });
+        if (data.url) {
+          window.location.href = data.url;
+          return;
+        }
+        alert(data.error || 'Billing session unavailable');
       } catch (err) {
         alert(err.message);
       }

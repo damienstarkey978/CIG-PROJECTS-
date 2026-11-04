@@ -4,34 +4,76 @@
  * Netlify Function wrapping the Express app.
  * Redirects: /api/* → /.netlify/functions/api/:splat
  *
- * Blobs require connectLambda(event) under the Lambda/serverless-http
- * runtime — without it every request reseeds an empty DB and sessions die.
+ * Stripe webhooks are handled here with the raw `event.body` so signature
+ * verification works under serverless-http (which would otherwise parse JSON).
  */
 process.env.NETLIFY = 'true';
 
-const { connectLambda } = require('@netlify/blobs');
 const serverless = require('serverless-http');
 const server = require('../../server');
 
 const wrapped = serverless(server.app, { binary: ['image/*'] });
 
-exports.handler = async (event, context) => {
-  // Must run before any getStore() / openDb reload from Blobs
-  try {
-    connectLambda(event);
-  } catch (err) {
-    console.warn('connectLambda failed:', err.message);
+function normalizeApiPath(event) {
+  let p = event.path || event.rawPath || '';
+  if (p.startsWith('/.netlify/functions/api')) {
+    const rest = p.slice('/.netlify/functions/api'.length) || '';
+    p = '/api' + rest;
   }
+  return p;
+}
 
+function rawBodyFromEvent(event) {
+  if (event.isBase64Encoded && event.body) {
+    return Buffer.from(event.body, 'base64');
+  }
+  if (Buffer.isBuffer(event.body)) return event.body;
+  if (typeof event.body === 'string') return Buffer.from(event.body);
+  if (event.body != null) return Buffer.from(JSON.stringify(event.body));
+  return Buffer.alloc(0);
+}
+
+function isBillingWebhook(path) {
+  return path === '/api/billing/webhook' || path.endsWith('/billing/webhook');
+}
+
+exports.handler = async (event, context) => {
   await server.ready;
 
-  if (event.path && event.path.startsWith('/.netlify/functions/api')) {
-    const rest = event.path.slice('/.netlify/functions/api'.length) || '';
-    event.path = '/api' + rest;
-  }
-  if (event.rawPath && event.rawPath.startsWith('/.netlify/functions/api')) {
-    const rest = event.rawPath.slice('/.netlify/functions/api'.length) || '';
-    event.rawPath = '/api' + rest;
+  const apiPath = normalizeApiPath(event);
+  event.path = apiPath;
+  if (event.rawPath) event.rawPath = apiPath;
+
+  // Stripe webhook — verify with exact raw body before Express parses JSON
+  if (event.httpMethod === 'POST' && isBillingWebhook(apiPath)) {
+    try {
+      const signature =
+        (event.headers && (event.headers['stripe-signature'] || event.headers['Stripe-Signature'])) ||
+        '';
+      if (!signature) {
+        return {
+          statusCode: 400,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ error: 'Missing stripe-signature header' }),
+        };
+      }
+      const result = await server.handleStripeWebhook(rawBodyFromEvent(event), signature);
+      if (typeof server.persistNow === 'function') {
+        await server.persistNow();
+      }
+      return {
+        statusCode: 200,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(result),
+      };
+    } catch (err) {
+      console.error('Stripe webhook (netlify):', err.message);
+      return {
+        statusCode: err.status || 400,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ error: err.message || 'Webhook error' }),
+      };
+    }
   }
 
   try {
@@ -42,11 +84,6 @@ exports.handler = async (event, context) => {
     return result;
   } catch (err) {
     console.error(err);
-    try {
-      if (typeof server.persistNow === 'function') await server.persistNow();
-    } catch {
-      /* ignore */
-    }
     return {
       statusCode: 500,
       headers: { 'content-type': 'application/json' },
