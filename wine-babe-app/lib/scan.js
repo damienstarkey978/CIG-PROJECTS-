@@ -381,7 +381,9 @@ async function findTechSheet(wine, pageUrl, siteUrl, send) {
 // At the deadline the call is cut and, if earlier turns gathered anything, a
 // quick no-tools follow up turns what was found into the JSON answer.
 
-async function runAgent({ name, system, content, schema, tools = [], effort = "low", send, deadline, model = MODEL }) {
+async function runAgent({ name, system, content, schema, tools = [], effort = "low", send, deadline, model = MODEL, diag = [] }) {
+  const started = Date.now();
+  const note = (outcome, error) => diag.push({ name, model, ms: Date.now() - started, outcome, ...(error ? { error: String(error).slice(0, 300) } : {}) });
   const client = await getClient();
   const messages = [{ role: "user", content }];
   const ctrl = new AbortController();
@@ -412,10 +414,15 @@ async function runAgent({ name, system, content, schema, tools = [], effort = "l
     return stream.finalMessage();
   };
   const parse = (msg) => {
-    if (!msg || msg.stop_reason === "refusal") return null;
+    if (!msg) { note("no message"); return null; }
+    if (msg.stop_reason === "refusal") { note("refusal"); return null; }
     const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
     const start = text.indexOf("{");
-    try { return start < 0 ? null : JSON.parse(text.slice(start)); } catch { return null; }
+    try {
+      const out = start < 0 ? null : JSON.parse(text.slice(start));
+      note(out ? "ok" : `no json (stop ${msg.stop_reason})`);
+      return out;
+    } catch (e) { note(`bad json (stop ${msg.stop_reason})`, e.message); return null; }
   };
 
   try {
@@ -444,14 +451,15 @@ async function runAgent({ name, system, content, schema, tools = [], effort = "l
     }
     return null;
   } catch (err) {
-    if (!ctrl.signal.aborted) { console.error(`[${name}]`, err); return null; }
+    if (!ctrl.signal.aborted) { console.error(`[${name}]`, err); note("error", err?.message || err); return null; }
     console.error(`[${name}] deadline reached`);
-    if (messages.length < 3) return null; // nothing gathered yet
+    if (messages.length < 3) { note("deadline, nothing gathered"); return null; }
     try {
       messages.push({ role: "user", content: [{ type: "text", text: "Time is up. Using only what you found so far, return the JSON answer now. Mark anything not yet confirmed as unknown." }] });
       return parse(await call({ tool_choice: { type: "none" } }, AbortSignal.timeout(6000)));
     } catch (e) {
       console.error(`[${name}] wrap up failed`, e.message);
+      note("deadline, wrap up failed", e.message);
       return null;
     }
   } finally {
@@ -494,12 +502,13 @@ const cacheKey = (w) =>
 
 async function runScan({ image, mediaType, query, fresh }, send, cache) {
   const t0 = Date.now();
+  const diag = [];
 
   // 1. Identify.
   const idContent = [];
   if (image) idContent.push({ type: "image", source: { type: "base64", media_type: mediaType || "image/jpeg", data: image } });
   idContent.push({ type: "text", text: image ? `Identify this wine.${query ? ` Shopper note: ${query}` : ""}` : `Identify this wine: ${query}` });
-  const id = await runAgent({
+  const id = await runAgent({ diag,
     name: "identify",
     system: IDENTIFY_SYSTEM,
     content: idContent,
@@ -546,14 +555,16 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
   // the WordPress media search) need no AI; a one search lookup for the PDF
   // runs alongside in case the fast routes find nothing.
   const techLookup = async () => {
-    const searched = runAgent({
+    const searched = runAgent({ diag,
       name: "sheet-search", system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline: deadline - 9000,
       content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}.`),
       tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 1 }],
     });
     let sheet = await findTechSheet(wine, page, site, send);
+    diag.push({ name: "sheet-fast", ms: Date.now() - t0, outcome: sheet ? `pdf ${sheet.url} (${Math.round(sheet.data.length * 0.75 / 1024)} KB)` : "none" });
     if (!sheet) {
       const found = await searched;
+      diag.push({ name: "sheet-search-urls", outcome: JSON.stringify(found?.pdf_urls || null).slice(0, 400) });
       const cands = (found?.pdf_urls || []).filter((u) => /^https?:\/\//.test(u)).slice(0, 5).map((url) => ({ url, text: "" }));
       const first = pickPdf(cands, wine) || cands[0];
       const order = first ? [first, ...cands.filter((c) => c.url !== first.url)].slice(0, 2) : [];
@@ -565,7 +576,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     }
     if (!sheet) return null;
     send({ type: "status", text: "Reading the tech sheet" });
-    return runAgent({
+    return runAgent({ diag,
       name: "tech", system: sheetPrompt(wine), schema: agentSchema(SHEET_IDS, true), send,
       model: READ_MODEL, deadline: Math.max(deadline, Date.now() + 15000),
       content: [
@@ -577,11 +588,11 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
 
   const [tech, farm, vegan] = await Promise.all([
     techLookup(),
-    runAgent({
+    runAgent({ diag,
       name: "farm", system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline,
       content: ask("Check farming and certifications and fill the items."), tools: webTools(1, 2),
     }),
-    runAgent({
+    runAgent({ diag,
       name: "vegan", system: veganPrompt(wine, site), schema: agentSchema(VEGAN_IDS, false), send, deadline,
       content: ask("Check vegan status and fill the items."), tools: webTools(1, 1),
     }),
@@ -608,6 +619,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     summary: summarize(wine, checks, nutrition),
     sources,
     seconds: Math.round((Date.now() - t0) / 1000),
+    debug: diag,
     partial: [tech, farm, vegan].some((p) => !p),
   };
 
