@@ -75,7 +75,7 @@ main {
 
 #home { text-align: center; padding-top: 1.75rem; }
 
-.script { margin: 0; font-family: var(--script); font-size: 2rem; color: var(--blush-deep); line-height: 1; }
+.script { margin: 0 0 0.3rem; font-family: var(--script); font-size: clamp(2.6rem, 11vw, 3.4rem); color: var(--blush-deep); line-height: 1.1; }
 
 h1 {
   margin: 0.5rem 0 0;
