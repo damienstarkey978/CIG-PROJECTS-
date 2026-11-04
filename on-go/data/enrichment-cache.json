@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-11-04T10:22:41.000Z",
+  "updated_at": "2026-11-04T11:21:07.000Z",
   "venues": [
     {
       "name": "Aqua Grill",
@@ -52,7 +52,7 @@
       "happy_hour_notes": null,
       "specials_notes": null,
       "enrichment_status": "ok",
-      "enrichment_sources_json": "[\"https://cinottisbakery.com/contact-us/cinottis-locations/\", \"https://cinottisbakery.com/breakfast-and-lunch-menu/\"]",
+      "enrichment_sources_json": "[\"https://cinottisbakery.com/happy-hour-cinottis-bogo-donuts/\", \"note:summer_bogo_donut_hh_ended_with_school_year_not_current\", \"https://cinottisbakery.com/contact-us/cinottis-locations/\"]",
       "happy_hour_menu_url": null
     },
     {
@@ -79,8 +79,8 @@
       "website": "https://www.flystie.com",
       "phone": "",
       "address": "177 Sailfish Drive East, Atlantic Beach, FL 32233",
-      "about_text": null,
-      "about_source": null,
+      "about_text": "Fly\u2019s Tie Irish Pub closed March 24, 2026 after 31 years in Atlantic Beach.",
+      "about_source": "news",
       "hours_display": "Daily 11-2",
       "hours_source": "osm_seed",
       "menu_url": null,
@@ -88,7 +88,7 @@
       "happy_hour_notes": null,
       "specials_notes": null,
       "enrichment_status": "ok",
-      "enrichment_sources_json": "[\"tried:https://www.flystie.com\", \"tried:https://thehappyhourfinder.com/us_fl/atlantic-beach/flys-tie-irish-pub/\", \"no_official_hh_schedule_found\"]",
+      "enrichment_sources_json": "[\"https://www.bizjournals.com/jacksonville/news/2026/03/24/flys-tie-closes.html\", \"venue_closed_no_current_hh\"]",
       "happy_hour_menu_url": null
     },
     {
@@ -160,7 +160,7 @@
       "happy_hour_notes": null,
       "specials_notes": null,
       "enrichment_status": "ok",
-      "enrichment_sources_json": "[\"https://thenorthbeachfishcamp.com/\", \"https://thenorthbeachfishcamp.com/menu/\", \"https://discoverhappyhours.com/bar/north-beach-fish-camp-neptune-beach-fl/\"]",
+      "enrichment_sources_json": "[\"https://thenorthbeachfishcamp.com/\", \"https://thenorthbeachfishcamp.com/menu/\", \"https://discoverhappyhours.com/bar/north-beach-fish-camp-neptune-beach-fl/\", \"https://thejaxlist.com/eat-drink/north-beach-fish-camp\", \"no_confirmed_hh_schedule\"]",
       "happy_hour_menu_url": null
     },
     {
@@ -178,7 +178,7 @@
       "happy_hour_notes": null,
       "specials_notes": null,
       "enrichment_status": "ok",
-      "enrichment_sources_json": "[\"https://palmvalleyfishcamp.com/\", \"https://palmvalleyfishcamp.com/menu/\", \"https://discoverhappyhours.com/bar/palm-valley-fish-camp-ponte-vedra-beach-fl/\"]",
+      "enrichment_sources_json": "[\"https://palmvalleyfishcamp.com/\", \"https://palmvalleyfishcamp.com/menu/\", \"https://discoverhappyhours.com/bar/palm-valley-fish-camp-ponte-vedra-beach-fl/\", \"no_confirmed_hh_schedule\"]",
       "happy_hour_menu_url": null
     },
     {
@@ -196,7 +196,7 @@
       "happy_hour_notes": null,
       "specials_notes": null,
       "enrichment_status": "ok",
-      "enrichment_sources_json": "[\"https://www.petesbar.com\", \"https://www.visitjacksonville.com/directory/petes-bar/\", \"no_official_hh_schedule_found\"]",
+      "enrichment_sources_json": "[\"https://www.visitjacksonville.com/directory/petes-bar/\", \"https://www.checkle.com/biz/petes-bar-neptune-beach\", \"searched_904happyhour_petes_bar\", \"hh_flagged_but_no_published_days_times\"]",
       "happy_hour_menu_url": null
     },
     {
@@ -214,7 +214,7 @@
       "happy_hour_notes": null,
       "specials_notes": null,
       "enrichment_status": "ok",
-      "enrichment_sources_json": "[\"https://www.poestavern.com/atlantic-beach-menu\", \"https://www.poestavern.com/locations\", \"https://discoverhappyhours.com/bar/poe-s-tavern-atlantic-beach-fl/\"]",
+      "enrichment_sources_json": "[\"https://www.poestavern.com/atlantic-beach-fl\", \"https://www.poestavern.com/atlantic-beach-menu\", \"https://discoverhappyhours.com/bar/poe-s-tavern-atlantic-beach-fl/\", \"no_confirmed_hh\"]",
       "happy_hour_menu_url": null
     },
     {
@@ -232,26 +232,26 @@
       "happy_hour_notes": null,
       "specials_notes": "Scratch kitchen: breakfast, lunch, dinner; Intelligentsia coffee program",
       "enrichment_status": "ok",
-      "enrichment_sources_json": "[\"https://www.southerngrounds.com/locations-1/neptune-beach\", \"https://www.southerngrounds.com/menu?menu=drinks-menu-2\"]",
+      "enrichment_sources_json": "[\"https://www.southerngrounds.com/locations-1/neptune-beach\", \"https://www.southerngrounds.com/menu?menu=drinks-menu-2\", \"no_hh_on_official_site\"]",
       "happy_hour_menu_url": null
     },
     {
       "name": "TacoLu",
       "slug": "tacolu",
       "website": "https://www.tacolu.com",
-      "phone": "",
-      "address": "1712 Beach Boulevard, Jacksonville Beach, FL 32250",
+      "phone": "(904) 249-8226",
+      "address": "1712 Beach Blvd, Jacksonville Beach, FL 32250",
       "about_text": "TacoLu opened in 2008 in a little building on Beach Boulevard \u2014 Baja Mexicana in Jacksonville Beach. After five years in the original location, they grew into the historic Homestead Restaurant site with great food, fun, and an extensive tequila list.",
       "about_source": "venue_website",
-      "hours_display": "Daily 11-10",
-      "hours_source": "osm_seed",
-      "menu_url": "https://www.tacolu.com/tequila-menu",
+      "hours_display": "Tue\u2013Thu 11am\u201310pm \u00b7 Fri 11am\u201311pm \u00b7 Sat 10am\u201311pm \u00b7 Sun 10am\u201310pm \u00b7 Closed Mon",
+      "hours_source": "venue_listings",
+      "menu_url": "https://www.tacolu.com/menus/specials",
       "menu_notes": null,
-      "happy_hour_notes": null,
+      "happy_hour_notes": "Tue. - Fri. 2-7pm\nSat. - Sun. 10am-2pm Happy Hour Brunch",
       "specials_notes": null,
       "enrichment_status": "ok",
-      "enrichment_sources_json": "[\"https://www.tacolu.com/\", \"https://www.tacolu.com/tequila-menu\", \"https://discoverhappyhours.com/bar/tacolu-jacksonville-fl/\", \"no_official_hh_schedule_on_venue_site\"]",
-      "happy_hour_menu_url": null
+      "enrichment_sources_json": "[\"https://www.tacolu.com/menus/specials\", \"https://www.tacolu.com/menus/brunch\", \"https://bellyupjax.com/places/tacolu/\", \"damien_screenshot_004A2B01\"]",
+      "happy_hour_menu_url": "https://www.tacolu.com/menus/specials"
     },
     {
       "name": "The Lemon Bar",
