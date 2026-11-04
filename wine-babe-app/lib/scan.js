@@ -451,6 +451,8 @@ const norm = (s) => String(s || "").toLowerCase().normalize("NFKD").replace(/[\u
 
 // Ranks PDF candidates for this wine, best first. Drops award, price list and
 // clearly mismatched files.
+const TIER_WORDS = ["villages", "superieur", "superiore", "riserva", "reserva", "reserve", "gran", "grand", "premier", "cru", "classico", "rive", "cartizze"];
+
 function rankPdfs(links, wine, siteUrl) {
   const nameNorm = norm(wine.name);
   const nameWords = nameNorm.split(" ").filter((w) => w.length > 2);
@@ -485,11 +487,14 @@ function rankPdfs(links, wine, siteUrl) {
       const fileYears = fileName.match(/\b(19|20)\d{2}\b/g) || [];
       if (year && fileYears.includes(year)) score += 1;
       else if (year && fileYears.length) score -= 0.5;
-      return { ...l, score, matched, missingStyle, junk };
+      // A sheet for a higher tier of the same wine (Beaujolais-Villages,
+      // Riserva, Grand Cru ...) is a different wine.
+      const otherTier = TIER_WORDS.some((w) => words.has(w) && !nameNorm.split(" ").includes(w));
+      return { ...l, score, matched, missingStyle, junk, otherTier };
     })
     // Must match at least half the name, carry every style word in the name
     // (Brut Nature, not Brut), and not look like an award or price list.
-    .filter((l) => l.matched >= Math.max(1, Math.ceil(nameWords.length * 0.5)) && l.missingStyle === 0 && !l.junk && l.score > 0)
+    .filter((l) => l.matched >= Math.max(1, Math.ceil(nameWords.length * 0.5)) && l.missingStyle === 0 && !l.junk && !l.otherTier && l.score > 0)
     .sort((a, b) => b.score - a.score);
 }
 
@@ -804,7 +809,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v22";
+const ENGINE_VERSION = "v23";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
