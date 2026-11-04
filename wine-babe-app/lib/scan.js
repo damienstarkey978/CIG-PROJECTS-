@@ -295,39 +295,76 @@ function isPublicHost(u) {
   );
 }
 
-function pickPdf(links, wine) {
-  const words = `${wine.name} ${wine.style}`.toLowerCase().normalize("NFKD").replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length > 2);
-  const scored = links
-    .filter((l) => /\.pdf(\?|$)/i.test(l.url))
+// Style words that tell sister wines apart. A PDF named with one of these that
+// the wine itself does not have is probably a different wine (Brut Bio vs Brut
+// Nature, Extra Dry vs Brut).
+const STYLE_WORDS = [
+  "brut", "nature", "extra", "dry", "sec", "demi", "doux", "dosaggio", "zero", "pas", "dose", "bio", "organic",
+  "biologico", "rose", "rosato", "rosado", "millesimato", "frizzante", "riserva", "reserve", "reserva", "superiore",
+  "classico", "rive", "cartizze", "blanc", "noir", "rosso", "bianco", "late", "harvest", "ice", "sweet", "moscato",
+  "cuvee", "single", "vineyard", "estate", "limited", "magnum", "half",
+];
+
+const norm = (s) => String(s || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, " ").trim();
+
+// Ranks PDF candidates for this wine, best first. Drops award, price list and
+// clearly mismatched files.
+function rankPdfs(links, wine, siteUrl) {
+  const nameNorm = norm(wine.name);
+  const nameWords = nameNorm.split(" ").filter((w) => w.length > 2);
+  // Style words the file must carry (from the wine name) and may carry (name or style).
+  const requiredStyle = STYLE_WORDS.filter((w) => nameNorm.split(" ").includes(w));
+  const allowedStyle = new Set(norm(`${wine.name} ${wine.style}`).split(" "));
+  const producerWords = norm(wine.producer).split(" ").filter((w) => w.length > 2);
+  const year = /^\d{4}$/.test(String(wine.vintage || "")) ? String(wine.vintage) : "";
+  let siteHost = "";
+  try { siteHost = new URL(siteUrl).hostname.replace(/^www\./, ""); } catch {}
+  const seen = new Set();
+  return links
+    .filter((l) => /\.pdf(\?|$)/i.test(l.url) && !seen.has(l.url) && seen.add(l.url))
     .map((l) => {
-      const hay = `${decodeURIComponent(l.url)} ${l.text}`.toLowerCase().replace(/[^a-z0-9]+/g, " ");
-      let score = words.filter((w) => hay.includes(w)).length;
-      if (/\b(en|eng|english)\b/.test(hay)) score += 0.5;
-      if (/\b(scheda|tecnica|technical|tech|sheet|fiche|ficha)\b/.test(hay)) score += 0.5;
-      if (/\b(award|medal|gold|silver|bronze|decanter|trophy|press|menu|price|listino)\b/.test(hay)) score -= 3;
-      return { ...l, score };
+      let raw = l.url;
+      try { raw = decodeURIComponent(l.url); } catch {}
+      const fileName = raw.split("/").pop();
+      const file = norm(`${fileName} ${l.text}`);
+      const words = new Set(file.split(" "));
+      const matched = nameWords.filter((w) => words.has(w)).length;
+      const missingStyle = requiredStyle.filter((w) => !words.has(w)).length;
+      const conflicts = STYLE_WORDS.filter((w) => words.has(w) && !allowedStyle.has(w)).length;
+      let score = matched * 1.5 - (nameWords.length - matched) * 0.5 - conflicts * 2;
+      if (producerWords.some((w) => words.has(w))) score += 1;
+      if (/\b(en|eng|english)\b/.test(file)) score += 0.5;
+      if (/\b(scheda|tecnica|technical|tech|sheet|fiche|ficha|ts|tn)\b/.test(file)) score += 0.5;
+      if (/\b(award|medal|gold|silver|bronze|decanter|trophy|press|menu|price|listino|catalog|catalogue)\b/.test(file)) score -= 4;
+      try { if (siteHost && new URL(l.url).hostname.replace(/^www\./, "").endsWith(siteHost)) score += 1; } catch {}
+      const fileYears = fileName.match(/\b(19|20)\d{2}\b/g) || [];
+      if (year && fileYears.includes(year)) score += 1;
+      else if (year && fileYears.length) score -= 0.5;
+      return { ...l, score, matched, missingStyle };
     })
-    .filter((l) => l.score >= 1)
+    // Must match at least half the name, carry every style word in the name
+    // (Brut Nature, not Brut), and not look like an award or price list.
+    .filter((l) => l.matched >= Math.max(1, Math.ceil(nameWords.length * 0.5)) && l.missingStyle === 0 && l.score > 0)
     .sort((a, b) => b.score - a.score);
-  return scored[0] || null;
+}
+
+function pickPdf(links, wine, siteUrl) {
+  return rankPdfs(links, wine, siteUrl)[0] || null;
 }
 
 async function fetchPdf(url, ms = 8000) {
   let u;
-  try { u = new URL(url); } catch { return null; }
-  if (!/^https?:$/.test(u.protocol) || !isPublicHost(u)) return null;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms);
+  try { u = new URL(url); } catch { return { error: "bad url" }; }
+  if (!/^https?:$/.test(u.protocol) || !isPublicHost(u)) return { error: "not a public url" };
   try {
-    const res = await fetch(u, { signal: ctrl.signal, redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
-    if (!res.ok) return null;
+    const res = await fetch(u, { signal: AbortSignal.timeout(ms), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
+    if (!res.ok) return { error: `HTTP ${res.status}` };
     const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > 15 * 1024 * 1024 || buf.subarray(0, 4).toString() !== "%PDF") return null;
-    return buf.toString("base64");
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
+    if (buf.length > 15 * 1024 * 1024) return { error: "too large" };
+    if (buf.subarray(0, 4).toString() !== "%PDF") return { error: "not a PDF" };
+    return { data: buf.toString("base64") };
+  } catch (err) {
+    return { error: err.name === "TimeoutError" || err.name === "AbortError" ? "timed out" : String(err.message || err) };
   }
 }
 
@@ -374,21 +411,16 @@ async function pdfText(base64) {
   }
 }
 
-// Returns { url, data } for the best matching tech sheet PDF, or null.
-// Tries the product page links and the WordPress media search in parallel.
-async function findTechSheet(wine, pageUrl, siteUrl, send) {
+// Tech sheet candidates from the fast routes: the product page links and the
+// WordPress media search, run in parallel. No downloading here.
+async function findTechCandidates(wine, pageUrl, siteUrl) {
   let origin = "";
   try { origin = new URL(pageUrl || siteUrl).origin; } catch {}
   const [page, ...wp] = await Promise.all([
     pageUrl ? findPageLinks(pageUrl) : Promise.resolve({ links: [] }),
     ...(origin ? wineTerms(wine).map((t) => wpMediaSearch(origin, t)) : []),
   ]);
-  const candidates = [...(page.links || []), ...wp.flat()];
-  const pick = pickPdf(candidates, wine);
-  if (!pick) return null;
-  send({ type: "fetch", text: pick.url });
-  const data = await fetchPdf(pick.url);
-  return data ? { url: pick.url, data } : null;
+  return [...(page.links || []), ...wp.flat()];
 }
 
 // ---------- one Claude call with tools, under a deadline ----------
@@ -576,19 +608,28 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}.`),
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
     });
-    let sheet = await findTechSheet(wine, page, site, send);
-    diag.push({ name: "sheet-fast", ms: Date.now() - t0, outcome: sheet ? `pdf ${sheet.url} (${Math.round(sheet.data.length * 0.75 / 1024)} KB)` : "none" });
-    if (!sheet) {
+    // Gather candidates from all routes, rank them together, then download
+    // the best ones in order until one works.
+    const tFast = Date.now();
+    const fast = await findTechCandidates(wine, page, site);
+    diag.push({ name: "sheet-fast", ms: Date.now() - tFast, outcome: `${fast.filter((l) => /\.pdf/i.test(l.url)).length} pdf links` });
+    let ranked = rankPdfs(fast, wine, site);
+    const fullName = norm(wine.name).split(" ").filter((w) => w.length > 2).length;
+    if (!(ranked[0] && ranked[0].matched >= fullName)) {
+      // No exact match from the fast routes: add the web search results.
       const found = await searched;
-      diag.push({ name: "sheet-search-urls", outcome: JSON.stringify(found?.pdf_urls || null).slice(0, 400) });
-      const cands = (found?.pdf_urls || []).filter((u) => /^https?:\/\//.test(u)).slice(0, 5).map((url) => ({ url, text: "" }));
-      const first = pickPdf(cands, wine) || cands[0];
-      const order = first ? [first, ...cands.filter((c) => c.url !== first.url)].slice(0, 2) : [];
-      for (const c of order) {
-        send({ type: "fetch", text: c.url });
-        const data = await fetchPdf(c.url, 6000);
-        if (data) { sheet = { url: c.url, data }; break; }
-      }
+      const searchUrls = (found?.pdf_urls || []).filter((u) => /^https?:\/\//.test(u)).slice(0, 5);
+      diag.push({ name: "sheet-search-urls", outcome: JSON.stringify(searchUrls).slice(0, 400) });
+      ranked = rankPdfs([...fast, ...searchUrls.map((url) => ({ url, text: "" }))], wine, site);
+    }
+    diag.push({ name: "sheet-ranked", outcome: JSON.stringify(ranked.slice(0, 3).map((r) => `${r.score.toFixed(1)} ${r.url}`)).slice(0, 600) });
+    let sheet = null;
+    for (const c of ranked.slice(0, 3)) {
+      if (Date.now() > deadline - 4000) break;
+      send({ type: "fetch", text: c.url });
+      const got = await fetchPdf(c.url, 6000);
+      if (got.data) { sheet = { url: c.url, data: got.data }; break; }
+      diag.push({ name: "sheet-download", outcome: `${got.error}: ${c.url}`.slice(0, 300) });
     }
     if (!sheet) return null;
     send({ type: "status", text: "Reading the tech sheet" });

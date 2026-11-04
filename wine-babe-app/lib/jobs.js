@@ -20,7 +20,11 @@ const validId = (id) => typeof id === "string" && /^[a-f0-9]{24}$/.test(id);
 // cache (optional): { get(key) -> value|null, set(key, value) } for finished scans.
 async function runJob(input, save, engine, cache) {
   const job = { events: [], done: false, result: null, error: null, at: Date.now() };
-  const push = async (ev) => { job.events.push(ev); await save(job); };
+  // Saves run one at a time, in order, so a late progress save can never
+  // overwrite the final done:true save.
+  let chain = Promise.resolve();
+  const persist = () => (chain = chain.then(() => save(job)).catch(() => {}));
+  const push = (ev) => { job.events.push(ev); return persist(); };
   try {
     await push({ type: "status", text: input.image ? "Reading the label" : "Looking up the wine" });
     const send = (ev) => { push(ev).catch(() => {}); };
@@ -30,7 +34,7 @@ async function runJob(input, save, engine, cache) {
     job.error = err.message || "Something went wrong.";
   }
   job.done = true;
-  await save(job);
+  await persist();
 }
 
 module.exports = { parseInput, newId, validId, runJob };
