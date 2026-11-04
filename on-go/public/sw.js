@@ -1,5 +1,5 @@
 /* ON GO — offline shell for installability */
-const CACHE = 'ongo-shell-v11';
+const CACHE = 'ongo-shell-v12';
 const SHELL = [
   '/',
   '/index.html',
