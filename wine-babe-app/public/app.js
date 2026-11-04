@@ -172,7 +172,7 @@
     const applicable = top.filter((c) => c.status !== "na");
     const known = applicable.filter((c) => c.status === "pass" || c.status === "fail");
     let score = null;
-    if (known.length) {
+    if (known.length >= 3) {
       const quality = known.reduce((t, c) => t + (c.status === "pass" ? POINTS[c.evidence] ?? 0.5 : 0), 0) / known.length;
       const coverage = known.length / applicable.length;
       score = Math.round(100 * (0.7 * quality + 0.3 * coverage));
