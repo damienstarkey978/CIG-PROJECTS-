@@ -160,8 +160,8 @@ const IDENTIFY_SYSTEM = `You identify wines for the Wine Babe app, fast.
 From the label photo or text, identify producer, wine name, vintage, region, country, grapes and style (for sparkling, the dosage term on the label: Brut Nature, Pas Dosé, Dosaggio Zero, Extra Brut, Brut, Extra Dry...).
 Then find the winery's official website and this wine's product page on it, with at most one web search. Be quick. Prefer the winery's own domain over shops.
 A name without a vintage is fine: identify the wine and leave vintage "" (non vintage or latest).
-No producer given (e.g. "Pinot Noir Rosé Single Fermentation"): use your web search on the exact name to find which winery makes it. If the results clearly point to one producer's wine, identify it with that producer. Only when several producers fit equally, set identified false and name the likely producers in note.
-Never ask for a photo or more details. Otherwise only set identified false when the input is clearly not a wine or is unreadable, and explain in note. Unknown text fields are "".`;
+No producer given (e.g. "Pinot Noir Rosé Single Fermentation"): use your web search on the exact name to find which winery makes it. If the results point to one producer's wine, identify it with that producer. If several fit, pick the most popular one and say so in note.
+Never ask for a photo or more details. Always give your best guess for anything that looks like a wine (even just a grape or style, e.g. "Pinot Grigio"): fill what you can and leave the rest "". Only set identified false when the input is clearly not a wine at all (a person, a scene, a different product), and explain in note. Unknown text fields are "".`;
 
 const PDF_URLS_SCHEMA = {
   type: "object",
@@ -849,7 +849,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v31";
+const ENGINE_VERSION = "v32";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -886,7 +886,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     const retry = await runAgent({ diag,
       name: "identify-retry",
       system: IDENTIFY_SYSTEM + `
-This is a second try: you MUST run a web search for the exact wine name first. If the name is a brand rather than a winery (store and private label wines, e.g. "Terracotta Pinot Grigio"), use the brand as producer, or the bottler named on retail pages. Also find the brand's own website and this wine's page on it (e.g. terracottawines.com/our-wines/pinot-grigio) for winery_website and product_page_url. Set identified true whenever the search shows a real wine with this name; identified false only if nothing matches.`,
+This is a second try: you MUST run a web search for the exact wine name first. If the name is a brand rather than a winery (store and private label wines, e.g. "Terracotta Pinot Grigio"), use the brand as producer, or the bottler named on retail pages. Also find the brand's own website and this wine's page on it (e.g. terracottawines.com/our-wines/pinot-grigio) for winery_website and product_page_url. Set identified true whenever the input looks like a wine, with your best guess at the producer; identified false only if it is clearly not a wine.`,
       content: idContent,
       schema: IDENTIFY_SCHEMA,
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
@@ -1135,6 +1135,13 @@ This is a second try: you MUST run a web search for the exact wine name first. I
 
   // Second pass when the first finds nothing: many winery sites block
   // fetching, but the importer usually publishes the same notes.
+  const typicalTastingCall = runAgent({ diag,
+    name: "tasting-typical", model: SMART_MODEL, schema: TASTING_SCHEMA, send, deadline,
+    system: `You write typical tasting notes for the Wine Babe app when the winery publishes none. Wine: ${wineLine(wine)}.
+Describe how a wine of this grape, style and region typically tastes (1 to 2 short sentences, max 250 characters), up to 6 typical flavor words, and up to 6 classic food pairings for this kind of wine. Set found true, source "none", source_url "".`,
+    content: ask("Write typical tasting notes and food pairings for this kind of wine."),
+  }).catch(() => null);
+
   const tastingLookup = (async () => {
     const first = await runAgent({ diag,
       name: "tasting", model: SMART_MODEL, system: tastingPrompt(wine, site, page), schema: TASTING_SCHEMA, send, deadline,
@@ -1375,7 +1382,18 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     .slice(0, 12);
 
   const ratings = cleanRatings(await ratingsLookup, wine);
-  const tasting = cleanTasting(await tastingLookup);
+  let tasting = cleanTasting(await tastingLookup);
+  if (!tasting) {
+    const tt = await typicalTastingCall;
+    if (tt && (tt.notes || "").trim()) {
+      tasting = {
+        notes: String(tt.notes).replace(/\s+/g, " ").trim().slice(0, 300),
+        flavors: (tt.flavors || []).map((f) => String(f).trim().toLowerCase()).filter(Boolean).slice(0, 6),
+        pairings: (tt.pairings || []).map((f) => String(f).trim()).filter(Boolean).slice(0, 6),
+        source: "typical", source_url: "", style: typicalProfile(wine).label,
+      };
+    }
+  }
   diag.push({ name: "tasting-found", outcome: tasting ? `${tasting.source}: ${tasting.source_url}` : "none" });
   diag.push({ name: "ratings-found", outcome: String(ratings.length) });
 

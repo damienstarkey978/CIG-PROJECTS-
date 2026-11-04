@@ -175,17 +175,19 @@
     const applicable = top.filter((c) => c.status !== "na");
     const known = applicable.filter((c) => c.status === "pass" || c.status === "fail");
     let score = null;
-    if (known.length >= 3) {
+    if (known.length >= 1) {
       const quality = known.reduce((t, c) => t + (c.status === "pass" ? POINTS[c.evidence] ?? 0.5 : 0), 0) / known.length;
       const coverage = known.length / applicable.length;
       score = Math.round(100 * (0.7 * quality + 0.3 * coverage));
     }
     let tier, blurb;
-    if (known.length < 3) { tier = "Not enough info yet"; blurb = "Too little is published about this wine to score it fairly."; }
+    const mostlyTypical = known.filter((c) => c.evidence === "typical" || c.evidence === "estimate").length >= known.length / 2;
+    if (score == null) { score = 50; tier = "Estimated"; blurb = "Based on typical wines of this type."; }
     else if (score >= 80) { tier = "Wine Babe approved"; blurb = "Meets the Wine Babe standards, backed by solid sources."; }
     else if (score >= 60) { tier = "Good choice"; blurb = "Meets most of the Wine Babe standards that could be checked."; }
     else if (score >= 40) { tier = "Mixed"; blurb = "Meets some Wine Babe standards and misses others."; }
     else { tier = "Doesn't measure up"; blurb = "Misses key Wine Babe standards."; }
+    if (mostlyTypical && tier !== "Estimated") blurb += " Mostly estimated from typical wines of this type.";
     return { n, est, checks, score, top, tier, blurb, knownCount: known.length, applicableCount: applicable.length };
   }
 
@@ -394,7 +396,7 @@
   // Professional critic ratings (Wine Enthusiast, Wine Spectator, Decanter ...).
   // Older results have no ratings field, so the card is skipped for them.
   function ratingsCard(ratings, vintage) {
-    if (!Array.isArray(ratings)) return "";
+    if (!Array.isArray(ratings) || !ratings.length) return "";
     const want = String(vintage || "").trim();
     const rows = ratings.map((x) => {
       const other = want && /^\d{4}$/.test(want) && x.vintage && x.vintage !== want;
@@ -416,11 +418,12 @@
   // Winery tasting notes. Older results have neither ratings nor tasting, so skip the card for them.
   function tastingCard(t, ratings) {
     if (t === undefined && !Array.isArray(ratings)) return "";
-    if (!t) return `<div class="card tasting"><div class="lbl">Tasting notes</div><p class="t-none">The winery hasn't published tasting notes for this wine.</p></div>`;
+    if (!t) return "";
     let host = "";
     try { host = t.source_url ? new URL(t.source_url).hostname.replace(/^www\./, "") : ""; } catch {}
     return `<div class="card tasting">
-      <div class="lbl">Tasting notes from the ${t.source === "importer" ? "importer" : "winery"}</div>
+      <div class="lbl">${t.source === "typical" ? `Typical tasting notes${t.style ? ` for a ${esc(t.style)}` : ""}` : `Tasting notes from the ${t.source === "importer" ? "importer" : "winery"}`}</div>
+      ${t.source === "typical" ? `<p class="t-src">The winery hasn't published notes, so these describe a typical wine of this type.</p>` : ""}
       ${t.flavors?.length ? `<div class="t-flavors">${t.flavors.map((f) => `<span>${esc(f)}</span>`).join("")}</div>` : ""}
       ${t.notes ? `<p class="t-notes">${esc(t.notes)}</p>` : ""}
       ${t.pairings?.length ? `<div class="t-pair"><div class="t-pair-h">🍽️ Pairs well with</div><ul>${t.pairings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul></div>` : ""}
