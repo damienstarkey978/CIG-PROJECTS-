@@ -366,7 +366,7 @@ const INGREDIENTS_SCHEMA = {
 };
 const INGREDIENTS_SYSTEM = `You find a wine's published ingredient list for the Wine Babe app, fast.
 Run a web search with exactly the query you are given (the full wine name followed by "ingredients"). Good sources: the EU e-label page behind the bottle's QR code (domains like e-label, u-label, wine-id, ilabel, winelabel), the winery's or importer's product / spec page, or a tech sheet that lists ingredients. Fetch the best page if the snippets don't show the list.
-Only this exact wine. Return the ingredients in the order listed, in plain English (e.g. "Grapes", "Sucrose", "Acidity regulator: tartaric acid", "Preservative: sulfites"), with source winery, importer, elabel or retailer and the source_url. If no list is published, found false, empty list, source "none".`;
+Ingredients are the things in the bottle (grapes, sugar, acids, preservatives, stabilizers, fining agents, yeast), never tasting notes, aromas or flavors like "blackberry" or "toasted oak". Only this exact wine. Return the ingredients in the order listed, in plain English (e.g. "Grapes", "Sucrose", "Acidity regulator: tartaric acid", "Preservative: sulfites"), with source winery, importer, elabel or retailer and the source_url. If no list is published, found false, empty list, source "none".`;
 
 function typicalIngredients(w) {
   const t = typicalProfile(w);
@@ -379,7 +379,11 @@ function typicalIngredients(w) {
 }
 
 function cleanIngredients(raw, wine) {
-  const list = [...new Set((raw?.ingredients || []).map((x) => String(x).replace(/\s+/g, " ").trim()).filter((x) => x && x.length <= 80))].slice(0, 15);
+  const all = [...new Set((raw?.ingredients || []).map((x) => String(x).replace(/\s+/g, " ").trim()).filter((x) => x && x.length <= 80))];
+  // Tasting words mistaken for ingredients (retail pages mix them up).
+  const flavorish = /\b(flavou?rs?|aromas?|notes?|hints?|toast(ed)?|oak|spices?|berry|berries|cherr(y|ies)|plum|vanilla|chocolate|citrus|apple|pear|peach|floral|finish|palate|bouquet)\b/i;
+  const list = all.filter((x) => !flavorish.test(x) || /grape|must|wine\b/i.test(x) && !/flavou?r|aroma|note/i.test(x)).slice(0, 15);
+  if (all.length && list.length < all.length / 2) return typicalIngredients(wine);
   if (raw?.found && list.length && /^https?:\/\//.test(raw.source_url || "") && raw.source !== "none") {
     return { ingredients: list, source: raw.source, source_url: raw.source_url };
   }
@@ -885,7 +889,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v35";
+const ENGINE_VERSION = "v36";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
