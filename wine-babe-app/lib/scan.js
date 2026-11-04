@@ -148,7 +148,7 @@ const RULES = `Rules for each check:
 
 // Brand + wine name, without repeating the brand when the name already has it
 // ("Terracotta" + "Terracotta Pinot Grigio" -> "Terracotta Pinot Grigio").
-const fullName = (w) => {
+const brandAndName = (w) => {
   const prod = String(w.producer || "").trim(), name = String(w.name || "").trim();
   return !prod || name.toLowerCase().startsWith(prod.toLowerCase()) ? name : `${prod} ${name}`;
 };
@@ -891,14 +891,14 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // Started up front so it runs alongside everything else.
   const nutritionSearch = runAgent({ diag,
     name: "nutrition-search", system: NUTRITION_SEARCH_SYSTEM, schema: NUTRITION_SCHEMA, send, deadline: deadline - 4000,
-    content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. Search exactly: ${fullName(wine)} nutrition facts`),
+    content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. Search exactly: ${brandAndName(wine)} nutrition facts`),
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
   });
 
   const techLookup = async () => {
     const searched = runAgent({ diag,
       name: "sheet-search", model: SMART_MODEL, system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline,
-      content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. Search exactly: ${fullName(wine)} tech specs`),
+      content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. Search exactly: ${brandAndName(wine)} tech specs`),
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
     });
     // Gather candidates from all routes, rank them together, then download
