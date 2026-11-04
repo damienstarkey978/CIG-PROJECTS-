@@ -391,4 +391,4 @@ details.cat .checks { padding: 0 1rem 0.4rem; }
 .app-version { margin: 1.5rem 0 2rem; text-align: center; font-size: 0.72rem; color: var(--muted); }
 .upload-link { display: block; margin: -0.4rem auto 1.1rem; text-align: center; font-size: 0.9rem; font-weight: 600; color: var(--wine); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .chip.typical { background: #efe7f6; color: #5d3f7a; }
-.typical-note { margin: -0.3rem 0 1rem; padding: 0.7rem 0.9rem; border-radius: var(--radius); background: #f6f1fa; color: #5d3f7a; font-size: 0.82rem; line-height: 1.45; }
+.typical-note { margin: 0.9rem 0 1rem; padding: 0.7rem 0.9rem; border-radius: var(--radius); background: #f6f1fa; color: #5d3f7a; font-size: 0.82rem; line-height: 1.45; }

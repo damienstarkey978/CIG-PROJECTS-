@@ -313,7 +313,7 @@
         </div>
         <div>
           <div class="verdict ${sugar == null ? "" : sugar < 1 ? "ok" : "no"}">
-            ${sugar == null ? "No lab number found" : sugar < 1 ? "Under 1 g. Skinny sip approved." : "Over 1 g per glass"}
+            ${sugar == null ? "No lab number found" : typ.includes("sugar") ? (sugar < 1 ? "Likely under 1 g per glass" : "Likely over 1 g per glass") : sugar < 1 ? "Under 1 g. Skinny sip approved." : "Over 1 g per glass"}
           </div>
           <div class="detail" style="font-size:.82rem;color:var(--muted)">
             ${n.residual_sugar_g_l != null ? `${fmt(n.residual_sugar_g_l, 1)} g/L residual sugar` : ""}
