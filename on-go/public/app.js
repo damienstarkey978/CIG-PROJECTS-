@@ -211,6 +211,13 @@
             : `<p class="empty">Not listed yet</p>`
         }
         ${
+          e.happy_hour_menu_url
+            ? `<p class="venue-hh-link"><a class="venue-hh-menu-link" href="${escapeHtml(
+                e.happy_hour_menu_url
+              )}" target="_blank" rel="noopener noreferrer">Happy Hour Menu</a></p>`
+            : ''
+        }
+        ${
           e.specials
             ? `<p class="meta">${escapeHtml(e.specials)}</p>`
             : ''
@@ -226,16 +233,6 @@
             : `<p class="meta">Unclaimed directory listing — claim to run live boosts.</p>`
         }
       </section>
-
-      ${
-        e.happy_hour_menu_url
-          ? `<section class="venue-section venue-hh-link">
-        <a class="venue-hh-menu-link" href="${escapeHtml(
-          e.happy_hour_menu_url
-        )}" target="_blank" rel="noopener noreferrer">Happy Hour Menu</a>
-      </section>`
-          : ''
-      }
     `;
   }
 
