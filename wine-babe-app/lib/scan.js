@@ -15,6 +15,8 @@
 const { CHECKLIST, ALL_ITEMS, EVIDENCE } = require("../public/checklist.js");
 
 const MODEL = process.env.WINE_BABE_MODEL || "claude-sonnet-5-5";
+// Reading an attached tech sheet is simple extraction, so it uses the fastest model.
+const READ_MODEL = process.env.WINE_BABE_READ_MODEL || "claude-haiku-5-5";
 const HAS_KEY = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
 // Time budget (target: about 30s per scan).
 const IDENTIFY_MS = Number(process.env.WINE_BABE_IDENTIFY_MS || 12000);
@@ -112,6 +114,12 @@ const TECH_IDS = [
   "minimal_intervention", "no_concentrates", "temp_controlled", "origin", "single_vineyard", "grape_variety",
   "vintage", "traceability", "vegan", "organic", "hand_harvested",
 ];
+// Items a tech sheet actually covers; the PDF read fills only these.
+const SHEET_IDS = [
+  "tech_sheet", "sugar_under_1g", "no_added_sugar", "zero_dosage", "calories", "carbs", "abv", "non_gmo",
+  "gluten_free", "sulfites", "yeast", "vegan", "organic", "hand_harvested", "grape_variety", "vintage", "origin",
+  "single_vineyard", "no_concentrates", "no_unnecessary_additives", "traditional_fermentation", "temp_controlled",
+];
 const FARM_IDS = [
   "organic", "sustainable", "hand_harvested", "minimal_pesticide", "no_synthetic_herbicides", "biodiversity",
   "water_conservation", "regenerative", "estate_grown", "family_owned", "certifications", "non_gmo",
@@ -128,7 +136,7 @@ const RULES = `Rules for each check:
 - status "pass" when a source supports it, "fail" when a source contradicts it (residual sugar above 6.7 g/L, egg white or casein fining, sugar added at dosage), "unknown" when you found nothing, "na" when it does not apply (zero_dosage for a still wine). Never guess a pass.
 - scope: "this_wine" (source is about this exact wine), "producer" (winery wide statement, e.g. "all our wines are vegan", "150 ha certified SQNPI"), "related_wine" (a sister wine's tech sheet from the same producer; name it in the detail).
 - as_of: date or year of the statement or document if shown, else "".
-- detail: one short plain sentence for a shopper, with the number or quoted wording when there is one.
+- detail: at most 15 words for a shopper, with the number or quoted wording when there is one.
 - source_url: the page that supports it, or "".
 - Return one check for every id listed. Be fast: stop as soon as you have the answers; do not research beyond your listed sources.`;
 
@@ -169,6 +177,18 @@ ${RULES}
 
 Items:
 ${itemList(TECH_IDS)}`;
+
+const sheetPrompt = (w) => `You read a wine's attached technical sheet for the Wine Babe app. Wine: ${wineLine(w)}.
+Use only the attached sheet. Read every line: residual sugar, ABV, total and free SO2 (if a range, use the highest value and quote the range), pH, acidity, GMO, allergens, vegan, fining, yeast, dosage, harvest, vineyard, grapes, origin.
+If the sheet is for a sister wine of the same producer, use scope "related_wine" and say which wine.
+Nutrition per 5 oz (148 ml): if calories or carbs are not printed, calculate them (alcohol g = 148 x ABV/100 x 0.789 x 7 kcal; carbs ~ sugar g + 0.5; sugar g = residual sugar g/L x 0.148) and mark those checks "estimate". Leave numbers null rather than invent them. nutrition.source = evidence behind the sugar number ("lab" when the sheet gives it).
+tech_sheet: pass, evidence "lab" if it gives analysis numbers. zero_dosage: sparkling with no sugar added at dosage (Brut Nature, Pas Dosé, Dosaggio Zero, 0 g/L dosage); still wines "na".
+tech_sheet_vintage: vintage the sheet covers if stated, else "".
+
+${RULES}
+
+Items:
+${itemList(SHEET_IDS)}`;
 
 const farmPrompt = (w, site) => `You check farming practices and certifications for the Wine Babe app. Wine: ${wineLine(w)}.
 Winery website: ${site || "unknown"}.
@@ -361,7 +381,7 @@ async function findTechSheet(wine, pageUrl, siteUrl, send) {
 // At the deadline the call is cut and, if earlier turns gathered anything, a
 // quick no-tools follow up turns what was found into the JSON answer.
 
-async function runAgent({ name, system, content, schema, tools = [], effort = "low", send, deadline }) {
+async function runAgent({ name, system, content, schema, tools = [], effort = "low", send, deadline, model = MODEL }) {
   const client = await getClient();
   const messages = [{ role: "user", content }];
   const ctrl = new AbortController();
@@ -371,14 +391,14 @@ async function runAgent({ name, system, content, schema, tools = [], effort = "l
   const call = (extra = {}, signal) => {
     const stream = client.beta.messages.stream(
       {
-        model: MODEL,
+        model,
         max_tokens: 16000,
         system,
         messages,
         ...(tools.length ? { tools } : {}),
         output_config: { effort, format: { type: "json_schema", schema } },
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
+        // Server side refusal fallbacks are not offered for Haiku.
+        ...(model.includes("haiku") ? {} : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" }),
         ...extra,
       },
       signal ? { signal } : undefined
@@ -546,8 +566,8 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     if (!sheet) return null;
     send({ type: "status", text: "Reading the tech sheet" });
     return runAgent({
-      name: "tech", system: techPrompt(wine, site, page), schema: agentSchema(TECH_IDS, true), send,
-      deadline: Math.max(deadline, Date.now() + 9000),
+      name: "tech", system: sheetPrompt(wine), schema: agentSchema(SHEET_IDS, true), send,
+      model: READ_MODEL, deadline: Math.max(deadline, Date.now() + 15000),
       content: [
         { type: "document", source: { type: "base64", media_type: "application/pdf", data: sheet.data } },
         { type: "text", text: `This is the winery's tech sheet, from ${sheet.url}. Read it and fill the items. tech_sheet_url is that url. Do not search.` },
