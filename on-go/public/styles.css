@@ -134,9 +134,9 @@ body {
   font: inherit;
 }
 
-/* Night-drive grade on free OSM tiles (no API key) */
+/* Night-drive grade on free OSM tiles — eased brightness so roads/labels read */
 .leaflet-tile-pane {
-  filter: grayscale(0.35) invert(0.88) contrast(0.95) brightness(0.7) hue-rotate(70deg) saturate(0.55);
+  filter: grayscale(0.28) invert(0.84) contrast(1.08) brightness(0.92) hue-rotate(65deg) saturate(0.65);
 }
 
 .leaflet-control-attribution {
