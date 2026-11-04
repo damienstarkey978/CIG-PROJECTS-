@@ -132,7 +132,7 @@ const itemList = (ids) =>
 // ---------- prompts ----------
 
 const RULES = `Rules for each check:
-- A clear winery statement is enough for a pass (evidence "winery"): on the winery's site, its tech sheet, or its importer's page. A certificate or certifier listing is "certified". Lab numbers on a tech sheet are "lab". A calculation is "estimate".
+- A clear winery statement is enough for a pass (evidence "winery"): on the winery's site, its tech sheet, or its importer's page. Shop, retailer, review and marketplace pages do not count as evidence: if they are the only source, the item is "unknown". A certificate or certifier listing is "certified". Lab numbers on a tech sheet are "lab". A calculation is "estimate".
 - status "pass" when a source supports it, "fail" when a source contradicts it (residual sugar above 6.7 g/L, egg white or casein fining, sugar added at dosage), "unknown" when you found nothing, "na" when it does not apply (zero_dosage for a still wine). Never guess a pass.
 - scope: "this_wine" (source is about this exact wine), "producer" (winery wide statement, e.g. "all our wines are vegan", "150 ha certified SQNPI"), "related_wine" (a sister wine's tech sheet from the same producer; name it in the detail).
 - as_of: date or year of the statement or document if shown, else "".
@@ -474,7 +474,7 @@ async function certScan(siteUrl, country, diag) {
     diag.push({ name: `cert "${term}"`, ms: Date.now() - t, outcome: "no hits" });
     return null;
   } catch (err) {
-    diag.push({ name: `cert "${term}"`, ms: Date.now() - t, outcome: `error ${err.name}` });
+    diag.push({ name: `cert "${term}"`, ms: Date.now() - t, outcome: `error ${err.name}: ${String(err.cause?.code || err.message || "").slice(0, 80)}` });
     return null;
   }
 }
@@ -771,6 +771,25 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     certScan(site, wine.country, diag),
   ]);
 
+  // Tech sheet sanity: a sheet with analysis numbers is a lab sheet, and a
+  // sheet for another vintage is marked as such on every item it supports.
+  if (tech) {
+    const n = tech.nutrition || {};
+    const hasNumbers = [n.residual_sugar_g_l, n.total_so2_mg_l, n.ph, n.ta_g_l].some((v) => v != null);
+    const ts = (tech.checks || []).find((c) => c.id === "tech_sheet");
+    if (hasNumbers && ts && ts.status !== "pass") Object.assign(ts, { status: "pass", evidence: "lab", detail: "Tech sheet with lab analysis numbers." });
+    const sheetYear = String(tech.tech_sheet_vintage || "").match(/(19|20)\d{2}/)?.[0];
+    const wineYear = String(wine.vintage || "").match(/(19|20)\d{2}/)?.[0];
+    if (sheetYear && wineYear && sheetYear !== wineYear) {
+      for (const c of tech.checks || []) {
+        if (c.status === "pass" && c.scope === "this_wine") {
+          c.scope = "related_wine";
+          c.detail = `${sheetYear} sheet: ${c.detail}`;
+        }
+      }
+    }
+  }
+
   // 4. Merge.
   const best = {};
   for (const part of [tech, farm, vegan]) for (const c of part?.checks || []) best[c.id] = better(best[c.id], c);
@@ -779,7 +798,9 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     for (const id of ["sustainable", "certifications"]) {
       // A mention on the winery's own site is the winery's statement, not
       // proof of a certificate, so it counts as "winery", not "certified".
-      best[id] = better(best[id], { id, status: "pass", evidence: "winery", scope: "producer", as_of: "", detail, source_url: cert.url });
+      const mine = { id, status: "pass", evidence: "winery", scope: "producer", as_of: "", detail, source_url: cert.url };
+      // The winery's own site beats any non certified finding from elsewhere.
+      if (!(best[id]?.status === "pass" && best[id]?.evidence === "certified")) best[id] = mine;
     }
   }
   // Zero dosage only applies to sparkling wine.
