@@ -698,9 +698,29 @@ function ensureSchema(db) {
       status TEXT NOT NULL DEFAULT 'active',
       starts_at TEXT NOT NULL,
       ends_at TEXT,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      stripe_customer_id TEXT,
+      stripe_subscription_id TEXT,
+      stripe_price_id TEXT,
+      subscription_status TEXT,
+      current_period_end TEXT,
+      updated_at TEXT
     );
   `);
+}
+
+/** Idempotent Stripe billing columns for DBs created before billing scaffold. */
+function ensureBillingColumns(db) {
+  const cols = db.prepare('PRAGMA table_info(subscriptions)').all().map((c) => c.name);
+  const add = (name, ddl) => {
+    if (!cols.includes(name)) db.exec(`ALTER TABLE subscriptions ADD COLUMN ${ddl}`);
+  };
+  add('stripe_customer_id', 'stripe_customer_id TEXT');
+  add('stripe_subscription_id', 'stripe_subscription_id TEXT');
+  add('stripe_price_id', 'stripe_price_id TEXT');
+  add('subscription_status', 'subscription_status TEXT');
+  add('current_period_end', 'current_period_end TEXT');
+  add('updated_at', 'updated_at TEXT');
 }
 
 function seedIfEmpty(db) {
@@ -1069,6 +1089,7 @@ function ensureSeedVenues(db) {
 function applyMigrations(db) {
   ensureSchema(db);
   ensureAuthColumns(db);
+  ensureBillingColumns(db);
   const {
     ensureLogoColumns,
     backfillWebsites,
@@ -1244,5 +1265,6 @@ module.exports = {
   DB_PATH,
   SEED_BUSINESSES,
   ensureAuthColumns,
+  ensureBillingColumns,
   blobStatus,
 };

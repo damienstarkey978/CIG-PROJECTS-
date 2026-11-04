@@ -50,9 +50,19 @@ const {
   assignProTrial,
   formatSubscription,
   ensureProTrialsForClaimed,
-  isProEntitled,
   PRO_TRIAL_DAYS,
 } = require('./lib/subscriptions');
+const {
+  isBillingEnabled,
+  billingPublicConfig,
+  ensureBillingColumns,
+  createCheckoutSession,
+  createPortalSession,
+  constructWebhookEvent,
+  processWebhookEvent,
+  hasProAccess,
+  formatBillingSubscription,
+} = require('./lib/billing');
 const {
   ensureEnrichColumns,
   enrichBusiness,
@@ -122,20 +132,70 @@ async function flushDb() {
   await persistDbBytes(db);
 }
 
+async function prepareRequestDb(req) {
+  await ready;
+  // Serialize store reloads so overlapping Netlify invocations in the same
+  // isolate don't race on the module-level `db` pointer.
+  syncingDb = syncingDb.then(() => syncDbFromStore()).catch(() => {});
+  await syncingDb;
+  expireOffers(db);
+  ensureBillingColumns(db);
+  return db;
+}
+
+/**
+ * Stripe webhook entry used by Express (local) and Netlify function (raw event.body).
+ * `rawBody` must be the exact bytes Stripe signed.
+ */
+async function handleStripeWebhook(rawBody, signature) {
+  await prepareRequestDb();
+  const event = constructWebhookEvent(rawBody, signature);
+  const result = await processWebhookEvent(db, event);
+  touch();
+  await flushDb();
+  return result;
+}
+
 function createApp() {
   const app = express();
-  app.use(express.json({ limit: '2mb' }));
+
+  // Stripe webhook needs the raw body for signature verification — mount before json().
+  app.post(
+    '/api/billing/webhook',
+    express.raw({ type: 'application/json' }),
+    async (req, res) => {
+      try {
+        const signature = req.headers['stripe-signature'];
+        if (!signature) {
+          return res.status(400).json({ error: 'Missing stripe-signature header' });
+        }
+        const rawBody = Buffer.isBuffer(req.body)
+          ? req.body
+          : Buffer.from(req.rawBody || req.body || '');
+        const result = await handleStripeWebhook(rawBody, signature);
+        res.json(result);
+      } catch (err) {
+        console.error('Stripe webhook error:', err.message);
+        res.status(err.status || 400).json({ error: err.message || 'Webhook error' });
+      }
+    }
+  );
+
+  app.use(express.json({
+    limit: '2mb',
+    verify: (req, _res, buf) => {
+      // Preserve raw bytes if a proxy remaps the webhook path onto json parser
+      if (req.originalUrl && req.originalUrl.includes('/billing/webhook')) {
+        req.rawBody = buf;
+      }
+    },
+  }));
   app.use(cookieParser(process.env.SESSION_SECRET || 'on-go-dev-secret'));
   app.use(express.static(path.join(__dirname, 'public')));
 
   app.use(async (req, res, next) => {
     try {
-      await ready;
-      // Serialize store reloads so overlapping Netlify invocations in the same
-      // isolate don't race on the module-level `db` pointer.
-      syncingDb = syncingDb.then(() => syncDbFromStore()).catch(() => {});
-      await syncingDb;
-      expireOffers(db);
+      await prepareRequestDb(req);
       const resolved = resolveUser(db, {
         sessionId: req.cookies[COOKIE_NAME],
         signedUserId: req.signedCookies && req.signedCookies[UID_COOKIE],
@@ -372,10 +432,13 @@ function createApp() {
     const sub = db.prepare(`
       SELECT * FROM subscriptions WHERE business_id = ? ORDER BY created_at DESC LIMIT 1
     `).get(b.id);
-    if (!isProEntitled(sub) && req.user.role !== 'admin') {
+    if (!hasProAccess(sub) && req.user.role !== 'admin') {
       return res.status(403).json({
-        error: 'Pro trial or Pro plan required to flip the boost switch',
+        error: isBillingEnabled()
+          ? 'Pro subscription or active trial required to flip the boost switch'
+          : 'Pro trial or Pro plan required to flip the boost switch',
         code: 'pro_required',
+        billing_enabled: isBillingEnabled(),
       });
     }
 
@@ -786,10 +849,14 @@ function createApp() {
       `).get(id);
       return {
         ...b,
-        subscription: formatSubscription(sub || { plan: 'free', status: 'none' }),
+        subscription: formatBillingSubscription(sub || { plan: 'free', status: 'none' }),
       };
     });
-    res.json({ user: publicUser(req.user), businesses });
+    res.json({
+      user: publicUser(req.user),
+      businesses,
+      billing: billingPublicConfig(),
+    });
   });
 
   app.post('/api/offers', (req, res) => {
@@ -811,6 +878,18 @@ function createApp() {
     }
     if (!userCanManageBusiness(db, req.user.id, business_id) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You do not manage this business' });
+    }
+    if (isBillingEnabled() && req.user.role !== 'admin') {
+      const sub = db.prepare(
+        `SELECT * FROM subscriptions WHERE business_id = ? ORDER BY created_at DESC LIMIT 1`
+      ).get(business_id);
+      if (!hasProAccess(sub)) {
+        return res.status(403).json({
+          error: 'Pro subscription or active trial required to activate offers',
+          code: 'pro_required',
+          billing_enabled: true,
+        });
+      }
     }
 
     const start = starts_at ? new Date(starts_at) : new Date();
@@ -1177,6 +1256,18 @@ function createApp() {
     if (!userCanManageBusiness(db, req.user.id, business_id) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You do not manage this business' });
     }
+    if (isBillingEnabled() && req.user.role !== 'admin') {
+      const sub = db.prepare(
+        `SELECT * FROM subscriptions WHERE business_id = ? ORDER BY created_at DESC LIMIT 1`
+      ).get(business_id);
+      if (!hasProAccess(sub)) {
+        return res.status(403).json({
+          error: 'Pro subscription or active trial required for ad bidding',
+          code: 'pro_required',
+          billing_enabled: true,
+        });
+      }
+    }
     const slot = db.prepare('SELECT * FROM ad_inventory WHERE id = ?').get(inventory_id);
     if (!slot) return res.status(404).json({ error: 'Inventory not found' });
     if (amount_cents < slot.min_bid_cents) {
@@ -1207,15 +1298,21 @@ function createApp() {
 
   app.get('/api/subscriptions', (req, res) => {
     if (!requireRole(req, res, ['business', 'admin'])) return;
+    ensureBillingColumns(db);
     ensureProTrialsForClaimed(db);
     touch();
+    const billing = billingPublicConfig();
     const ids = businessIdsForUser(db, req.user.id);
+    const notice = billing.billing_enabled
+      ? `Pro requires an active Stripe subscription or free trial (${PRO_TRIAL_DAYS} days). Upgrade below when trial ends.`
+      : `Pro (beta — billing coming soon). Claimed venues unlock full Pro · Free trial (${PRO_TRIAL_DAYS} days) — no paywall until billing is turned on.`;
     if (!ids.length) {
       return res.json({
         subscriptions: [],
         plans: PLAN_CATALOG,
         trial_days: PRO_TRIAL_DAYS,
-        notice: `Claimed venues get Pro free trial (${PRO_TRIAL_DAYS} days) with full Pro features.`,
+        notice,
+        ...billing,
       });
     }
     const placeholders = ids.map(() => '?').join(',');
@@ -1225,13 +1322,73 @@ function createApp() {
       WHERE s.business_id IN (${placeholders})
       ORDER BY s.created_at DESC
     `).all(...ids)
-      .map((s) => ({ ...formatSubscription(s), business_name: s.business_name }));
+      .map((s) => ({
+        ...formatBillingSubscription(s),
+        business_name: s.business_name,
+      }));
     res.json({
       subscriptions,
       plans: PLAN_CATALOG,
       trial_days: PRO_TRIAL_DAYS,
-      notice: `Claimed venues unlock Pro · Free trial (${PRO_TRIAL_DAYS} days). Scheduling, ad bidding, and analytics are included — no paywall during trial.`,
+      notice,
+      ...billing,
     });
+  });
+
+  app.get('/api/billing/config', (_req, res) => {
+    res.json(billingPublicConfig());
+  });
+
+  app.post('/api/billing/checkout-session', async (req, res) => {
+    if (!requireRole(req, res, ['business', 'admin'])) return;
+    const business_id = String(req.body.business_id || '').trim();
+    const interval = String(req.body.interval || 'month').trim();
+    if (!business_id) return res.status(400).json({ error: 'business_id required' });
+    if (!userCanManageBusiness(db, req.user.id, business_id) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You do not manage this business' });
+    }
+    try {
+      const session = await createCheckoutSession(db, {
+        user: req.user,
+        businessId: business_id,
+        interval,
+        req,
+      });
+      touch();
+      res.json({ url: session.url, id: session.id, billing_enabled: true });
+    } catch (err) {
+      console.error('checkout-session:', err.message);
+      res.status(err.status || 500).json({
+        error: err.message || 'Checkout failed',
+        code: err.code || 'checkout_failed',
+        billing_enabled: isBillingEnabled(),
+      });
+    }
+  });
+
+  app.post('/api/billing/portal-session', async (req, res) => {
+    if (!requireRole(req, res, ['business', 'admin'])) return;
+    const business_id = String(req.body.business_id || '').trim();
+    if (!business_id) return res.status(400).json({ error: 'business_id required' });
+    if (!userCanManageBusiness(db, req.user.id, business_id) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You do not manage this business' });
+    }
+    try {
+      const session = await createPortalSession(db, {
+        user: req.user,
+        businessId: business_id,
+        req,
+      });
+      touch();
+      res.json({ url: session.url, billing_enabled: true });
+    } catch (err) {
+      console.error('portal-session:', err.message);
+      res.status(err.status || 500).json({
+        error: err.message || 'Portal failed',
+        code: err.code || 'portal_failed',
+        billing_enabled: isBillingEnabled(),
+      });
+    }
   });
 
   /** Preview logo from name/website before creating a venue */
@@ -1420,6 +1577,7 @@ module.exports = {
   app,
   ready,
   syncDbFromStore,
+  handleStripeWebhook,
   get persistNow() {
     return flushDb;
   },

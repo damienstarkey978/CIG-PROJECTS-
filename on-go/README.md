@@ -52,6 +52,10 @@ npx netlify deploy --prod
 
 Config: `netlify.toml` publishes `public/`, routes `/api/*` to `netlify/functions/api.js`.
 
+### Stripe Pro billing (flagged off by default)
+
+Claimed venues stay on Pro free-trial until `ONGO_BILLING_ENABLED=true`. Setup steps, env vars, and webhook URL: Project store `docs/subscription-billing.md`. Placeholder env names are in `.env.example` — never commit real Stripe keys.
+
 ## Scripts
 
 | Command | Purpose |
