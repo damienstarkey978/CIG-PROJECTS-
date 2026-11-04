@@ -321,7 +321,7 @@ const TASTING_SCHEMA = {
 const tastingPrompt = (w, site, page) => `You find the winery's own tasting notes for the Wine Babe app. Wine: ${wineLine(w)}.
 Winery website: ${site || "unknown"}. Product page: ${page || "unknown"}.
 
-Fetch the winery's product page for this exact wine (search once for "<producer> <wine name> tasting notes" if you don't have it). If the winery has none, the official importer's page for the wine is fine.
+Fetch the winery's product page for this exact wine (search for "<producer> <wine name> tasting notes" if you don't have it). If the winery has none, the official importer's page for the wine is fine (e.g. Kobrand for Louis Jadot). Some winery sites block fetching: then use the text the search results show from the winery's or importer's own page, with that page as source_url. Don't fetch PDFs or shop pages.
 Use only the producer's or importer's own description, never critic reviews, shops or blogs. Only this exact wine: a different cuvee or appellation (Beaujolais vs Beaujolais-Villages) is a different wine.
 notes: the tasting notes in 1 to 3 short plain sentences, close to their own words (aroma, palate, finish, food pairing if given). Max 350 characters.
 flavors: up to 8 short flavor and aroma words taken from those notes (e.g. "strawberry", "black cherry", "pepper").
@@ -782,7 +782,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v14";
+const ENGINE_VERSION = "v15";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1025,7 +1025,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
 
   const tastingLookup = runAgent({ diag,
     name: "tasting", model: SMART_MODEL, system: tastingPrompt(wine, site, page), schema: TASTING_SCHEMA, send, deadline,
-    content: ask("Find the winery's tasting notes for this wine."), tools: webTools(1, 1),
+    content: ask("Find the winery's tasting notes for this wine."), tools: webTools(2, 2),
   }).catch(() => null);
 
   const ratingsLookup = runAgent({ diag,
