@@ -354,7 +354,7 @@
         ? `<br><strong style="color:#1aff5a">LIVE:</strong> ${escapeHtml(b.live_offer.title)}`
         : '<br><em>Directory</em>';
       const logo = b.logo_url
-        ? `<img src="${escapeHtml(b.logo_url)}" alt="" width="36" height="36" style="border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:6px" referrerpolicy="no-referrer" />`
+        ? `<img src="${escapeHtml(b.logo_url)}" alt="" width="36" height="36" style="border-radius:8px;object-fit:contain;object-position:center;background:#eef1ef;padding:2px;box-sizing:border-box;vertical-align:middle;margin-right:6px" referrerpolicy="no-referrer" />`
         : '';
       marker.bindPopup(
         `<div style="display:flex;gap:8px;align-items:flex-start">${logo}<div><strong>${escapeHtml(b.name)}</strong><br>${escapeHtml(b.area)} · ${escapeHtml(b.category)}${offerLine}<br><button type="button" class="btn primary" data-open-venue="${escapeHtml(
