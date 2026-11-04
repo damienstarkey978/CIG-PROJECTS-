@@ -479,6 +479,37 @@ async function certScan(siteUrl, country, diag) {
   }
 }
 
+// ---------- Barnivore (vegan) ----------
+// Barnivore company pages are plain HTML: status (Vegan / Not Vegan / Some),
+// date checked, and the company's own reply. Read them in code, not by model.
+
+const URL_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["url"],
+  properties: { url: { type: "string" } },
+};
+const BARNIVORE_FIND_SYSTEM = `Find the producer's company page on barnivore.com, fast. Run exactly one web search: barnivore <producer>. Return the barnivore.com page url for that producer (paths like /wine/1234/name or /products/1234-name), or "" if there is none.`;
+
+async function readBarnivore(url) {
+  let u;
+  try { u = new URL(url); } catch { return { error: "bad url" }; }
+  if (!/(^|\.)barnivore\.com$/.test(u.hostname)) return { error: "not barnivore" };
+  try {
+    const res = await fetch(u, { signal: AbortSignal.timeout(6000), headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
+    if (!res.ok) return { error: `HTTP ${res.status}` };
+    const text = (await res.text())
+      .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ").replace(/&quot;/g, '"').replace(/&#39;|&rsquo;|’/g, "'").replace(/&amp;/g, "&").replace(/&[a-z#0-9]+;/gi, " ")
+      .replace(/\s+/g, " ");
+    const head = text.slice(0, 1500);
+    const status = /\bNot Vegan\b/i.test(head) ? "fail" : /\bSome\b[^.]{0,40}\bvegan\b/i.test(head) || /\bUnknown\b/.test(head) ? "unknown" : /\bVegan\b/.test(head) ? "pass" : "unknown";
+    const checked = (head.match(/Checked[^()]{0,40}\(([^)]+)\)/) || [])[1] || "";
+    const quote = (text.match(/(?:email|letter|phone)\s*\(([^)]+)\)\s*"([^"]{10,220})/i) || []);
+    return { status, as_of: quote[1] || checked, quote: quote[2] || "", url: u.href };
+  } catch (err) {
+    return { error: err.name };
+  }
+}
+
 // ---------- one Claude call with tools, under a deadline ----------
 // At the deadline the call is cut and, if earlier turns gathered anything, a
 // quick no-tools follow up turns what was found into the JSON answer.
@@ -600,7 +631,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v5";
+const ENGINE_VERSION = "v6";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -668,6 +699,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
   // Tech sheet: three routes at once. Fast routes (product page links and
   // the WordPress media search) need no AI; a one search lookup for the PDF
   // runs alongside in case the fast routes find nothing.
+  let producerOrigin = "";
   const techLookup = async () => {
     const searched = runAgent({ diag,
       name: "sheet-search", system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline,
@@ -697,6 +729,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
         const own = searchUrls.find((u) => { try { const h = new URL(u).hostname.toLowerCase(); return prod.some((w) => h.includes(w)); } catch { return false; } });
         if (own) {
           const origin = new URL(own).origin;
+          producerOrigin = origin;
           extra = await findTechCandidates(wine, null, origin, diag);
           diag.push({ name: "sheet-fast-producer-domain", outcome: `${origin}: ${extra.filter((l) => /\.pdf/i.test(l.url)).length} pdf links` });
         }
@@ -791,7 +824,19 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     });
   };
 
-  let [tech, farm, vegan, cert] = await Promise.all([
+  const barnivoreLookup = async () => {
+    const found = await runAgent({ diag,
+      name: "barnivore-find", system: BARNIVORE_FIND_SYSTEM, schema: URL_SCHEMA, send, deadline: deadline - 6000,
+      content: ask(`Producer: ${wine.producer}. Country: ${wine.country || "unknown"}.`),
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
+    });
+    if (!found?.url) return null;
+    const bv = await readBarnivore(found.url);
+    diag.push({ name: "barnivore", outcome: bv.error ? `${bv.error}: ${found.url}` : `${bv.status} (${bv.as_of}): ${found.url}` });
+    return bv.error || bv.status === "unknown" ? null : bv;
+  };
+
+  let [tech, farm, vegan, cert, barnivore] = await Promise.all([
     techLookup(),
     runAgent({ diag,
       name: "farm", system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline,
@@ -802,7 +847,10 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       content: ask("Check vegan status and fill the items."), tools: webTools(1, 1),
     }),
     certScan(site, wine.country, diag),
+    barnivoreLookup(),
   ]);
+  // Rescue path found the winery's domain: run the certification check there.
+  if (!cert && !site && producerOrigin) cert = await certScan(producerOrigin, wine.country, diag);
 
   // A sheet whose sugar is impossible for the wine's style is the wrong wine
   // (e.g. a Brut sheet at 10 g/L for a Brut Nature, which is 3 g/L at most).
@@ -838,6 +886,12 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
   // 4. Merge.
   const best = {};
   for (const part of [tech, farm, vegan]) for (const c of part?.checks || []) best[c.id] = better(best[c.id], c);
+  if (barnivore) {
+    const detail = barnivore.quote
+      ? `Barnivore, winery's reply: "${barnivore.quote.split(" ").slice(0, 18).join(" ")}${barnivore.quote.split(" ").length > 18 ? "..." : ""}"`
+      : `Barnivore lists the producer as ${barnivore.status === "pass" ? "vegan" : "not vegan"}.`;
+    best.vegan = { id: "vegan", status: barnivore.status, evidence: "winery", scope: "producer", as_of: barnivore.as_of, detail, source_url: barnivore.url };
+  }
   if (cert) {
     const detail = cert.snippet ? `Winery site: "...${cert.snippet.split(" ").slice(0, 20).join(" ")}..."` : `The winery's site names ${cert.term} certification.`;
     for (const id of ["sustainable", "certifications"]) {
@@ -861,6 +915,18 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       detail: `About ${perGlass} g sugar per 5 oz glass (${rs} g/L residual sugar).${base.scope === "related_wine" ? " From another vintage's sheet." : ""}`,
     };
   }
+  // Honest sourcing: a "winery" statement found on another site (importer,
+  // shop) names that site in the detail.
+  const ownHosts = [site, producerOrigin, cert?.url].map((u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } }).filter(Boolean);
+  const prodWordsAll = norm(wine.producer).split(" ").filter((w) => w.length > 3);
+  for (const c of Object.values(best)) {
+    if (c.evidence !== "winery" || !c.source_url) continue;
+    let host = "";
+    try { host = new URL(c.source_url).hostname.replace(/^www\./, ""); } catch { continue; }
+    const own = ownHosts.some((h) => host.endsWith(h)) || prodWordsAll.some((w) => host.includes(w)) || /barnivore\.com$/.test(host);
+    if (!own && !c.detail.includes(host)) c.detail = `${c.detail} (via ${host})`;
+  }
+
   // Zero dosage only applies to sparkling wine.
   const sparkling = /sparkl|spumante|champagne|cava|cr[eé]mant|prosecco|franciacorta|sekt|brut|p[eé]tillant|frizzante|mousseux|espumoso/i.test(`${wine.style} ${wine.name}`);
   if (!sparkling && (!best.zero_dosage || best.zero_dosage.status === "unknown")) {
