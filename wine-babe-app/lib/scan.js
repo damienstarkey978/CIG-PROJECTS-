@@ -146,6 +146,13 @@ const RULES = `Rules for each check:
 - source_url: the page that supports it, or "".
 - Return one check for every id listed. Be fast: stop as soon as you have the answers; do not research beyond your listed sources.`;
 
+// Brand + wine name, without repeating the brand when the name already has it
+// ("Terracotta" + "Terracotta Pinot Grigio" -> "Terracotta Pinot Grigio").
+const fullName = (w) => {
+  const prod = String(w.producer || "").trim(), name = String(w.name || "").trim();
+  return !prod || name.toLowerCase().startsWith(prod.toLowerCase()) ? name : `${prod} ${name}`;
+};
+
 const wineLine = (w) =>
   `${w.producer} ${w.name}${w.vintage ? ` ${w.vintage}` : ""} (${[w.style, w.grapes, w.region, w.country].filter(Boolean).join(", ")})`;
 
@@ -188,14 +195,14 @@ const NUTRITION_SCHEMA = {
   },
 };
 const NUTRITION_SEARCH_SYSTEM = `You look up a wine's published nutrition facts and specs for the Wine Babe app, fast.
-Run exactly one web search, exactly: <producer> <wine name> nutrition facts
+Run exactly one web search, with exactly the query you are given (the full wine name followed by "nutrition facts").
 Return:
 - pages: up to 4 result pages, the winery's own product / specs / nutrition page first, each tagged winery, importer, retailer or other.
-- The figures given for THIS wine by the best source (winery first; otherwise the search answer or a wine site like Vivino): calories, carbohydrates and sugar per 5 oz (148 ml) serving (convert other serving sizes), residual sugar in g/L if stated, ABV. Use null for anything not stated. Ranges count: use the midpoint for calories and carbs, the highest value for sugar.
+- The figures given for THIS wine by the best source (winery first; otherwise importer, then any page in the results that states them for this wine, such as a wine site, nutrition database or retailer): calories, carbohydrates and sugar per 5 oz (148 ml) serving (convert other serving sizes), residual sugar in g/L if stated, ABV. Use null for anything not stated. Ranges count: use the midpoint for calories and carbs, the highest value for sugar.
 - source_url and source_kind of the page the figures came from ("none" if no figures).`;
 
 const SHEET_SEARCH_SYSTEM = `You find a wine's official technical sheet for the Wine Babe app, fast.
-Run exactly one web search, exactly: <producer> <wine name> tech specs
+Run exactly one web search, with exactly the query you are given (the full wine name followed by "tech specs").
 Return up to 5 URLs from the results that are this wine's tech sheet or spec page (PDFs first, then the winery's own spec page), best match for this exact wine first. Return an empty list if none.`;
 
 const techPrompt = (w, site, page) => `You read a wine's technical sheet for the Wine Babe app. Wine: ${wineLine(w)}.
@@ -797,7 +804,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v21";
+const ENGINE_VERSION = "v22";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -884,14 +891,14 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // Started up front so it runs alongside everything else.
   const nutritionSearch = runAgent({ diag,
     name: "nutrition-search", system: NUTRITION_SEARCH_SYSTEM, schema: NUTRITION_SCHEMA, send, deadline: deadline - 4000,
-    content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}.`),
+    content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. Search exactly: ${fullName(wine)} nutrition facts`),
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
   });
 
   const techLookup = async () => {
     const searched = runAgent({ diag,
       name: "sheet-search", model: SMART_MODEL, system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline,
-      content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}.`),
+      content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. Search exactly: ${fullName(wine)} tech specs`),
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
     });
     // Gather candidates from all routes, rank them together, then download
@@ -1173,8 +1180,15 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     if (filled.includes("calories")) add("calories", `${ns.calories_5oz} calories per 5 oz, stated by the ${ns.source_kind}${via ? "" : ""}.`);
     if (filled.includes("carbs")) add("carbs", `${ns.carbs_5oz} g carbs per 5 oz, stated by the ${ns.source_kind}.`);
     diag.push({ name: "nutrition-facts", outcome: `${ns.source_kind}: ${filled.join(", ") || "nothing new"} from ${ns.source_url}`.slice(0, 300) });
-  } else if (ns && (ns.calories_5oz != null || ns.carbs_5oz != null || ns.sugar_g_5oz != null || ns.residual_sugar_g_l != null || ns.abv != null)
-    && /(vivino|wine-searcher|cellartracker|nutritionix|fatsecret|eatthismuch|myfitnesspal|calorieking|nutritionvalue|usda\.gov|wine\.com|totalwine)/i.test(ns.source_url || "")) {
+  } else if (ns && (ns.calories_5oz != null || ns.carbs_5oz != null || ns.sugar_g_5oz != null || ns.residual_sugar_g_l != null || ns.abv != null)) {
+    // Figures from any other page in the "nutrition facts" results are shown,
+    // labeled as estimates. Values outside sane ranges for wine are dropped.
+    const sane = (v, lo, hi) => (v != null && v >= lo && v <= hi ? v : null);
+    ns.calories_5oz = sane(ns.calories_5oz, 50, 300);
+    ns.carbs_5oz = sane(ns.carbs_5oz, 0, 25);
+    ns.sugar_g_5oz = sane(ns.sugar_g_5oz, 0, 25);
+    ns.residual_sugar_g_l = sane(ns.residual_sugar_g_l, 0, 200);
+    ns.abv = sane(ns.abv, 4, 22);
     // Estimates only from wine databases and nutrition databases, not from
     // menus or random aggregators.
     // Not from the winery: show the figures, clearly labeled as estimates.

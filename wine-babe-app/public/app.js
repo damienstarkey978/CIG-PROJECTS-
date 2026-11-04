@@ -31,7 +31,7 @@
     $("#recentList").innerHTML = list
       .map(
         (e, i) => `<li><button data-i="${i}">
-          <span class="mini-score">${e.score}</span>
+          <span class="mini-score">${(() => { try { return enrich(e.data).score ?? "—"; } catch { return "—"; } })()}</span>
           <span><span class="r-name">${esc(e.data.wine.name || "Unknown wine")}</span><br />
           <span class="r-sub">${esc([e.data.wine.producer, e.data.wine.vintage].filter(Boolean).join(" · "))}</span></span>
         </button></li>`
@@ -162,23 +162,28 @@
     if (est.calories) fill("calories", `About ${Math.round(n.calories_5oz)} calories per 5 oz, calculated from the published alcohol and sugar.`);
     if (est.carbs) fill("carbs", `About ${n.carbs_5oz.toFixed(1)} g carbs per 5 oz, calculated from the published sugar.`);
 
-    // Documentation score: evidence weight on passes, top 10 count double.
-    let got = 0, max = 0;
-    for (const c of checks) {
-      if (c.status === "na") continue;
-      const w = c.top ? 2 : 1;
-      max += w;
-      if (c.status === "pass") got += w * (EVIDENCE[c.evidence]?.weight ?? 0);
-    }
-    const score = Math.round((100 * got) / max);
+    // Wine Babe score: how well the wine meets the Wine Babe top 10, judged on
+    // what is actually known. 70% is how the known items measure up (a pass
+    // counts by how solid its source is, a fail counts zero), 30% is how many
+    // of the applicable top 10 are known at all. Items nobody publishes don't
+    // drag a good wine down to zero.
     const top = checks.filter((c) => c.top).sort((a, b) => a.top - b.top);
-    const strong = top.filter((c) => c.status === "pass" && (c.evidence === "lab" || c.evidence === "certified")).length;
-    const backed = top.filter((c) => c.status === "pass" && c.evidence !== "none").length;
+    const POINTS = { lab: 1, certified: 1, winery: 0.9, estimate: 0.7 };
+    const applicable = top.filter((c) => c.status !== "na");
+    const known = applicable.filter((c) => c.status === "pass" || c.status === "fail");
+    let score = null;
+    if (known.length) {
+      const quality = known.reduce((t, c) => t + (c.status === "pass" ? POINTS[c.evidence] ?? 0.5 : 0), 0) / known.length;
+      const coverage = known.length / applicable.length;
+      score = Math.round(100 * (0.7 * quality + 0.3 * coverage));
+    }
     let tier, blurb;
-    if (strong >= 6) { tier = "Fully verified"; blurb = "Independent testing and certifications back most of what matters."; }
-    else if (backed >= 5) { tier = "Winery verified"; blurb = "Supporting documentation comes straight from the producer."; }
-    else { tier = "Not verified"; blurb = "Not enough public information to confirm the key claims."; }
-    return { n, est, checks, score, top, tier, blurb };
+    if (known.length < 3) { tier = "Not enough info yet"; blurb = "Too little is published about this wine to score it fairly."; }
+    else if (score >= 80) { tier = "Wine Babe approved"; blurb = "Meets the Wine Babe standards, backed by solid sources."; }
+    else if (score >= 60) { tier = "Good choice"; blurb = "Meets most of the Wine Babe standards that could be checked."; }
+    else if (score >= 40) { tier = "Mixed"; blurb = "Meets some Wine Babe standards and misses others."; }
+    else { tier = "Doesn't measure up"; blurb = "Misses key Wine Babe standards."; }
+    return { n, est, checks, score, top, tier, blurb, knownCount: known.length, applicableCount: applicable.length };
   }
 
   // ---------- sulfites ----------
@@ -273,22 +278,23 @@
         </div>
         <div class="score-info" id="scoreInfo" role="dialog" aria-label="About the Wine Babe score" hidden>
           <p><b>What the Wine Babe score means</b></p>
-          <p>The score, from 0 to 100, shows how well documented this wine is. It is not a rating of taste or health.</p>
-          <p>Every item on the Wine Babe checklist counts, and the top 10 items count double. A wine earns points only when a source backs an item up:</p>
+          <p>The score, from 0 to 100, shows how well this wine meets the Wine Babe top 10: low sugar, no added sugar, non GMO, vegan, organic, no artificial flavors, hand harvested, sustainable, sulfite transparency and calories.</p>
+          <p>Most of the score (70%) is how the items we could check measure up:</p>
           <ul>
-            <li>Lab report or certification: full points</li>
-            <li>Winery statement: most of the points</li>
-            <li>Our estimate: a few points</li>
-            <li>Nothing found: no points</li>
+            <li>Meets it, with a lab report or certification: full credit</li>
+            <li>Meets it, per the winery: nearly full credit</li>
+            <li>Meets it, by our estimate: most of the credit</li>
+            <li>Doesn't meet it (for example over 1 g sugar per glass): no credit</li>
           </ul>
-          <p>Items that don't apply to the wine, like dosage on a still wine, are left out. A low score means the information isn't public, not that the wine is bad.</p>
+          <p>The rest (30%) is how much of the top 10 we could check. Items that don't apply, like dosage on a still wine, are left out. If fewer than 3 items can be checked, we say so instead of guessing.</p>
+          <p>This wine: ${r.knownCount} of ${r.applicableCount} top 10 items checked.</p>
           <button type="button" class="info-close">Got it</button>
         </div>
         <div class="score-body">
           <div class="ring">
             <svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="42" /><circle class="fg" cx="50" cy="50" r="42"
-              stroke-dasharray="${circ}" stroke-dashoffset="${circ}" data-to="${circ * (1 - r.score / 100)}" /></svg>
-            <b>${r.score}</b>
+              stroke-dasharray="${circ}" stroke-dashoffset="${circ}" data-to="${circ * (1 - (r.score ?? 0) / 100)}" /></svg>
+            <b>${r.score ?? "—"}</b>
           </div>
           <div><p class="tier">${r.tier}</p><p>${r.blurb}</p></div>
         </div>
@@ -364,7 +370,7 @@
         <label class="btn" for="photo">Scan another bottle</label>
         <button class="btn ghost" id="backHome">Home</button>
       </div>
-      <p class="fine">The score measures how well documented a wine is, not how healthy it is. Sulfite ratings are a Wine Babe comparison scale, not a regulatory classification. Results can vary by vintage.</p>
+      <p class="fine">The Wine Babe score shows how a wine measures up to the Wine Babe standards based on published information. It is not medical advice. Sulfite ratings are a Wine Babe comparison scale, not a regulatory classification. Results can vary by vintage.</p>
     `;
     $("#backHome").onclick = goHome;
     show("result");
