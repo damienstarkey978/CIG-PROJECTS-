@@ -849,7 +849,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v32";
+const ENGINE_VERSION = "v33";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1307,10 +1307,16 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
     const t = typicalProfile(wine);
     const used = [];
     if (n.abv == null) { n.abv = t.abv; used.push("abv"); }
-    if (n.residual_sugar_g_l == null) { n.residual_sugar_g_l = t.rs; n.source = "typical"; used.push("sugar"); }
+    // Sugar is never filled with a typical value (shown as unverified); the
+    // typical figure is only used to estimate calories and carbs.
+    const typicalRs = n.residual_sugar_g_l == null ? t.rs : null;
     if (n.total_so2_mg_l == null) { n.total_so2_mg_l = t.so2; used.push("so2"); }
     if (used.length) {
       n.typical = { style: t.label, fields: used };
+    }
+    if (typicalRs != null) {
+      n.typical = n.typical || { style: t.label, fields: [] };
+      n.typical.rs = typicalRs;
       diag.push({ name: "typical", outcome: `${t.label}: ${used.join(", ")}` });
     }
   }
@@ -1318,7 +1324,8 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
   {
     const n = tech?.nutrition;
     if (n && n.abv != null) {
-      const sugarG = n.residual_sugar_g_l != null ? n.residual_sugar_g_l * 0.148 : null;
+      const rsForCalc = n.residual_sugar_g_l ?? n.typical?.rs ?? null;
+      const sugarG = rsForCalc != null ? rsForCalc * 0.148 : null;
       // A published figure (winery or lab) wins; anything the model worked out
       // itself is replaced by the standard formula, so numbers are consistent.
       const stated = (c) => c?.status === "pass" && (c.evidence === "winery" || c.evidence === "lab");

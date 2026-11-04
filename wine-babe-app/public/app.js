@@ -145,6 +145,11 @@
   function enrich(data) {
     const n = { ...data.nutrition };
     const est = {};
+    // Sugar is only shown when verified (lab sheet, winery or importer).
+    // Estimates and typical values are dropped and shown as Unverified.
+    const sc = (data.checks || []).find((c) => c.id === "sugar_under_1g");
+    const sugarVerified = sc && (sc.status === "pass" || sc.status === "fail") && ["lab", "winery", "certified"].includes(sc.evidence);
+    if (!sugarVerified) n.residual_sugar_g_l = null;
     if (n.residual_sugar_g_l != null) n.sugar_5oz = (n.residual_sugar_g_l * SERVING_ML) / 1000;
     if (n.calories_5oz == null && n.abv != null) {
       n.calories_5oz = SERVING_ML * (n.abv / 100) * 0.789 * 7 + (n.sugar_5oz || 0) * 4;
@@ -156,6 +161,10 @@
     }
     const byId = Object.fromEntries((data.checks || []).map((c) => [c.id, c]));
     const checks = ALL_ITEMS.map((i) => ({ ...i, ...(byId[i.id] || { status: "unknown", evidence: "none", detail: "Not checked.", source_url: null }) }));
+    if (!sugarVerified) {
+      const c = checks.find((x) => x.id === "sugar_under_1g");
+      if (c) Object.assign(c, { status: "unknown", evidence: "none", detail: "Unverified: no published sugar figure for this wine." });
+    }
     // Calories and carbs worked out here from published ABV and sugar count as
     // an estimate, matching the Estimate tag shown on the stat cards.
     const fill = (id, text) => {
@@ -311,15 +320,15 @@
       <div class="card sugar">
         <div>
           <div class="lbl">Sugar per 5 oz</div>
-          <div class="big">${sugar == null ? "?" : fmt(sugar, 1)}<small> g</small></div>
+          <div class="big">${sugar == null ? "—" : `${fmt(sugar, 1)}<small> g</small>`}</div>
         </div>
         <div>
           <div class="verdict ${sugar == null ? "" : sugar < 1 ? "ok" : "no"}">
-            ${sugar == null ? "No lab number found" : typ.includes("sugar") ? (sugar < 1 ? "Likely under 1 g per glass" : "Likely over 1 g per glass") : sugar < 1 ? "Under 1 g. Skinny sip approved." : "Over 1 g per glass"}
+            ${sugar == null ? "Unverified" : typ.includes("sugar") ? (sugar < 1 ? "Likely under 1 g per glass" : "Likely over 1 g per glass") : sugar < 1 ? "Under 1 g. Skinny sip approved." : "Over 1 g per glass"}
           </div>
           <div class="detail" style="font-size:.82rem;color:var(--muted)">
             ${n.residual_sugar_g_l != null ? `${fmt(n.residual_sugar_g_l, 1)} g/L residual sugar` : ""}
-            ${sugarCheck ? ` <span class="chip ${sugarCheck.evidence}">${EVIDENCE[sugarCheck.evidence].label}</span>` : ""}
+            ${sugar == null ? "The winery hasn't published a sugar figure we can verify." : sugarCheck ? ` <span class="chip ${sugarCheck.evidence}">${EVIDENCE[sugarCheck.evidence].label}</span>` : ""}
           </div>
           ${sugarTiers}
         </div>
