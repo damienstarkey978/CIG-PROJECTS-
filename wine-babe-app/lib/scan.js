@@ -281,6 +281,7 @@ const ratingsPrompt = (w) => `You find professional critic ratings for the Wine 
 One web search for this wine's critic scores (for example "<producer> <wine name> rating Wine Enthusiast Wine Spectator James Suckling Decanter Vinous"), then fetch the single most useful page (the winery's or importer's press / accolades page lists several at once).
 Only professional critics and publications: Wine Enthusiast, Wine Spectator, Wine Advocate (Robert Parker), James Suckling, Decanter, Vinous, Jancis Robinson, Jeb Dunnuck, Tasting Panel, Wine & Spirits, Gambero Rosso, Falstaff, Bettane+Desseauve and similar. Do NOT include Vivino, CellarTracker, Wine-Searcher averages, shop staff picks or medals without a score.
 Each rating: publication name, the numeric score exactly as published, scale (100, or 20 for Jancis Robinson style scores), the vintage it was given to ("NV" for non vintage, "" if unknown), and source_url of the page showing it.
+Only this exact wine: a different cuvee, tier or appellation from the same producer is a different wine (Beaujolais vs Beaujolais-Villages, Chardonnay vs Reserve Chardonnay, Brut vs Brut Nature), so leave those out. One score per publication per vintage.
 Only list scores you actually saw on a page. Never guess or round. Up to 8 ratings, the wine's own vintage first, then newest vintages. Return an empty list if you find none.`;
 
 function cleanRatings(raw, wine) {
@@ -295,7 +296,7 @@ function cleanRatings(raw, wine) {
       source_url: /^https?:\/\//.test(x.source_url || "") ? x.source_url : "",
     }))
     .filter((x) => x.publication && !/vivino|cellartracker|wine-searcher/i.test(x.publication) && x.score > 0 && x.score <= x.scale && (x.scale === 20 || x.score >= 50))
-    .filter((x) => { const k = `${x.publication.toLowerCase()}|${x.vintage}|${x.score}`; return !seen.has(k) && seen.add(k); })
+    .filter((x) => { const k = `${x.publication.toLowerCase()}|${x.vintage}`; return !seen.has(k) && seen.add(k); })
     .sort((a, b) => (b.vintage === want) - (a.vintage === want) || (parseInt(b.vintage) || 0) - (parseInt(a.vintage) || 0) || b.score / b.scale - a.score / a.scale)
     .slice(0, 8);
 }
@@ -747,7 +748,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v12";
+const ENGINE_VERSION = "v13";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
