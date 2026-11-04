@@ -184,7 +184,7 @@ Residual sugar may be labelled "sugars", "sugars (glucose + fructose)", "residua
 For ANY range (sugar 2 - 3 g/L, SO2 130 - 145 mg/L), use the highest value and quote the range in the detail. Labels and values may be listed in separate blocks in the same order; match them by position.
 If the sheet is for a sister wine of the same producer, use scope "related_wine" and say which wine.
 Nutrition per 5 oz (148 ml): if calories or carbs are not printed, calculate them (alcohol g = 148 x ABV/100 x 0.789 x 7 kcal; carbs ~ sugar g + 0.5; sugar g = residual sugar g/L x 0.148) and mark those checks "estimate". Leave numbers null rather than invent them. nutrition.source = evidence behind the sugar number ("lab" when the sheet gives it).
-tech_sheet: pass, evidence "lab" if it gives analysis numbers. zero_dosage: sparkling with no sugar added at dosage (Brut Nature, Pas Dosé, Dosaggio Zero, 0 g/L dosage); still wines "na".
+tech_sheet: "pass" with evidence "lab" ONLY if the document gives laboratory analysis numbers (residual sugar, SO2, pH, acidity or similar). A brochure, tasting booklet or notes without analysis numbers is "unknown" with detail "Document found, but no lab analysis". zero_dosage: sparkling with no sugar added at dosage (Brut Nature, Pas Dosé, Dosaggio Zero, 0 g/L dosage); still wines "na".
 tech_sheet_vintage: vintage the sheet covers if stated, else "".
 
 ${RULES}
@@ -430,6 +430,55 @@ async function findTechCandidates(wine, pageUrl, siteUrl, diag = []) {
   return lists.flat();
 }
 
+// ---------- certification check on the winery's own site ----------
+// WordPress sites have a public site search. Look up the main certifier for
+// the wine's country and read the page that mentions it. One request (plus one
+// page) only: some winery sites block rapid repeat requests.
+
+const CERTS_BY_COUNTRY = {
+  italy: ["SQNPI", "Equalitas"], france: ["HVE", "Terra Vitis"], spain: ["Wineries for Climate Protection"],
+  "united states": ["SIP Certified", "Lodi Rules"], usa: ["SIP Certified", "Lodi Rules"], us: ["SIP Certified", "Lodi Rules"],
+  "new zealand": ["SWNZ"], australia: ["Sustainable Winegrowing Australia"], chile: ["Sustainable Wine of Chile"],
+  "south africa": ["WIETA", "IPW"], germany: ["FairChoice"], austria: ["Nachhaltig Austria"], portugal: ["Sustainable Winegrowing"],
+  argentina: ["Bodegas de Argentina sustentabilidad"],
+};
+
+async function certScan(siteUrl, country, diag) {
+  let origin = "";
+  try { origin = new URL(siteUrl).origin; } catch { return null; }
+  const term = (CERTS_BY_COUNTRY[String(country || "").toLowerCase().trim()] || [])[0];
+  if (!term || !isPublicHost(new URL(origin))) return null;
+  const t = Date.now();
+  const strip = (html) => String(html || "").replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&[a-z#0-9]+;/gi, " ").replace(/\s+/g, " ");
+  try {
+    // Pages first, then posts: the API returns the page text, so no page load
+    // is needed (and anti bot screens on the pages themselves do not matter).
+    for (const type of ["pages", "posts"]) {
+      const u = new URL(`/wp-json/wp/v2/${type}`, origin);
+      u.searchParams.set("search", term);
+      u.searchParams.set("per_page", "5");
+      u.searchParams.set("_fields", "link,content");
+      const res = await fetch(u, { signal: AbortSignal.timeout(6000), headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)", Accept: "application/json" } });
+      const hits = res.ok ? await res.json().catch(() => null) : null;
+      if (!Array.isArray(hits) || !hits.length) continue;
+      const ordered = [...hits.filter((h) => /\/en\//.test(h.link)), ...hits.filter((h) => !/\/en\//.test(h.link))];
+      for (const h of ordered) {
+        const text = strip(h.content?.rendered);
+        const i = text.toLowerCase().indexOf(term.toLowerCase());
+        if (i < 0) continue;
+        const snippet = text.slice(Math.max(0, i - 120), i + term.length + 120).trim();
+        diag.push({ name: `cert "${term}"`, ms: Date.now() - t, outcome: `found on ${h.link}` });
+        return { term, url: h.link, snippet };
+      }
+    }
+    diag.push({ name: `cert "${term}"`, ms: Date.now() - t, outcome: "no hits" });
+    return null;
+  } catch (err) {
+    diag.push({ name: `cert "${term}"`, ms: Date.now() - t, outcome: `error ${err.name}` });
+    return null;
+  }
+}
+
 // ---------- one Claude call with tools, under a deadline ----------
 // At the deadline the call is cut and, if earlier turns gathered anything, a
 // quick no-tools follow up turns what was found into the JSON answer.
@@ -637,7 +686,34 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     // results (e.g. 394499-untitled.pdf), keep one whose text names the wine.
     const nameWords = norm(wine.name).split(" ").filter((w) => w.length > 2);
     const prodWords = norm(wine.producer).split(" ").filter((w) => w.length > 2);
+    const year = /^\d{4}$/.test(String(wine.vintage || "")) ? String(wine.vintage) : "";
+    const textMatch = async (url, needYear) => {
+      if (Date.now() > deadline - 6000) return null;
+      send({ type: "fetch", text: url });
+      const got = await fetchPdf(url, 6000);
+      if (!got.data) { diag.push({ name: "sheet-download", outcome: `${got.error}: ${url}`.slice(0, 300) }); return null; }
+      const textNorm = norm(await pdfText(got.data));
+      const words = new Set(textNorm.split(" "));
+      const hits = nameWords.filter((w) => words.has(w)).length;
+      const ok = prodWords.some((w) => words.has(w)) && hits >= Math.ceil(nameWords.length * 0.5) && (!needYear || words.has(needYear));
+      diag.push({ name: "sheet-text-check", outcome: `${ok ? "match" : "no match"} (${hits}/${nameWords.length}${needYear ? `, vintage ${needYear}` : ""}): ${url}`.slice(0, 300) });
+      return ok ? { url, data: got.data } : null;
+    };
     const download = async (rankedList, pool) => {
+      const tried = new Set(rankedList.slice(0, 3).map((c) => c.url));
+      const unranked = pool.filter((u) => !tried.has(u)).slice(0, 2);
+      // Top pick is named for a different vintage: first look for an unnamed
+      // file whose text has the right vintage.
+      const top = rankedList[0];
+      let topName = top ? top.url.split("/").pop() : "";
+      try { topName = decodeURIComponent(topName); } catch {}
+      const topYears = topName.match(/\b(19|20)\d{2}\b/g) || [];
+      if (year && top && topYears.length && !topYears.includes(year)) {
+        for (const url of unranked) {
+          const hit = await textMatch(url, year);
+          if (hit) return hit;
+        }
+      }
       for (const c of rankedList.slice(0, 3)) {
         if (Date.now() > deadline - 4000) return null;
         send({ type: "fetch", text: c.url });
@@ -645,17 +721,9 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
         if (got.data) return { url: c.url, data: got.data };
         diag.push({ name: "sheet-download", outcome: `${got.error}: ${c.url}`.slice(0, 300) });
       }
-      const tried = new Set(rankedList.slice(0, 3).map((c) => c.url));
-      for (const url of pool.filter((u) => !tried.has(u)).slice(0, 2)) {
-        if (Date.now() > deadline - 6000) return null;
-        send({ type: "fetch", text: url });
-        const got = await fetchPdf(url, 6000);
-        if (!got.data) { diag.push({ name: "sheet-download", outcome: `${got.error}: ${url}`.slice(0, 300) }); continue; }
-        const words = new Set(norm(await pdfText(got.data)).split(" "));
-        const hits = nameWords.filter((w) => words.has(w)).length;
-        const ok = prodWords.some((w) => words.has(w)) && hits >= Math.ceil(nameWords.length * 0.5);
-        diag.push({ name: "sheet-text-check", outcome: `${ok ? "match" : "no match"} (${hits}/${nameWords.length}): ${url}`.slice(0, 300) });
-        if (ok) return { url, data: got.data };
+      for (const url of unranked) {
+        const hit = await textMatch(url, "");
+        if (hit) return hit;
       }
       return null;
     };
@@ -690,7 +758,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     });
   };
 
-  const [tech, farm, vegan] = await Promise.all([
+  const [tech, farm, vegan, cert] = await Promise.all([
     techLookup(),
     runAgent({ diag,
       name: "farm", system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline,
@@ -700,11 +768,20 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       name: "vegan", system: veganPrompt(wine, site), schema: agentSchema(VEGAN_IDS, false), send, deadline,
       content: ask("Check vegan status and fill the items."), tools: webTools(1, 1),
     }),
+    certScan(site, wine.country, diag),
   ]);
 
   // 4. Merge.
   const best = {};
   for (const part of [tech, farm, vegan]) for (const c of part?.checks || []) best[c.id] = better(best[c.id], c);
+  if (cert) {
+    const detail = cert.snippet ? `Winery site: "...${cert.snippet.split(" ").slice(0, 20).join(" ")}..."` : `The winery's site names ${cert.term} certification.`;
+    for (const id of ["sustainable", "certifications"]) {
+      // A mention on the winery's own site is the winery's statement, not
+      // proof of a certificate, so it counts as "winery", not "certified".
+      best[id] = better(best[id], { id, status: "pass", evidence: "winery", scope: "producer", as_of: "", detail, source_url: cert.url });
+    }
+  }
   // Zero dosage only applies to sparkling wine.
   const sparkling = /sparkl|spumante|champagne|cava|cr[eé]mant|prosecco|franciacorta|sekt|brut|p[eé]tillant|frizzante|mousseux|espumoso/i.test(`${wine.style} ${wine.name}`);
   if (!sparkling && (!best.zero_dosage || best.zero_dosage.status === "unknown")) {
