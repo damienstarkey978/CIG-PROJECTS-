@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * Free/low-cost logo resolution for Beaches venues.
- * Sources (in order): uploaded blob → Clearbit → Google favicon → DuckDuckGo icon.
- * No paid Google Places.
+ * Logo resolution for Beaches venues.
+ * Sources (in order): user upload → hand-verified official asset under public/assets/venues/.
+ * Do NOT use Clearbit / Google favicon / DuckDuckGo guesses — Damien requires real brand marks.
  */
 
 const KNOWN_WEBSITES = {
@@ -46,36 +46,49 @@ const KNOWN_WEBSITES = {
   "Culhane's Irish Pub": "https://www.culhanesirishpub.com/",
 };
 
-/** Hand-verified logos shipped in public/ — beat Clearbit/favicon defaults */
+/**
+ * Hand-verified brand marks shipped in public/assets/venues/.
+ * Source: venue website header/logo asset (or Damien-provided official file).
+ * Never favicons, Google Photos, hero photos, or Clearbit guesses.
+ */
 const KNOWN_OFFICIAL_LOGOS = {
+  // Damien-provided official marks
   "Cinotti's Bakery": '/assets/venues/cinottis-bakery.jpg',
   "Lynch's Irish Pub": '/assets/venues/lynchs-irish-pub.jpg',
   "Poe's Tavern": '/assets/venues/poes-tavern.jpg',
   'Valley Smoke': '/assets/venues/valley-smoke.jpg',
+  'Green Room Brewing': '/assets/venues/green-room-brewing.jpg',
+  // Official site brand marks
+  "Pete's Bar": '/assets/venues/petes-bar.jpg',
+  'Southern Grounds & Co.': '/assets/venues/southern-grounds.png',
+  TacoLu: '/assets/venues/tacolu.png',
+  'North Beach Fish Camp': '/assets/venues/north-beach-fish-camp.png',
+  'Flying Iguana Taqueria & Tequila Bar': '/assets/venues/flying-iguana.png',
+  'Marker 32': '/assets/venues/marker-32.png',
+  'Aqua Grill': '/assets/venues/aqua-grill.png',
   'The Lemon Bar': '/assets/venues/the-lemon-bar.png',
+  'European Street Cafe': '/assets/venues/european-street.png',
+  'Palm Valley Fish Camp': '/assets/venues/palm-valley-fish-camp.png',
+  Azurea: '/assets/venues/coastal-farmer.png',
   'The Local': '/assets/venues/the-local.png',
   'Island Girl Cigar Bar (Neptune Beach)': '/assets/venues/island-girl.png',
   'Island Girl Cigar Bar (Mayport)': '/assets/venues/island-girl.png',
   "Mr. Chubby's Wings": '/assets/venues/mr-chubbys-wings.png',
-  "Surfer the Bar": "/assets/venues/surfer-the-bar.png",
-  "Mango's Beach Bar & Grille": "/assets/venues/mangos-beach-bar.jpg",
-  "Ginger's Place": "/assets/venues/gingers-place.jpg",
-  "Wreck Tiki Lounge": "/assets/venues/wreck-tiki-lounge.png",
-  "Sandbar Jax Beach": "/assets/venues/sandbar-jax-beach.png",
-  "The Ritz Lounge": "/assets/venues/the-ritz-lounge.png",
-  "Lucky's Bar": "/assets/venues/luckys-bar.png",
-  "Tavern on 1st": "/assets/venues/tavern-on-1st.png",
-  "Salt Beachside Bar": "/assets/venues/salt-beachside-bar.png",
-  "Brix Taphouse & Bar": "/assets/venues/brix-taphouse.png",
-  "Pusser's Bar and Grille": "/assets/venues/pussers-bar-grille.png",
-  "Jax Beach Bar & Grill": "/assets/venues/jax-beach-bar-grill.png",
-  "LandShark Bar & Grill": "/assets/venues/landshark-bar-grill.png",
-  "Monkey's Uncle Tavern": "/assets/venues/monkeys-uncle-tavern.png",
-  "1912 Ocean Bar & Rooftop": "/assets/venues/1912-ocean-bar.png",
-  "Sneakers Sports Grille": "/assets/venues/sneakers-sports-grille.png",
-  "Harbor Tavern": "/assets/venues/harbor-tavern.png",
-  "Dragonfly Lounge": "/assets/venues/dragonfly-lounge.png",
-  "Culhane's Irish Pub": "/assets/venues/culhanes-irish-pub.png",
+  'Surfer the Bar': '/assets/venues/surfer-the-bar.jpg',
+  "Mango's Beach Bar & Grille": '/assets/venues/mangos-beach-bar.jpg',
+  'Wreck Tiki Lounge': '/assets/venues/wreck-tiki-lounge.png',
+  'Sandbar Jax Beach': '/assets/venues/sandbar-jax-beach.png',
+  'The Ritz Lounge': '/assets/venues/the-ritz-lounge.png',
+  'Flask & Cannon': '/assets/venues/flask-and-cannon.png',
+  'Brix Taphouse & Bar': '/assets/venues/brix-taphouse.png',
+  "Pusser's Bar and Grille": '/assets/venues/pussers-bar-grille.png',
+  'Jax Beach Bar & Grill': '/assets/venues/jax-beach-bar-grill.png',
+  'Kava & Co': '/assets/venues/kava-and-co.png',
+  "Monkey's Uncle Tavern": '/assets/venues/monkeys-uncle-tavern.png',
+  '1912 Ocean Bar & Rooftop': '/assets/venues/1912-ocean-bar.png',
+  'Sneakers Sports Grille': '/assets/venues/sneakers-sports-grille.png',
+  'Dragonfly Lounge': '/assets/venues/dragonfly-lounge.png',
+  "Culhane's Irish Pub": '/assets/venues/culhanes-irish-pub.png',
 };
 
 const WEAK_LOGO_SOURCES = new Set(['missing', 'google_favicon', 'duckduckgo', 'clearbit', null, '']);
@@ -185,6 +198,27 @@ function applyOfficialLogos(db) {
     db.dirty = true;
     applied += 1;
   }
+  // Clear favicon / Clearbit / removed-asset guesses when we have no verified mark
+  const rows = db.prepare('SELECT id, name, logo_url, logo_source FROM businesses').all();
+  for (const row of rows) {
+    const keepUpload =
+      row.logo_source === 'upload' &&
+      row.logo_url &&
+      String(row.logo_url).includes('/logo/file');
+    if (keepUpload) continue;
+    if (KNOWN_OFFICIAL_LOGOS[row.name]) continue;
+    const staleAsset = row.logo_url && String(row.logo_url).startsWith('/assets/venues/');
+    const guess =
+      WEAK_LOGO_SOURCES.has(row.logo_source) ||
+      (row.logo_url &&
+        /favicon|clearbit|duckduckgo|gstatic|googleusercontent|logo\.clearbit/i.test(row.logo_url));
+    if (staleAsset || guess || row.logo_source === 'official') {
+      db.prepare(
+        `UPDATE businesses SET logo_url = NULL, logo_source = 'missing', logo_updated_at = ?, updated_at = ? WHERE id = ?`
+      ).run(ts, ts, row.id);
+      db.dirty = true;
+    }
+  }
   return applied;
 }
 
@@ -215,45 +249,17 @@ async function resolveLogoForBusiness(db, business, { force = false } = {}) {
   if (!force && business.logo_source === 'upload' && business.logo_url) {
     return { logo_url: business.logo_url, logo_source: 'upload', status: 'found' };
   }
-  if (!force && business.logo_url && business.logo_source && business.logo_source !== 'missing') {
-    return { logo_url: business.logo_url, logo_source: business.logo_source, status: 'found' };
-  }
-
-  let website = business.website || KNOWN_WEBSITES[business.name] || '';
+  // Keep a previously verified official mark; never keep favicon/Clearbit guesses
   if (
-    (!business.website ||
-      /cinottis\.com$/i.test(String(business.website)) ||
-      (business.name === 'The Lemon Bar' && /thelemonbar\.com/i.test(String(business.website)))) &&
-    website
+    !force &&
+    business.logo_url &&
+    business.logo_source === 'official' &&
+    String(business.logo_url).startsWith('/assets/venues/')
   ) {
-    db.prepare('UPDATE businesses SET website = ?, updated_at = ? WHERE id = ?').run(
-      website,
-      new Date().toISOString(),
-      business.id
-    );
-    db.dirty = true;
-  }
-  const domain = domainFromWebsite(website);
-  if (!domain) {
-    db.prepare(
-      `UPDATE businesses SET logo_url = NULL, logo_source = 'missing', logo_updated_at = ?, updated_at = ? WHERE id = ?`
-    ).run(new Date().toISOString(), new Date().toISOString(), business.id);
-    db.dirty = true;
-    return { logo_url: null, logo_source: 'missing', status: 'missing' };
+    return { logo_url: business.logo_url, logo_source: 'official', status: 'found' };
   }
 
-  for (const cand of candidateUrls(domain)) {
-    const ok = await probeImageUrl(cand.url);
-    if (ok) {
-      const ts = new Date().toISOString();
-      db.prepare(
-        `UPDATE businesses SET logo_url = ?, logo_source = ?, logo_updated_at = ?, updated_at = ? WHERE id = ?`
-      ).run(ok, cand.source, ts, ts, business.id);
-      db.dirty = true;
-      return { logo_url: ok, logo_source: cand.source, status: 'found' };
-    }
-  }
-
+  // No verified brand mark — leave missing (do not scrape favicons / Clearbit)
   const ts = new Date().toISOString();
   db.prepare(
     `UPDATE businesses SET logo_url = NULL, logo_source = 'missing', logo_updated_at = ?, updated_at = ? WHERE id = ?`
