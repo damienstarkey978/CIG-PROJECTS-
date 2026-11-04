@@ -5,9 +5,14 @@
     businessesOwned: [],
     map: null,
     markers: [],
+    userMarker: null,
+    userAccuracy: null,
     geo: null,
+    geoStatus: 'pending', // pending | ready | denied | error | unsupported
     meta: { areas: [], categories: [] },
   };
+
+  const BEACHES_FALLBACK = { lat: 30.324, lng: -81.3965 };
 
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -90,6 +95,74 @@
     }).addTo(state.map);
   }
 
+  function setGeoHud(status, message) {
+    state.geoStatus = status;
+    const hud = $('#geo-hud');
+    const text = $('#geo-hud-text');
+    const retry = $('#geo-retry');
+    if (!hud || !text || !retry) return;
+    hud.dataset.state = status;
+    text.textContent = message;
+    const showRetry = status === 'denied' || status === 'error' || status === 'unsupported';
+    retry.hidden = !showRetry;
+    retry.textContent = status === 'unsupported' ? 'Location unavailable' : 'Use my location';
+    retry.disabled = status === 'unsupported';
+  }
+
+  function clearUserLocationLayers() {
+    if (!state.map) return;
+    if (state.userMarker) {
+      state.map.removeLayer(state.userMarker);
+      state.userMarker = null;
+    }
+    if (state.userAccuracy) {
+      state.map.removeLayer(state.userAccuracy);
+      state.userAccuracy = null;
+    }
+  }
+
+  function showUserOnMap(lat, lng, accuracy, { pan = true } = {}) {
+    if (!state.map || !window.L) return;
+    clearUserLocationLayers();
+
+    if (accuracy && accuracy > 0 && accuracy < 5000) {
+      state.userAccuracy = L.circle([lat, lng], {
+        radius: accuracy,
+        color: '#4aa3ff',
+        weight: 1,
+        fillColor: '#4aa3ff',
+        fillOpacity: 0.08,
+        interactive: false,
+      }).addTo(state.map);
+    }
+
+    const halo = L.divIcon({
+      className: '',
+      html: '<div class="user-here-halo" aria-hidden="true"></div>',
+      iconSize: [36, 36],
+      iconAnchor: [18, 18],
+    });
+    const core = L.divIcon({
+      className: '',
+      html: '<div class="user-here-dot" title="You are here"></div>',
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    });
+
+    // Group as a layer group so venue refresh never wipes “you are here”
+    const group = L.layerGroup([
+      L.marker([lat, lng], { icon: halo, interactive: false, keyboard: false }),
+      L.marker([lat, lng], { icon: core, keyboard: false }).bindPopup('<strong>You are here</strong>'),
+    ]);
+    group.addTo(state.map);
+    state.userMarker = group;
+
+    if (pan) {
+      const zoom = Math.max(state.map.getZoom(), 14);
+      state.map.setView([lat, lng], zoom, { animate: true });
+    }
+  }
+
   function updateMarkers(businesses) {
     if (!state.map) return;
     state.markers.forEach((m) => state.map.removeLayer(m));
@@ -110,6 +183,10 @@
       );
       return marker;
     });
+    // Venue refresh must not drop the user marker
+    if (state.geo) {
+      showUserOnMap(state.geo.lat, state.geo.lng, state.geo.accuracy, { pan: false });
+    }
   }
 
   function renderTicker(businesses) {
@@ -151,13 +228,9 @@
     if (category) params.set('category', category);
     if (live) params.set('live', '1');
     if (q) params.set('q', q);
-    if (state.geo) {
-      params.set('lat', String(state.geo.lat));
-      params.set('lng', String(state.geo.lng));
-    } else {
-      params.set('lat', '30.324');
-      params.set('lng', '-81.3965');
-    }
+    const origin = state.geo || BEACHES_FALLBACK;
+    params.set('lat', String(origin.lat));
+    params.set('lng', String(origin.lng));
     if (radius) params.set('radius_mi', radius);
 
     const data = await api(`/api/businesses?${params}`);
@@ -435,16 +508,77 @@
       .join('');
   }
 
-  function requestGeo() {
-    if (!navigator.geolocation) return;
+  function onGeoSuccess(pos, { pan = true } = {}) {
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    const accuracy = pos.coords.accuracy;
+    state.geo = { lat, lng, accuracy };
+    setGeoHud('ready', 'You are here · distances from your location');
+    showUserOnMap(lat, lng, accuracy, { pan });
+    loadDirectory().catch(console.error);
+  }
+
+  function onGeoError(err) {
+    const denied = err && (err.code === 1 || /denied/i.test(String(err.message || '')));
+    if (denied) {
+      setGeoHud('denied', 'Location blocked — distances use Beaches center');
+    } else {
+      setGeoHud('error', 'Couldn’t get location — try again');
+    }
+  }
+
+  function requestGeo({ userGesture = false } = {}) {
+    if (!navigator.geolocation) {
+      setGeoHud('unsupported', 'Location not supported on this device');
+      return;
+    }
+
+    setGeoHud('pending', userGesture ? 'Updating your location…' : 'Finding your location…');
+
+    const opts = {
+      enableHighAccuracy: false,
+      timeout: 12000,
+      // Reuse a fresh-enough fix so we don’t nag when permission is already granted
+      maximumAge: userGesture ? 0 : 60_000,
+    };
+
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        state.geo = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        loadDirectory().catch(console.error);
-      },
-      () => {},
-      { enableHighAccuracy: false, timeout: 8000 }
+      (pos) => onGeoSuccess(pos, { pan: true }),
+      onGeoError,
+      opts
     );
+  }
+
+  /** If permission already granted, fetch quietly; if prompt, still ask once on boot. */
+  function bootstrapGeo() {
+    if (!navigator.geolocation) {
+      setGeoHud('unsupported', 'Location not supported on this device');
+      return;
+    }
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions
+        .query({ name: 'geolocation' })
+        .then((result) => {
+          if (result.state === 'denied') {
+            setGeoHud('denied', 'Location blocked — distances use Beaches center');
+            return;
+          }
+          // granted or prompt — getCurrentPosition; browser won’t re-prompt if granted
+          requestGeo({ userGesture: false });
+          result.onchange = () => {
+            if (result.state === 'granted') requestGeo({ userGesture: false });
+            if (result.state === 'denied') {
+              clearUserLocationLayers();
+              state.geo = null;
+              setGeoHud('denied', 'Location blocked — distances use Beaches center');
+              loadDirectory().catch(console.error);
+            }
+          };
+        })
+        .catch(() => requestGeo({ userGesture: false }));
+      return;
+    }
+    requestGeo({ userGesture: false });
   }
 
   function bindEvents() {
@@ -455,6 +589,10 @@
     document.body.addEventListener('click', (e) => {
       const goto = e.target.closest('[data-goto]');
       if (goto) showView(goto.dataset.goto);
+    });
+
+    $('#geo-retry')?.addEventListener('click', () => {
+      requestGeo({ userGesture: true });
     });
 
     const power = $('#power-btn');
@@ -618,7 +756,7 @@
   async function boot() {
     bindEvents();
     initMap();
-    requestGeo();
+    bootstrapGeo();
     try {
       await refreshMe();
       await loadMetaAndClaimOptions();

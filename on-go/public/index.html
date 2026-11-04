@@ -34,6 +34,10 @@
     <div id="map" class="map-plane" role="img" aria-label="Live map of Beaches businesses"></div>
     <div class="map-hud">
       <p id="live-hud" class="live-hud"><span class="dot"></span> <span id="live-hud-text">Scanning live offers…</span></p>
+      <div id="geo-hud" class="geo-hud" data-state="pending">
+        <span id="geo-hud-text">Finding your location…</span>
+        <button type="button" id="geo-retry" class="geo-retry" hidden>Use my location</button>
+      </div>
     </div>
   </div>
 
