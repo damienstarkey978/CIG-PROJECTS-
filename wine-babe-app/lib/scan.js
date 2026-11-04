@@ -599,8 +599,10 @@ function summarize(wine, checks, nutrition) {
 
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
+// Bump when scan logic changes, so results from older versions are not reused.
+const ENGINE_VERSION = "v3";
 const cacheKey = (w) =>
-  [w.producer, w.name, w.vintage].map((x) => String(x || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")).join("__");
+  ENGINE_VERSION + "__" + [w.producer, w.name, w.vintage].map((x) => String(x || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")).join("__");
 
 // ---------- main ----------
 
