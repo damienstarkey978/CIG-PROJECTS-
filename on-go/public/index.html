@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0A0F0C" />
+  <meta name="description" content="ON GO — When it's ON, you GO. Live Beaches food & drink offers." />
+  <title>ON GO — When it's ON, you GO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="night" aria-hidden="true"></div>
+
+  <!-- First viewport: brand + map as one composition -->
+  <header class="signal-mast">
+    <img
+      class="brand-logo"
+      src="/assets/on-go-logo.jpg"
+      width="1443"
+      height="503"
+      alt="ON GO — When it's ON, you GO. Power-button brand mark."
+    />
+    <div class="mast-meta">
+      <p class="support-line">Every hour. Every appetite. Something's ON.</p>
+      <div id="session-chip" class="chip">Not signed in</div>
+    </div>
+  </header>
+
+  <div class="map-stage">
+    <div id="map" class="map-plane" role="img" aria-label="Live map of Beaches businesses"></div>
+    <div class="map-hud">
+      <p id="live-hud" class="live-hud"><span class="dot"></span> <span id="live-hud-text">Scanning live offers…</span></p>
+    </div>
+  </div>
+
+  <nav class="signal-switch" aria-label="App mode">
+    <button type="button" class="sw active" data-view="explore" aria-current="page">Explore</button>
+    <button type="button" class="sw" data-view="rewards">Rewards</button>
+    <button type="button" class="sw" data-view="business">Business</button>
+    <button type="button" class="sw" data-view="account">Account</button>
+  </nav>
+
+  <main class="deck">
+    <section id="view-explore" class="view">
+      <div id="signal-ticker" class="signal-ticker" aria-label="Live offers"></div>
+
+      <div class="filter-row">
+        <select id="filter-area" aria-label="Beach area"></select>
+        <select id="filter-category" aria-label="Category"></select>
+        <select id="filter-radius" aria-label="Distance">
+          <option value="">Any distance</option>
+          <option value="1">1 mi</option>
+          <option value="2">2 mi</option>
+          <option value="5">5 mi</option>
+          <option value="10">10 mi</option>
+        </select>
+        <label class="toggle">
+          <input type="checkbox" id="filter-live" />
+          <span>Live only</span>
+        </label>
+        <input id="filter-q" type="search" placeholder="Search…" aria-label="Search by name" />
+      </div>
+
+      <p id="listing-count" class="meta">Loading directory…</p>
+      <div id="next-stop-strip" class="next-strip" hidden></div>
+      <div id="business-list" class="feed"></div>
+    </section>
+
+    <section id="view-rewards" class="view" hidden>
+      <header class="panel-head">
+        <h2>Your signal score</h2>
+        <p class="lede">Points fire only after a venue verifies your QR — not when you open a deal.</p>
+      </header>
+      <div class="score-ring">
+        <p id="points-value" class="score-num">0</p>
+        <p class="score-label">points</p>
+      </div>
+      <div id="active-claim" class="sheet" hidden></div>
+      <h3 class="label">History</h3>
+      <div id="loyalty-history" class="feed"></div>
+      <h3 class="label">Favorites</h3>
+      <div id="favorites-list" class="feed"></div>
+    </section>
+
+    <section id="view-business" class="view" hidden>
+      <header class="panel-head">
+        <h2>Flip the switch</h2>
+        <p class="lede">Turn a BOGO ON for the Beaches. Verify QR codes when customers arrive.</p>
+      </header>
+
+      <div id="biz-gate" class="sheet">
+        <p>Business accounts run the power switch. Demo: <code>business@ongo.demo</code> / <code>demo1234</code></p>
+        <button type="button" class="btn primary" data-goto="account">Sign in</button>
+      </div>
+
+      <div id="biz-dashboard" hidden>
+        <div class="power-block sheet">
+          <button type="button" id="power-btn" class="power-btn" aria-label="Activate offer">
+            <span class="power-glyph">⏻</span>
+            <span class="power-caption">TAP TO GO ON</span>
+          </button>
+          <form id="offer-form" class="stack power-form">
+            <label>Venue <select id="offer-business" required></select></label>
+            <label>Offer title <input id="offer-title" value="BOGO draft beer" required maxlength="120" /></label>
+            <label>Product <input id="offer-product" value="Any draft beer" maxlength="120" /></label>
+            <div class="split">
+              <label>Minutes <input id="offer-duration" type="number" min="5" max="1440" value="60" /></label>
+              <label>Limit <input id="offer-limit" type="number" min="1" placeholder="∞" /></label>
+            </div>
+            <button type="submit" class="btn primary">Confirm — go live</button>
+          </form>
+        </div>
+
+        <div class="sheet">
+          <h3 class="label">Verify QR</h3>
+          <form id="verify-form" class="stack">
+            <label>Token <input id="verify-token" placeholder="ongo:… or paste token" autocomplete="off" /></label>
+            <button type="submit" class="btn primary">Verify &amp; award</button>
+          </form>
+          <p id="verify-result" class="meta" aria-live="polite"></p>
+          <div id="verify-next" class="feed"></div>
+        </div>
+
+        <div class="sheet">
+          <h3 class="label">Analytics preview</h3>
+          <div id="biz-analytics" class="feed"></div>
+        </div>
+
+        <div class="sheet">
+          <h3 class="label">Your offers</h3>
+          <div id="biz-offers" class="feed"></div>
+        </div>
+
+        <div class="sheet">
+          <h3 class="label">Plans (scaffold)</h3>
+          <div id="biz-plans" class="feed"></div>
+        </div>
+
+        <div class="sheet">
+          <h3 class="label">Featured placement sim</h3>
+          <p class="warn">Simulation only — no charge.</p>
+          <form id="bid-form" class="stack">
+            <label>Slot <select id="bid-slot" required></select></label>
+            <label>Venue <select id="bid-business" required></select></label>
+            <label>Bid ($) <input id="bid-amount" type="number" min="1" value="10" /></label>
+            <button type="submit" class="btn ghost">Simulate bid</button>
+          </form>
+          <p id="bid-result" class="meta" aria-live="polite"></p>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-account" class="view" hidden>
+      <header class="panel-head">
+        <h2>Account</h2>
+        <p class="lede">Customers discover free. Businesses claim a listing to broadcast.</p>
+      </header>
+
+      <div id="account-signed-in" class="sheet" hidden>
+        <p id="account-summary"></p>
+        <button type="button" id="logout-btn" class="btn ghost">Sign out</button>
+      </div>
+
+      <div id="account-forms" class="auth-split">
+        <form id="login-form" class="sheet stack">
+          <h3 class="label">Sign in</h3>
+          <label>Email <input name="email" type="email" required autocomplete="username" /></label>
+          <label>Password <input name="password" type="password" required autocomplete="current-password" /></label>
+          <button type="submit" class="btn primary">Sign in</button>
+          <p class="meta">Demo customer: customer@ongo.demo / demo1234</p>
+        </form>
+        <form id="register-form" class="sheet stack">
+          <h3 class="label">Create account</h3>
+          <label>Name <input name="display_name" required maxlength="80" /></label>
+          <label>Email <input name="email" type="email" required /></label>
+          <label>Password <input name="password" type="password" required minlength="6" /></label>
+          <label>I am a
+            <select name="role" id="register-role">
+              <option value="customer">Customer</option>
+              <option value="business">Business claiming a listing</option>
+            </select>
+          </label>
+          <label id="claim-business-wrap" hidden>Claim listing
+            <select name="business_id" id="register-business"></select>
+          </label>
+          <button type="submit" class="btn primary">Register</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="claim-dialog">
+    <form method="dialog" class="stack claim-sheet">
+      <h3 class="label">Redemption QR</h3>
+      <img id="claim-qr" alt="Redemption QR code" width="280" height="280" />
+      <p id="claim-token" class="mono"></p>
+      <p class="meta">Staff verifies this code. Points award after verification.</p>
+      <button value="close" class="btn primary">Done</button>
+    </form>
+  </dialog>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
