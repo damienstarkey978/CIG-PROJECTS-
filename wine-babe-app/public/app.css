@@ -224,7 +224,26 @@ h1 {
   box-shadow: 0 10px 30px -24px rgba(0, 0, 0, 0.45);
 }
 
-.score { display: flex; align-items: center; gap: 1.1rem; }
+.score { position: relative; }
+.score-head { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.7rem; }
+.score-title { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--wine); }
+.info-btn {
+  display: grid; place-items: center; width: 1.25rem; height: 1.25rem; padding: 0;
+  border: 1.5px solid var(--wine); border-radius: 50%; background: transparent; color: var(--wine);
+  font-family: Georgia, serif; font-style: italic; font-size: 0.78rem; font-weight: 700; line-height: 1; cursor: pointer;
+}
+.info-btn:focus-visible { outline: 2px solid var(--blush-deep); outline-offset: 2px; }
+.score-info {
+  position: absolute; z-index: 5; top: 2.6rem; left: 0.8rem; right: 0.8rem;
+  padding: 0.9rem 1rem; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 16px 40px -18px rgba(0, 0, 0, 0.45); font-size: 0.86rem; line-height: 1.45;
+}
+.score-info[hidden] { display: none; }
+.score .score-info p { margin: 0 0 0.55rem; color: inherit; font-size: inherit; }
+.score-info ul { margin: 0 0 0.55rem; padding-left: 1.1rem; }
+.score-info li { margin-bottom: 0.2rem; }
+.info-close { display: block; margin-left: auto; padding: 0.35rem 0.9rem; border: 0; border-radius: 999px; background: var(--wine); color: #fff; font-size: 0.82rem; cursor: pointer; }
+.score-body { display: flex; align-items: center; gap: 1.1rem; }
 .ring { flex: none; position: relative; width: 6.2rem; height: 6.2rem; }
 .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
 .ring circle { fill: none; stroke-width: 9; }

@@ -245,12 +245,31 @@
       </div>
 
       <div class="card score">
-        <div class="ring">
-          <svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="42" /><circle class="fg" cx="50" cy="50" r="42"
-            stroke-dasharray="${circ}" stroke-dashoffset="${circ}" data-to="${circ * (1 - r.score / 100)}" /></svg>
-          <b>${r.score}</b>
+        <div class="score-head">
+          <span class="score-title">Wine Babe score</span>
+          <button type="button" class="info-btn" aria-label="What is the Wine Babe score?" aria-expanded="false" aria-controls="scoreInfo">i</button>
         </div>
-        <div><p class="tier">${r.tier}</p><p>${r.blurb}</p></div>
+        <div class="score-info" id="scoreInfo" role="dialog" aria-label="About the Wine Babe score" hidden>
+          <p><b>What the Wine Babe score means</b></p>
+          <p>The score, from 0 to 100, shows how well documented this wine is. It is not a rating of taste or health.</p>
+          <p>Every item on the Wine Babe checklist counts, and the top 10 items count double. A wine earns points only when a source backs an item up:</p>
+          <ul>
+            <li>Lab report or certification: full points</li>
+            <li>Winery statement: most of the points</li>
+            <li>Our estimate: a few points</li>
+            <li>Nothing found: no points</li>
+          </ul>
+          <p>Items that don't apply to the wine, like dosage on a still wine, are left out. A low score means the information isn't public, not that the wine is bad.</p>
+          <button type="button" class="info-close">Got it</button>
+        </div>
+        <div class="score-body">
+          <div class="ring">
+            <svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="42" /><circle class="fg" cx="50" cy="50" r="42"
+              stroke-dasharray="${circ}" stroke-dashoffset="${circ}" data-to="${circ * (1 - r.score / 100)}" /></svg>
+            <b>${r.score}</b>
+          </div>
+          <div><p class="tier">${r.tier}</p><p>${r.blurb}</p></div>
+        </div>
       </div>
 
       <div class="card sugar">
@@ -337,6 +356,23 @@
   }
 
   $("#homeBtn").addEventListener("click", goHome);
+
+  // Wine Babe score info pop up: the ⓘ button toggles it; Got it, Escape or a tap outside closes it.
+  const scoreInfo = (open) => {
+    const box = screens.result.querySelector(".score-info");
+    const btn = screens.result.querySelector(".info-btn");
+    if (!box || !btn) return;
+    box.hidden = !open;
+    btn.setAttribute("aria-expanded", String(open));
+  };
+  screens.result.addEventListener("click", (ev) => {
+    if (ev.target.closest(".info-btn")) {
+      scoreInfo(screens.result.querySelector(".score-info")?.hidden);
+    } else if (ev.target.closest(".info-close") || !ev.target.closest(".score-info")) {
+      scoreInfo(false);
+    }
+  });
+  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") scoreInfo(false); });
 
   fetch("/api/health").then((r) => r.json()).then((h) => { $("#demoNote").hidden = h.live; }).catch(() => {});
   renderRecent();
