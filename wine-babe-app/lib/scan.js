@@ -322,7 +322,10 @@ const TASTING_SCHEMA = {
 const tastingPrompt = (w, site, page) => `You find the winery's own tasting notes for the Wine Babe app. Wine: ${wineLine(w)}.
 Winery website: ${site || "unknown"}. Product page: ${page || "unknown"}.
 
-Fetch the winery's product page for this exact wine (search for "<producer> <wine name> tasting notes" if you don't have it). If the winery has none, the official importer's page for the wine is fine (e.g. Kobrand for Louis Jadot). Some winery sites block fetching: then use the text the search results show from the winery's or importer's own page, with that page as source_url. Don't fetch PDFs or shop pages.
+Steps, stop as soon as you have notes:
+1. Fetch the winery's product page for this exact wine (search "<producer> <wine name> tasting notes food pairing" if you don't have it).
+2. If the winery page is blocked, missing or has no notes, search "<producer> <wine name> importer tasting notes" and use the official importer's or distributor's page for the wine (e.g. Kobrand for Louis Jadot, Taub for Kim Crawford imports).
+Some sites block fetching: then use the text the search results show from the winery's or importer's own page, with that page as source_url. Don't fetch PDFs or shop pages. Don't give up after the first try: always do step 2 before returning found false.
 Use only the producer's or importer's own description, never critic reviews, shops or blogs. Only this exact wine: a different cuvee or appellation (Beaujolais vs Beaujolais-Villages) is a different wine.
 notes: the tasting notes in 1 to 3 short plain sentences, close to their own words (aroma, palate, finish). Max 350 characters. Leave food out of notes.
 pairings: the foods the winery or importer recommends with this wine, as short items in their words (e.g. "hors d'oeuvres", "mild cheeses", "roast chicken"). Up to 8. Empty if they give none; never invent pairings.
@@ -785,7 +788,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v16";
+const ENGINE_VERSION = "v17";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1028,7 +1031,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
 
   const tastingLookup = runAgent({ diag,
     name: "tasting", model: SMART_MODEL, system: tastingPrompt(wine, site, page), schema: TASTING_SCHEMA, send, deadline,
-    content: ask("Find the winery's tasting notes for this wine."), tools: webTools(2, 2),
+    content: ask("Find the winery's tasting notes and food pairings for this wine."), tools: webTools(3, 2),
   }).catch(() => null);
 
   const ratingsLookup = runAgent({ diag,
