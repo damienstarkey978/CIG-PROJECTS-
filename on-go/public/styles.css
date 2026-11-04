@@ -508,14 +508,30 @@ label {
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  /* contain + light pad: full wordmarks (Kava/Pusser/1912) and dark marks (Aqua) stay readable */
+  /* contain full wordmarks; pad color is adaptive (see .logo-pad-*) */
   object-fit: contain;
   object-position: center;
   flex: 0 0 auto;
-  background: #eef1ef;
+  background: transparent;
   border: 1px solid var(--line);
-  padding: 3px;
+  padding: 2px;
   box-sizing: border-box;
+}
+
+.listing-logo.logo-pad-light,
+.venue-logo.logo-pad-light {
+  background: #eef1ef;
+}
+
+.listing-logo.logo-pad-dark,
+.venue-logo.logo-pad-dark {
+  background: #121816;
+}
+
+.listing-logo.logo-pad-none,
+.venue-logo.logo-pad-none {
+  background: transparent;
+  padding: 0;
 }
 
 .listing-logo.placeholder {
@@ -1008,8 +1024,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.65); }
   object-fit: contain;
   object-position: center;
   border: 1px solid var(--line);
-  background: #eef1ef;
-  padding: 4px;
+  background: transparent;
+  padding: 3px;
   box-sizing: border-box;
   flex: 0 0 auto;
 }

@@ -38,11 +38,29 @@
       .replace(/"/g, '&quot;');
   }
 
+  /** Per-logo pad: light wordmarks → dark plate; dark wordmarks → light plate */
+  const LOGO_PAD_BY_URL = {"/assets/venues/1912-ocean-bar.png":"dark","/assets/venues/aqua-grill.png":"light","/assets/venues/brix-taphouse.png":"dark","/assets/venues/cinottis-bakery.jpg":"dark","/assets/venues/coastal-farmer.png":"dark","/assets/venues/culhanes-irish-pub.png":"dark","/assets/venues/dragonfly-lounge.png":"dark","/assets/venues/european-street.png":"dark","/assets/venues/factory-after-dark.png":"dark","/assets/venues/flask-and-cannon.png":"none","/assets/venues/flying-iguana.png":"dark","/assets/venues/gingers-place.png":"light","/assets/venues/green-room-brewing.jpg":"none","/assets/venues/island-girl.png":"light","/assets/venues/jax-beach-bar-grill.png":"dark","/assets/venues/kava-and-co.png":"dark","/assets/venues/landshark-bar-grill.png":"light","/assets/venues/luckys-bar.jpg":"dark","/assets/venues/lynchs-irish-pub.jpg":"light","/assets/venues/mangos-beach-bar.jpg":"none","/assets/venues/marker-32.png":"light","/assets/venues/monkeys-uncle-tavern.png":"dark","/assets/venues/mr-chubbys-wings.png":"light","/assets/venues/north-beach-fish-camp.png":"dark","/assets/venues/palm-valley-fish-camp.png":"dark","/assets/venues/petes-bar.jpg":"none","/assets/venues/poes-tavern.jpg":"light","/assets/venues/pussers-bar-grille.png":"light","/assets/venues/salt-beachside.png":"light","/assets/venues/sandbar-jax-beach.png":"light","/assets/venues/sneakers-sports-grille.png":"dark","/assets/venues/southern-grounds.png":"light","/assets/venues/surfer-the-bar.jpg":"light","/assets/venues/tacolu.png":"dark","/assets/venues/tavern-on-1st.jpg":"dark","/assets/venues/the-lemon-bar.png":"dark","/assets/venues/the-local.png":"dark","/assets/venues/the-ritz-lounge.png":"dark","/assets/venues/valley-smoke.jpg":"dark","/assets/venues/wreck-tiki-lounge.png":"dark"};
+
+  function logoPadClass(logoUrl) {
+    if (!logoUrl) return 'logo-pad-none';
+    const key = String(logoUrl).split('?')[0];
+    const pad = LOGO_PAD_BY_URL[key] || 'dark';
+    return `logo-pad-${pad}`;
+  }
+
+  function logoPadBg(logoUrl) {
+    const pad = (LOGO_PAD_BY_URL[String(logoUrl || '').split('?')[0]] || 'dark');
+    if (pad === 'light') return '#eef1ef';
+    if (pad === 'none') return 'transparent';
+    return '#121816';
+  }
+
   /** Shared logo markup — Explore list + venue page stay consistent */
   function logoHtml(b, { className = 'listing-logo', size = 48 } = {}) {
     const initial = escapeHtml((b.name || '?').slice(0, 1));
     if (b.logo_url) {
-      return `<img class="${className}" src="${escapeHtml(b.logo_url)}" alt="" width="${size}" height="${size}" loading="lazy" referrerpolicy="no-referrer" />`;
+      const pad = logoPadClass(b.logo_url);
+      return `<img class="${className} ${pad}" src="${escapeHtml(b.logo_url)}" alt="" width="${size}" height="${size}" loading="lazy" referrerpolicy="no-referrer" />`;
     }
     return `<div class="${className} placeholder" aria-hidden="true">${initial}</div>`;
   }
@@ -354,7 +372,7 @@
         ? `<br><strong style="color:#1aff5a">LIVE:</strong> ${escapeHtml(b.live_offer.title)}`
         : '<br><em>Directory</em>';
       const logo = b.logo_url
-        ? `<img src="${escapeHtml(b.logo_url)}" alt="" width="36" height="36" style="border-radius:8px;object-fit:contain;object-position:center;background:#eef1ef;padding:2px;box-sizing:border-box;vertical-align:middle;margin-right:6px" referrerpolicy="no-referrer" />`
+        ? `<img src="${escapeHtml(b.logo_url)}" alt="" width="36" height="36" style="border-radius:8px;object-fit:contain;object-position:center;background:${logoPadBg(b.logo_url)};padding:2px;box-sizing:border-box;vertical-align:middle;margin-right:6px" referrerpolicy="no-referrer" />`
         : '';
       marker.bindPopup(
         `<div style="display:flex;gap:8px;align-items:flex-start">${logo}<div><strong>${escapeHtml(b.name)}</strong><br>${escapeHtml(b.area)} · ${escapeHtml(b.category)}${offerLine}<br><button type="button" class="btn primary" data-open-venue="${escapeHtml(
