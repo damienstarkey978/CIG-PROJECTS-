@@ -12,6 +12,7 @@ const {
   uuid,
   haversineMiles,
   ensureAuthColumns,
+  blobStatus,
 } = require('./lib/db');
 const {
   COOKIE_NAME,
@@ -181,12 +182,16 @@ function createApp() {
   }
 
   app.get('/api/health', (_req, res) => {
+    const blob = blobStatus();
     res.json({
       ok: true,
       service: 'on-go',
       db: path.basename(dbPath),
       seeded_on_boot: seedResult.seeded,
       host: process.env.NETLIFY ? 'netlify' : 'node',
+      blob,
+      users: db ? db.prepare('SELECT COUNT(*) AS n FROM users').get().n : 0,
+      businesses: db ? db.prepare('SELECT COUNT(*) AS n FROM businesses').get().n : 0,
     });
   });
 

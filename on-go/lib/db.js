@@ -232,8 +232,11 @@ function wrapDb(raw) {
         },
         run(...params) {
           raw.run(sql, params.length ? params : undefined);
-          api.dirty = true;
-          return { changes: raw.getRowsModified() };
+          const changes = raw.getRowsModified();
+          // Avoid marking dirty on no-op UPDATEs (e.g. expireOffers) so Netlify
+          // doesn't rewrite Blobs on every read-only request.
+          if (changes > 0) api.dirty = true;
+          return { changes };
         },
       };
     },
@@ -602,28 +605,53 @@ function expireOffers(db) {
   `).run(ts, ts, ts);
 }
 
+let lastBlobError = null;
+let lastBlobOk = null;
+
+function blobStore() {
+  const { getStore } = require('@netlify/blobs');
+  // Strong consistency so a login persist is visible to the next function.
+  return getStore({ name: 'on-go-data', consistency: 'strong' });
+}
+
 async function loadBytesFromBlobs() {
   try {
-    const { getStore } = require('@netlify/blobs');
-    const store = getStore('on-go-data');
+    const store = blobStore();
     const buf = await store.get(BLOB_KEY, { type: 'arrayBuffer' });
+    lastBlobError = null;
+    lastBlobOk = Boolean(buf);
     if (!buf) return null;
     return new Uint8Array(buf);
-  } catch {
+  } catch (err) {
+    lastBlobError = err.message || String(err);
+    lastBlobOk = false;
+    console.warn('Blob load failed:', lastBlobError);
     return null;
   }
 }
 
 async function saveBytesToBlobs(bytes) {
   try {
-    const { getStore } = require('@netlify/blobs');
-    const store = getStore('on-go-data');
+    const store = blobStore();
     await store.set(BLOB_KEY, bytes);
+    lastBlobError = null;
+    lastBlobOk = true;
     return true;
   } catch (err) {
-    console.warn('Blob persist skipped:', err.message);
+    lastBlobError = err.message || String(err);
+    lastBlobOk = false;
+    console.warn('Blob persist skipped:', lastBlobError);
     return false;
   }
+}
+
+function blobStatus() {
+  return {
+    ok: lastBlobOk,
+    error: lastBlobError,
+    key: BLOB_KEY,
+    store: 'on-go-data',
+  };
 }
 
 function loadBytesFromFile() {
@@ -852,4 +880,5 @@ module.exports = {
   DB_PATH,
   SEED_BUSINESSES,
   ensureAuthColumns,
+  blobStatus,
 };

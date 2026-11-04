@@ -4,17 +4,25 @@
  * Netlify Function wrapping the Express app.
  * Redirects: /api/* → /.netlify/functions/api/:splat
  *
- * Reloads SQLite from Blobs at the start of each invocation (via Express
- * middleware) and persists only when the in-memory db is dirty.
+ * Blobs require connectLambda(event) under the Lambda/serverless-http
+ * runtime — without it every request reseeds an empty DB and sessions die.
  */
 process.env.NETLIFY = 'true';
 
+const { connectLambda } = require('@netlify/blobs');
 const serverless = require('serverless-http');
 const server = require('../../server');
 
 const wrapped = serverless(server.app, { binary: ['image/*'] });
 
 exports.handler = async (event, context) => {
+  // Must run before any getStore() / openDb reload from Blobs
+  try {
+    connectLambda(event);
+  } catch (err) {
+    console.warn('connectLambda failed:', err.message);
+  }
+
   await server.ready;
 
   if (event.path && event.path.startsWith('/.netlify/functions/api')) {
