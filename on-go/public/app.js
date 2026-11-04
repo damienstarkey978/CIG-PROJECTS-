@@ -716,9 +716,11 @@
       }
     });
 
-    $('#register-role').addEventListener('change', (e) => {
-      $('#claim-business-wrap').hidden = e.target.value !== 'business';
-    });
+    const syncClaimListing = () => {
+      $('#claim-business-wrap').hidden = $('#register-role').value !== 'business';
+    };
+    syncClaimListing();
+    $('#register-role').addEventListener('change', syncClaimListing);
 
     $('#register-form').addEventListener('submit', async (e) => {
       e.preventDefault();
