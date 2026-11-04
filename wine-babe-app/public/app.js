@@ -360,6 +360,8 @@
         <div class="card"><ul class="checks">${r.top.map((c) => checkRow(c, true)).join("")}</ul></div>
       </div>
 
+      ${ingredientsCard(data.ingredients)}
+
       ${ratingsCard(data.ratings, w.vintage)}
 
       ${tastingCard(data.tasting, data.ratings)}
@@ -400,6 +402,22 @@
         if (fg) fg.style.strokeDashoffset = fg.dataset.to;
       })
     );
+  }
+
+  // Ingredient list: published (e-label, winery, importer) or typical for the style.
+  function ingredientsCard(ing) {
+    if (!ing || !Array.isArray(ing.ingredients) || !ing.ingredients.length) return "";
+    const typical = ing.source === "typical";
+    let host = "";
+    try { host = ing.source_url ? new URL(ing.source_url).hostname.replace(/^www\./, "") : ""; } catch {}
+    const from = { winery: "the winery", importer: "the importer", elabel: "the bottle's e-label", retailer: "a retailer listing" }[ing.source] || "";
+    return `<div class="card ingredients">
+      <div class="lbl">Ingredients ${typical ? `<span class="chip typical">Typical for type</span>` : ""}</div>
+      <ul class="ing-list">${ing.ingredients.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+      <p class="ing-src">${typical
+        ? `No ingredient list is published for this wine, so these are typical for a ${esc(ing.style || "wine of this type")}.`
+        : `Listed by ${from}${host ? `: <a href="${esc(ing.source_url)}" target="_blank" rel="noopener">${esc(host)}</a>` : ""}.`}</p>
+    </div>`;
   }
 
   // Professional critic ratings (Wine Enthusiast, Wine Spectator, Decanter ...).

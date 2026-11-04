@@ -350,6 +350,42 @@ function typicalProfile(w) {
   return { label: "dry white", abv: 12.5, rs: 3, so2: 130 };
 }
 
+// ---------- ingredients ----------
+// Published ingredient lists (EU e-labels behind the QR code, winery or
+// importer spec pages). When none exist, typical ingredients for the style.
+const INGREDIENTS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["found", "ingredients", "source", "source_url"],
+  properties: {
+    found: { type: "boolean" },
+    ingredients: { type: "array", items: str },
+    source: { type: "string", enum: ["winery", "importer", "elabel", "retailer", "none"] },
+    source_url: str,
+  },
+};
+const INGREDIENTS_SYSTEM = `You find a wine's published ingredient list for the Wine Babe app, fast.
+Run a web search with exactly the query you are given (the full wine name followed by "ingredients"). Good sources: the EU e-label page behind the bottle's QR code (domains like e-label, u-label, wine-id, ilabel, winelabel), the winery's or importer's product / spec page, or a tech sheet that lists ingredients. Fetch the best page if the snippets don't show the list.
+Only this exact wine. Return the ingredients in the order listed, in plain English (e.g. "Grapes", "Sucrose", "Acidity regulator: tartaric acid", "Preservative: sulfites"), with source winery, importer, elabel or retailer and the source_url. If no list is published, found false, empty list, source "none".`;
+
+function typicalIngredients(w) {
+  const t = typicalProfile(w);
+  const grapes = String(w.grapes || "").trim();
+  const list = [grapes ? `Grapes (${grapes})` : "Grapes"];
+  if (/brut nature|zero dosage|dosaggio zero|pas dos/i.test(`${w.name} ${w.style}`)) list.push("No sugar added at dosage");
+  else if (/sparkling|prosecco|brut|extra dry|champagne|cava|spumante|cremant/i.test(`${t.label} ${w.style}`)) list.push("Sugar (dosage, added to balance the sparkling wine)");
+  list.push("Yeast (fermentation)", "Preservative: sulfites");
+  return { ingredients: list, source: "typical", source_url: "", style: t.label };
+}
+
+function cleanIngredients(raw, wine) {
+  const list = [...new Set((raw?.ingredients || []).map((x) => String(x).replace(/\s+/g, " ").trim()).filter((x) => x && x.length <= 80))].slice(0, 15);
+  if (raw?.found && list.length && /^https?:\/\//.test(raw.source_url || "") && raw.source !== "none") {
+    return { ingredients: list, source: raw.source, source_url: raw.source_url };
+  }
+  return typicalIngredients(wine);
+}
+
 // ---------- winery tasting notes ----------
 // The winery's (or its importer's) own description of how the wine tastes.
 // Critic reviews are not used here; those belong to the ratings card.
@@ -849,7 +885,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v34";
+const ENGINE_VERSION = "v35";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1135,6 +1171,12 @@ This is a second try: you MUST run a web search for the exact wine name first. I
 
   // Second pass when the first finds nothing: many winery sites block
   // fetching, but the importer usually publishes the same notes.
+  const ingredientsLookup = runAgent({ diag,
+    name: "ingredients", model: SMART_MODEL, system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline,
+    content: ask(`Wine: ${wineLine(wine)}. Search exactly: ${brandAndName(wine)} ingredients`),
+    tools: webTools(1, 1),
+  }).catch(() => null);
+
   const typicalTastingCall = runAgent({ diag,
     name: "tasting-typical", model: SMART_MODEL, schema: TASTING_SCHEMA, send, deadline,
     system: `You write typical tasting notes for the Wine Babe app when the winery publishes none. Wine: ${wineLine(wine)}.
@@ -1423,6 +1465,7 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
     checks,
     ratings,
     tasting,
+    ingredients: cleanIngredients(await ingredientsLookup, wine),
     summary: summarize(wine, checks, nutrition),
     sources,
     seconds: Math.round((Date.now() - t0) / 1000),
