@@ -203,6 +203,18 @@ Return:
 - ABV is printed on almost every retail listing: always return it when any result states it for this wine (if listings differ, use the most common value).
 - source_url and source_kind of the page the figures came from ("none" if no figures).`;
 
+// Alcohol by volume from any listing: retail pages almost always state it,
+// and with ABV the calories can be calculated.
+const ABV_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["abv", "source_url"],
+  properties: { abv: { type: "number" }, source_url: str },
+};
+const ABV_SYSTEM = `You find a wine's alcohol by volume (ABV) for the Wine Babe app, fast.
+Run a web search with exactly the query you are given. Read the ABV for this exact wine from the results (retail listings such as Total Wine, Spec's, Wine.com, Drizly show "ABV" or "Alcohol %"). If the snippets don't show it, fetch one retail listing for this exact wine.
+Return abv as a number (e.g. 13) and the source_url it came from. If listings differ, use the most common value. Return abv 0 and empty source_url if not found.`;
+
 const SHEET_SEARCH_SYSTEM = `You find a wine's official technical sheet for the Wine Babe app, fast.
 Run exactly one web search, with exactly the query you are given (the full wine name followed by "tech specs").
 Return up to 5 URLs from the results that are this wine's tech sheet or spec page (PDFs first, then the winery's own spec page), best match for this exact wine first. Return an empty list if none.`;
@@ -811,7 +823,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v28";
+const ENGINE_VERSION = "v29";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -901,6 +913,12 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. Search exactly: ${brandAndName(wine)} nutrition facts`),
     tools: webTools(2, 1),
   });
+
+  const abvLookup = runAgent({ diag,
+    name: "abv-search", model: SMART_MODEL, system: ABV_SYSTEM, schema: ABV_SCHEMA, send, deadline: deadline - 4000,
+    content: ask(`Wine: ${wineLine(wine)}. Search exactly: ${brandAndName(wine)} ABV`),
+    tools: webTools(1, 1),
+  }).catch(() => null);
 
   const techLookup = async () => {
     const searched = runAgent({ diag,
@@ -1234,6 +1252,18 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     if (filled.includes("calories")) add("calories", `About ${ns.calories_5oz} calories per 5 oz (estimate via ${host}).`);
     if (filled.includes("carbs")) add("carbs", `About ${ns.carbs_5oz} g carbs per 5 oz (estimate via ${host}).`);
     diag.push({ name: "nutrition-facts", outcome: `estimate from ${host}: ${filled.join(", ") || "nothing new"}`.slice(0, 300) });
+  }
+  // ABV still missing: take it from the ABV lookup (retail listings).
+  {
+    const a = await abvLookup;
+    if (a && a.abv >= 4 && a.abv <= 22) {
+      if (!tech) tech = { checks: [], sources: [], nutrition: { ...EMPTY_NUTRITION }, tech_sheet_url: "", tech_sheet_vintage: "" };
+      tech.nutrition = tech.nutrition || { ...EMPTY_NUTRITION };
+      if (tech.nutrition.abv == null) {
+        tech.nutrition.abv = a.abv;
+        diag.push({ name: "abv", outcome: `${a.abv}% from ${a.source_url}`.slice(0, 200) });
+      }
+    } else diag.push({ name: "abv", outcome: "not found" });
   }
   // Calories and carbs not published: calculate them from ABV and sugar.
   {
