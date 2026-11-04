@@ -302,17 +302,30 @@
     }
   }
 
+  function venueMarkerIcon(live) {
+    // Div icons read brighter on dark OSM tiles than thin circle strokes.
+    const size = live ? 28 : 22;
+    return L.divIcon({
+      className: 'venue-marker-wrap',
+      html: `<div class="venue-marker ${live ? 'is-live' : 'is-directory'}" title="${
+        live ? 'Live offer' : 'Venue'
+      }"><span class="venue-marker-core"></span></div>`,
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+      popupAnchor: [0, -size / 2],
+    });
+  }
+
   function updateMarkers(businesses) {
     if (!state.map) return;
     state.markers.forEach((m) => state.map.removeLayer(m));
     state.markers = businesses.map((b) => {
       const live = Boolean(b.live_offer);
-      const marker = L.circleMarker([b.lat, b.lng], {
-        radius: live ? 10 : 6,
-        color: live ? '#1aff5a' : '#5a7a64',
-        weight: 2,
-        fillColor: live ? '#1aff5a' : '#162019',
-        fillOpacity: live ? 0.95 : 0.85,
+      const marker = L.marker([b.lat, b.lng], {
+        icon: venueMarkerIcon(live),
+        keyboard: true,
+        riseOnHover: true,
+        zIndexOffset: live ? 400 : 200,
       }).addTo(state.map);
       const offerLine = live
         ? `<br><strong style="color:#1aff5a">LIVE:</strong> ${escapeHtml(b.live_offer.title)}`
@@ -333,9 +346,6 @@
             openVenue(b.slug || b.id);
           };
         }
-      });
-      marker.on('click', () => {
-        // Keep popup, but also allow double-tap path via Open page
       });
       return marker;
     });
