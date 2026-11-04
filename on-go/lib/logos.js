@@ -44,6 +44,7 @@ const KNOWN_WEBSITES = {
   "Green Room Brewing": "https://greenroombrewing.com/",
   "Dragonfly Lounge": "https://dragonflylounge-beaches.com/",
   "Culhane's Irish Pub": "https://www.culhanesirishpub.com/",
+  "Mojo's Blues Bar and BBQ": "https://mojobbq.com/mojo-kitchen/",
 };
 
 /**
@@ -96,6 +97,7 @@ const KNOWN_OFFICIAL_LOGOS = {
   'Sneakers Sports Grille': '/assets/venues/sneakers-sports-grille.png',
   'Dragonfly Lounge': '/assets/venues/dragonfly-lounge.png',
   "Culhane's Irish Pub": '/assets/venues/culhanes-irish-pub.png',
+  "Mojo's Blues Bar and BBQ": '/assets/venues/mojos-blues-bar-bbq.png',
 };
 
 const WEAK_LOGO_SOURCES = new Set(['missing', 'google_favicon', 'duckduckgo', 'clearbit', null, '']);

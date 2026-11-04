@@ -26,6 +26,7 @@ Updated: 2026-11-04
 | Green Room Brewing | 228 3rd St N, Jacksonville Beach, FL 32250 | 30.2907112, -81.3926017 | — | address:228-3rd-st-n |
 | Harbor Tavern | 160 Mayport Rd, Atlantic Beach, FL 32233 | 30.3258562, -81.4193621 | Mon. - Fri. 4-7pm | address:160-mayport-rd |
 | Dragonfly Lounge | 1505 Atlantic Blvd #1537, Neptune Beach, FL 32266 | 30.3235608, -81.4145501 | — | address:1505-atlantic-blvd-1537 |
+| Mojo's Blues Bar and BBQ | 1500 Beach Blvd, Jacksonville Beach, FL 32250 | 30.28755, -81.4065 | Mon. - Fri. 3-6pm | address:1500-beach-blvd-mojo-kitchen |
 | Culhane's Irish Pub | 967 Atlantic Blvd, Atlantic Beach, FL 32233 | 30.3257567, -81.410551 | Mon. - Fri. 2-6pm
 Fri. - Sat. 10pm-1am Late Night Happy Hour | address:967-atlantic-blvd-ab |
 

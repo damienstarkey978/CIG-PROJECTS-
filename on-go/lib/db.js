@@ -462,6 +462,17 @@ const SEED_BUSINESSES = [
     hours_json: "{\"mon\":\"11:30-24\",\"tue_wed\":\"11:30-22\",\"thu\":\"11:30-24\",\"fri\":\"11:30-1:30\",\"sat\":\"9-1:30\",\"sun\":\"8:30-24\"}",
     osm_ref: "address:967-atlantic-blvd-ab",
   },
+  {
+    name: "Mojo's Blues Bar and BBQ",
+    area: "Jacksonville Beach",
+    category: "Dinner",
+    address: "1500 Beach Blvd, Jacksonville Beach, FL 32250",
+    phone: "(904) 247-6636",
+    lat: 30.28755,
+    lng: -81.4065,
+    hours_json: "{\"sun_tue\":\"11-21\",\"wed_sat\":\"11-22\"}",
+    osm_ref: "address:1500-beach-blvd-mojo-kitchen",
+  },
 ];
 
 /** Permanently closed — remove from live directory/map on every boot */
