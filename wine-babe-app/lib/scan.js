@@ -797,7 +797,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v20";
+const ENGINE_VERSION = "v21";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -828,6 +828,21 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     model: SMART_MODEL, deadline: t0 + IDENTIFY_MS,
   });
   if (!id) throw new Error("Could not read that label. Try a clearer photo or type the wine name.");
+  // Second try when it gave up without a producer: force a web search and
+  // accept a brand (store and private label wines like "Terracotta") as producer.
+  if (!id.identified && !(id.wine?.producer || "").trim()) {
+    const retry = await runAgent({ diag,
+      name: "identify-retry",
+      system: IDENTIFY_SYSTEM + `
+This is a second try: you MUST run a web search for the exact wine name first. If the name is a brand rather than a winery (store and private label wines, e.g. "Terracotta Pinot Grigio"), use the brand as producer, or the bottler named on retail pages. Set identified true whenever the search shows a real wine with this name; identified false only if nothing matches.`,
+      content: idContent,
+      schema: IDENTIFY_SCHEMA,
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
+      send,
+      model: SMART_MODEL, deadline: Date.now() + IDENTIFY_MS,
+    });
+    if (retry?.identified) Object.assign(id, retry);
+  }
   if (!id.identified) {
     return {
       identified: false,
