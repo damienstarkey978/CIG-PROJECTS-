@@ -431,7 +431,14 @@ const STYLE_WORDS = [
   "cuvee", "single", "vineyard", "estate", "limited", "magnum", "half",
 ];
 
-const norm = (s) => String(s || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, " ").trim();
+// Style words a file must carry when the wine's name has them (dosage,
+// sweetness, colour). Words like "single" or "estate" are not required.
+const REQUIRED_STYLE = new Set([
+  "brut", "nature", "extra", "dry", "sec", "demi", "doux", "dosaggio", "zero", "pas", "dose", "rose", "rosato",
+  "rosado", "frizzante", "riserva", "reserve", "reserva", "late", "harvest", "ice", "sweet",
+]);
+
+const norm = (s) => String(s || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 
 // Ranks PDF candidates for this wine, best first. Drops award, price list and
 // clearly mismatched files.
@@ -439,7 +446,7 @@ function rankPdfs(links, wine, siteUrl) {
   const nameNorm = norm(wine.name);
   const nameWords = nameNorm.split(" ").filter((w) => w.length > 2);
   // Style words the file must carry (from the wine name) and may carry (name or style).
-  const requiredStyle = STYLE_WORDS.filter((w) => nameNorm.split(" ").includes(w));
+  const requiredStyle = STYLE_WORDS.filter((w) => REQUIRED_STYLE.has(w) && nameNorm.split(" ").includes(w));
   const allowedStyle = new Set(norm(`${wine.name} ${wine.style}`).split(" "));
   const producerWords = norm(wine.producer).split(" ").filter((w) => w.length > 2);
   const year = /^\d{4}$/.test(String(wine.vintage || "")) ? String(wine.vintage) : "";
@@ -788,7 +795,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v18";
+const ENGINE_VERSION = "v19";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -923,7 +930,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       const textNorm = norm(await pdfText(got.data));
       const words = new Set(textNorm.split(" "));
       const hits = nameWords.filter((w) => words.has(w)).length;
-      const styleNeeded = STYLE_WORDS.filter((w) => norm(wine.name).split(" ").includes(w));
+      const styleNeeded = STYLE_WORDS.filter((w) => REQUIRED_STYLE.has(w) && norm(wine.name).split(" ").includes(w));
       const ok = prodWords.some((w) => words.has(w)) && hits >= Math.ceil(nameWords.length * 0.5) &&
         styleNeeded.every((w) => words.has(w)) && (!needYear || words.has(needYear));
       diag.push({ name: "sheet-text-check", outcome: `${ok ? "match" : "no match"} (${hits}/${nameWords.length}${needYear ? `, vintage ${needYear}` : ""}): ${url}`.slice(0, 300) });
@@ -995,6 +1002,16 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       const text = await pageText(specPage.url);
       diag.push({ name: "spec-page", outcome: `${text.length} chars (${specPage.kind}): ${specPage.url}`.slice(0, 300) });
       if (text.length < 300) return null;
+      // A homepage or a page that does not name the wine is not its spec page.
+      let path = "/";
+      try { path = new URL(specPage.url).pathname; } catch {}
+      const specWords = new Set(norm(text).split(" "));
+      const specHits = norm(wine.name).split(" ").filter((w) => w.length > 2 && specWords.has(w)).length;
+      const needHits = Math.ceil(norm(wine.name).split(" ").filter((w) => w.length > 2).length * 0.6);
+      if (path === "/" || path === "" || specHits < needHits) {
+        diag.push({ name: "spec-page-rejected", outcome: `${path === "/" ? "homepage" : `names ${specHits}/${needHits} wine words`}: ${specPage.url}`.slice(0, 300) });
+        return null;
+      }
       send({ type: "status", text: "Reading the winery's spec page" });
       return runAgent({ diag,
         name: "tech-page", system: sheetPrompt(wine), schema: agentSchema(SHEET_IDS, true), send,
@@ -1139,7 +1156,10 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     if (filled.includes("calories")) add("calories", `${ns.calories_5oz} calories per 5 oz, stated by the ${ns.source_kind}${via ? "" : ""}.`);
     if (filled.includes("carbs")) add("carbs", `${ns.carbs_5oz} g carbs per 5 oz, stated by the ${ns.source_kind}.`);
     diag.push({ name: "nutrition-facts", outcome: `${ns.source_kind}: ${filled.join(", ") || "nothing new"} from ${ns.source_url}`.slice(0, 300) });
-  } else if (ns && (ns.calories_5oz != null || ns.carbs_5oz != null || ns.sugar_g_5oz != null || ns.residual_sugar_g_l != null || ns.abv != null)) {
+  } else if (ns && (ns.calories_5oz != null || ns.carbs_5oz != null || ns.sugar_g_5oz != null || ns.residual_sugar_g_l != null || ns.abv != null)
+    && /(vivino|wine-searcher|cellartracker|nutritionix|fatsecret|eatthismuch|myfitnesspal|calorieking|nutritionvalue|usda\.gov|wine\.com|totalwine)/i.test(ns.source_url || "")) {
+    // Estimates only from wine databases and nutrition databases, not from
+    // menus or random aggregators.
     // Not from the winery: show the figures, clearly labeled as estimates.
     if (!tech) tech = { checks: [], sources: [], nutrition: { ...EMPTY_NUTRITION }, tech_sheet_url: "", tech_sheet_vintage: "" };
     tech.nutrition = tech.nutrition || { ...EMPTY_NUTRITION };
@@ -1160,6 +1180,21 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     if (filled.includes("calories")) add("calories", `About ${ns.calories_5oz} calories per 5 oz (estimate via ${host}).`);
     if (filled.includes("carbs")) add("carbs", `About ${ns.carbs_5oz} g carbs per 5 oz (estimate via ${host}).`);
     diag.push({ name: "nutrition-facts", outcome: `estimate from ${host}: ${filled.join(", ") || "nothing new"}`.slice(0, 300) });
+  }
+  // Calories and carbs not published: calculate them from ABV and sugar.
+  {
+    const n = tech?.nutrition;
+    if (n && n.abv != null) {
+      const sugarG = n.residual_sugar_g_l != null ? n.residual_sugar_g_l * 0.148 : null;
+      if (n.calories_5oz == null) {
+        n.calories_5oz = Math.round(148 * (n.abv / 100) * 0.789 * 7 + (sugarG || 0) * 4);
+        if (!(best.calories?.status === "pass")) best.calories = { id: "calories", status: "pass", evidence: "estimate", scope: "this_wine", as_of: "", detail: `About ${n.calories_5oz} calories per 5 oz, calculated from ${n.abv}% ABV${sugarG != null ? ` and ${n.residual_sugar_g_l} g/L sugar` : ""}.`, source_url: tech.tech_sheet_url || "" };
+      }
+      if (n.carbs_5oz == null && sugarG != null) {
+        n.carbs_5oz = Math.round((sugarG + 0.5) * 10) / 10;
+        if (!(best.carbs?.status === "pass")) best.carbs = { id: "carbs", status: "pass", evidence: "estimate", scope: "this_wine", as_of: "", detail: `About ${n.carbs_5oz} g carbs per 5 oz, calculated from ${n.residual_sugar_g_l} g/L sugar.`, source_url: tech.tech_sheet_url || "" };
+      }
+    }
   }
   const rs = (tech?.nutrition || {}).residual_sugar_g_l;
   if (rs != null) {
