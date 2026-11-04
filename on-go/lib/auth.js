@@ -56,7 +56,18 @@ function publicUser(user) {
     display_name: user.display_name,
     role: user.role,
     points_balance: user.points_balance,
+    email_verified: Boolean(user.email_verified_at),
   };
+}
+
+function isEmailVerified(user) {
+  return Boolean(user && user.email_verified_at);
+}
+
+/** Demo / ops accounts that skip the verify gate */
+function isTrustedDemoEmail(email) {
+  const e = String(email || '').toLowerCase();
+  return e.endsWith('@ongo.demo');
 }
 
 function requireAuth(req, res) {
@@ -101,6 +112,8 @@ module.exports = {
   destroySession,
   getUserFromSession,
   publicUser,
+  isEmailVerified,
+  isTrustedDemoEmail,
   requireAuth,
   requireRole,
   businessIdsForUser,

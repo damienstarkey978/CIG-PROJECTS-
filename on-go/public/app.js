@@ -10,6 +10,8 @@
     geo: null,
     geoStatus: 'pending', // pending | ready | denied | error | unsupported
     meta: { areas: [], categories: [] },
+    venue: null,
+    venueSlug: null,
   };
 
   const BEACHES_FALLBACK = { lat: 30.324, lng: -81.3965 };
@@ -66,19 +68,156 @@
   }
 
   function showView(name) {
+    const navName = name === 'venue' ? 'explore' : name;
     $$('.view').forEach((el) => {
       el.hidden = el.id !== `view-${name}`;
     });
     $$('.sw').forEach((btn) => {
-      const on = btn.dataset.view === name;
+      const on = btn.dataset.view === navName;
       btn.classList.toggle('active', on);
       if (on) btn.setAttribute('aria-current', 'page');
       else btn.removeAttribute('aria-current');
     });
-    if (name === 'explore' && state.map) setTimeout(() => state.map.invalidateSize(), 80);
+    if ((name === 'explore' || name === 'venue') && state.map) {
+      setTimeout(() => state.map.invalidateSize(), 80);
+    }
     if (name === 'rewards') refreshRewards();
     if (name === 'business') refreshBusiness();
     if (name === 'account') refreshAccount();
+    if (name !== 'venue' && location.hash.startsWith('#/b/')) {
+      history.replaceState({}, '', location.pathname + location.search);
+    }
+  }
+
+  function venuePath(b) {
+    return `#/b/${encodeURIComponent(b.slug || b.id)}`;
+  }
+
+  async function openVenue(slugOrId, { pushHash = true } = {}) {
+    if (!slugOrId) return;
+    showView('venue');
+    const root = $('#venue-page');
+    root.innerHTML = '<p class="meta">Loading venue…</p>';
+    try {
+      const data = await api(
+        `/api/businesses/${encodeURIComponent(slugOrId)}?resolve_logo=1`
+      );
+      state.venue = data;
+      state.venueSlug = data.slug || data.id;
+      if (pushHash) {
+        history.replaceState({}, '', venuePath(data));
+      }
+      renderVenuePage(data);
+      if (state.map && data.lat != null && data.lng != null) {
+        state.map.setView([data.lat, data.lng], Math.max(state.map.getZoom(), 15), {
+          animate: true,
+        });
+      }
+    } catch (err) {
+      root.innerHTML = `<p class="meta">${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  function renderVenuePage(b) {
+    const e = b.enrichment || {};
+    const logo = b.logo_url
+      ? `<img class="venue-logo" src="${escapeHtml(b.logo_url)}" alt="" width="72" height="72" referrerpolicy="no-referrer" />`
+      : `<div class="venue-logo placeholder" aria-hidden="true">${escapeHtml((b.name || '?').slice(0, 1))}</div>`;
+    const liveOffers = b.live_offers || (b.live_offer ? [b.live_offer] : []);
+    const offersHtml = liveOffers.length
+      ? liveOffers
+          .map(
+            (o) => `<div class="venue-offer">
+              <span class="badge live">Live</span>
+              <strong>${escapeHtml(o.title)}</strong>
+              <p class="meta">${escapeHtml(o.product_label || '')} · ${minutesLeft(o.ends_at)} · ${o.points_reward || 25} pts</p>
+              <div class="listing-actions">
+                <button type="button" class="btn primary" data-claim="${o.id}" ${
+                  state.user?.role === 'customer' ? '' : 'disabled'
+                }>Claim QR</button>
+                <button type="button" class="btn ghost" data-next="${b.id}">Next Stop</button>
+              </div>
+            </div>`
+          )
+          .join('')
+      : `<p class="empty">No active BOGOs or happy-hour boosts right now.</p>`;
+
+    const phone = e.phone
+      ? `<a href="tel:${escapeHtml(e.phone.replace(/[^\d+]/g, ''))}">${escapeHtml(e.phone)}</a>`
+      : `<span class="empty">${escapeHtml(e.phone_display || 'Not listed yet')}</span>`;
+    const menu = e.menu_url
+      ? `<a href="${escapeHtml(e.menu_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(
+          e.menu_display || 'View menu'
+        )}</a>`
+      : `<span class="empty">${escapeHtml(e.menu_display || 'Not listed yet')}</span>`;
+    const website = b.website
+      ? `<a href="${escapeHtml(b.website)}" target="_blank" rel="noopener noreferrer">Website</a>`
+      : '';
+
+    $('#venue-page').innerHTML = `
+      <header class="venue-hero">
+        <div class="venue-hero-top">
+          ${logo}
+          <div>
+            <h2>${escapeHtml(b.name)}</h2>
+            <p class="meta">${escapeHtml(b.area)} · ${escapeHtml(b.category)} · ${escapeHtml(
+              b.status_label || b.status
+            )}</p>
+            ${b.is_featured ? '<span class="badge featured">Featured</span>' : ''}
+            ${liveOffers.length ? '<span class="badge live">Live boost</span>' : ''}
+          </div>
+        </div>
+      </header>
+
+      <section class="venue-section">
+        <h3>About</h3>
+        <p class="${b.about_text || e.about ? '' : 'empty'}">${escapeHtml(
+          e.about_display || e.about || 'Not listed yet'
+        )}</p>
+        ${
+          e.about_source
+            ? `<p class="meta">Source: ${escapeHtml(e.about_source)}</p>`
+            : ''
+        }
+      </section>
+
+      <section class="venue-section venue-facts">
+        <h3>Details</h3>
+        <p class="venue-fact"><strong>Address</strong> — ${
+          b.address
+            ? escapeHtml(b.address)
+            : '<span class="empty">Not listed yet</span>'
+        }</p>
+        <p class="venue-fact"><strong>Phone</strong> — ${phone}</p>
+        <p class="venue-fact"><strong>Hours</strong> — ${
+          e.hours
+            ? escapeHtml(e.hours)
+            : `<span class="empty">${escapeHtml(e.hours_display || 'Not listed yet')}</span>`
+        }</p>
+        <p class="venue-fact"><strong>Menu</strong> — ${menu}</p>
+        ${website ? `<p class="venue-fact">${website}</p>` : ''}
+      </section>
+
+      <section class="venue-section">
+        <h3>Happy hour &amp; specials</h3>
+        <p class="${e.happy_hour ? '' : 'empty'}">${escapeHtml(
+          e.happy_hour_display || 'Not listed yet'
+        )}</p>
+        <p class="${e.specials ? '' : 'empty'}">${escapeHtml(
+          e.specials_display || 'Not listed yet'
+        )}</p>
+      </section>
+
+      <section class="venue-section">
+        <h3>Active BOGOs &amp; boosts</h3>
+        ${offersHtml}
+        ${
+          b.can_boost
+            ? `<p class="meta">Venue can flip a boost ON anytime from the Business tab.</p>`
+            : `<p class="meta">Unclaimed directory listing — claim to run live boosts.</p>`
+        }
+      </section>
+    `;
   }
 
   function initMap() {
@@ -182,8 +321,22 @@
         ? `<img src="${escapeHtml(b.logo_url)}" alt="" width="36" height="36" style="border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:6px" referrerpolicy="no-referrer" />`
         : '';
       marker.bindPopup(
-        `<div style="display:flex;gap:8px;align-items:flex-start">${logo}<div><strong>${escapeHtml(b.name)}</strong><br>${escapeHtml(b.area)} · ${escapeHtml(b.category)}${offerLine}</div></div>`
+        `<div style="display:flex;gap:8px;align-items:flex-start">${logo}<div><strong>${escapeHtml(b.name)}</strong><br>${escapeHtml(b.area)} · ${escapeHtml(b.category)}${offerLine}<br><button type="button" class="btn primary" data-open-venue="${escapeHtml(
+          b.slug || b.id
+        )}" style="margin-top:6px">Open page</button></div></div>`
       );
+      marker.on('popupopen', () => {
+        const btn = document.querySelector(`[data-open-venue="${CSS.escape(b.slug || b.id)}"]`);
+        if (btn) {
+          btn.onclick = (ev) => {
+            ev.preventDefault();
+            openVenue(b.slug || b.id);
+          };
+        }
+      });
+      marker.on('click', () => {
+        // Keep popup, but also allow double-tap path via Open page
+      });
       return marker;
     });
     // Venue refresh must not drop the user marker
@@ -278,7 +431,9 @@
         const logo = b.logo_url
           ? `<img class="listing-logo" src="${escapeHtml(b.logo_url)}" alt="" width="48" height="48" loading="lazy" referrerpolicy="no-referrer" />`
           : `<div class="listing-logo placeholder" aria-hidden="true">${escapeHtml((b.name || '?').slice(0, 1))}</div>`;
-        return `<article class="listing" data-id="${b.id}">
+        return `<article class="listing is-link" data-id="${b.id}" data-open-venue="${escapeHtml(
+          b.slug || b.id
+        )}" tabindex="0" role="link" aria-label="Open ${escapeHtml(b.name)}">
           <div class="listing-head">
             ${logo}
             <div class="listing-copy">
@@ -291,6 +446,7 @@
           ${badges}
           ${note}
           ${offer}
+          <p class="meta listing-open">Tap for full venue page →</p>
         </article>`;
       })
       .join('');
@@ -415,6 +571,23 @@
     $('#bid-business').innerHTML = opts;
   }
 
+  async function syncBoostToggle() {
+    const toggle = $('#boost-toggle');
+    const label = $('#boost-label');
+    const businessId = $('#offer-business')?.value;
+    if (!toggle || !businessId) return;
+    try {
+      const data = await api(`/api/businesses/${encodeURIComponent(businessId)}`);
+      const on = Boolean(data.live_offer || (data.live_offers && data.live_offers.length));
+      toggle.checked = on;
+      if (label) label.textContent = on ? 'Boost ON' : 'Boost OFF';
+      if (on) $('#power-btn')?.classList.add('armed');
+      else $('#power-btn')?.classList.remove('armed');
+    } catch {
+      /* ignore */
+    }
+  }
+
   async function refreshBusiness() {
     const gate = $('#biz-gate');
     const dash = $('#biz-dashboard');
@@ -426,6 +599,7 @@
     gate.hidden = true;
     dash.hidden = false;
     fillOwnedSelects();
+    await syncBoostToggle();
 
     try {
       const offers = await api('/api/business/offers');
@@ -553,17 +727,84 @@
     }
   }
 
+  function setAuthFlash(msg, { show = true } = {}) {
+    const el = $('#auth-flash');
+    if (!el) return;
+    if (!show || !msg) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    el.hidden = false;
+    el.textContent = msg;
+  }
+
   function refreshAccount() {
     const signed = $('#account-signed-in');
     const forms = $('#account-forms');
+    const banner = $('#account-verify-banner');
+    const resend = $('#resend-verify-btn');
     if (state.user) {
       signed.hidden = false;
       forms.hidden = true;
-      $('#account-summary').textContent = `${state.user.display_name} (${state.user.email}) — ${state.user.role}`;
+      const verified = state.user.email_verified;
+      $('#account-summary').textContent = `${state.user.display_name} (${state.user.email}) — ${state.user.role}${
+        verified ? '' : ' · email not verified'
+      }`;
+      if (banner && resend) {
+        if (!verified) {
+          banner.hidden = false;
+          banner.textContent = 'Verify your email to claim offers. Check your inbox or resend the link.';
+          resend.hidden = false;
+        } else {
+          banner.hidden = true;
+          resend.hidden = true;
+        }
+      }
     } else {
       signed.hidden = true;
       forms.hidden = false;
+      if (banner) banner.hidden = true;
+      if (resend) resend.hidden = true;
     }
+  }
+
+  async function handleAuthQueryParams() {
+    const params = new URLSearchParams(window.location.search);
+    const verify = params.get('verify');
+    const reset = params.get('reset');
+    if (!verify && !reset) return;
+
+    showView('account');
+    if (verify) {
+      try {
+        const data = await api('/api/auth/verify', {
+          method: 'POST',
+          body: JSON.stringify({ token: verify }),
+        });
+        state.user = data.user;
+        setSessionChip();
+        refreshAccount();
+        setAuthFlash(data.message || 'Email verified — you are signed in.');
+      } catch (err) {
+        setAuthFlash(err.message || 'Verification failed');
+      }
+      params.delete('verify');
+    }
+
+    if (reset) {
+      $('#login-form').hidden = true;
+      $('#register-form').hidden = true;
+      $('#forgot-form').hidden = true;
+      $('#reset-form').hidden = false;
+      $('#reset-token').value = reset;
+      setAuthFlash('Choose a new password for your account.');
+      params.delete('reset');
+    }
+
+    const next = params.toString();
+    const url = next ? `${window.location.pathname}?${next}` : window.location.pathname;
+    window.history.replaceState({}, '', url);
   }
 
   async function loadMetaAndClaimOptions() {
@@ -699,14 +940,72 @@
 
     const claimHandler = (e) => {
       const claim = e.target.closest('[data-claim]');
-      if (claim) return claimOffer(claim.dataset.claim);
+      if (claim) {
+        e.stopPropagation();
+        return claimOffer(claim.dataset.claim);
+      }
       const next = e.target.closest('[data-next]');
-      if (next) return loadNextStop(next.dataset.next).catch((err) => alert(err.message));
+      if (next) {
+        e.stopPropagation();
+        return loadNextStop(next.dataset.next).catch((err) => alert(err.message));
+      }
       const fav = e.target.closest('[data-fav]');
-      if (fav) return toggleFavorite(fav.dataset.fav, fav.dataset.on === '1').catch((err) => alert(err.message));
+      if (fav) {
+        e.stopPropagation();
+        return toggleFavorite(fav.dataset.fav, fav.dataset.on === '1').catch((err) => alert(err.message));
+      }
+      const open = e.target.closest('[data-open-venue]');
+      if (open) return openVenue(open.dataset.openVenue);
     };
     $('#business-list').addEventListener('click', claimHandler);
+    $('#business-list').addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const open = e.target.closest('[data-open-venue]');
+      if (!open) return;
+      e.preventDefault();
+      openVenue(open.dataset.openVenue);
+    });
     $('#signal-ticker').addEventListener('click', claimHandler);
+    $('#venue-page')?.addEventListener('click', claimHandler);
+
+    $('#venue-back')?.addEventListener('click', () => {
+      state.venue = null;
+      showView('explore');
+    });
+
+    $('#boost-toggle')?.addEventListener('change', async (e) => {
+      const businessId = $('#offer-business')?.value;
+      const result = $('#boost-result');
+      const label = $('#boost-label');
+      if (!businessId) {
+        e.target.checked = false;
+        if (result) result.textContent = 'Select a venue first.';
+        return;
+      }
+      try {
+        const data = await api(`/api/businesses/${encodeURIComponent(businessId)}/boost`, {
+          method: 'POST',
+          body: JSON.stringify({
+            active: e.target.checked,
+            title: $('#offer-title')?.value || 'BOGO — ON GO boost',
+            product_label: $('#offer-product')?.value || 'Ask your server',
+            duration_minutes: Number($('#offer-duration')?.value) || 120,
+            redemption_limit: $('#offer-limit')?.value || null,
+          }),
+        });
+        if (label) label.textContent = data.active ? 'Boost ON' : 'Boost OFF';
+        if (result) result.textContent = data.message || (data.active ? 'Live now' : 'Turned off');
+        if (data.active) $('#power-btn')?.classList.add('armed');
+        else $('#power-btn')?.classList.remove('armed');
+        await refreshBusiness();
+        await loadDirectory();
+      } catch (err) {
+        e.target.checked = !e.target.checked;
+        if (result) result.textContent = err.message;
+      }
+    });
+
+    $('#offer-business')?.addEventListener('change', () => syncBoostToggle());
 
     $('#biz-offers').addEventListener('click', async (e) => {
       const btn = e.target.closest('[data-deactivate]');
@@ -916,16 +1215,99 @@
       e.preventDefault();
       const fd = new FormData(e.target);
       try {
-        await api('/api/auth/login', {
+        const data = await api('/api/auth/login', {
           method: 'POST',
           body: JSON.stringify({ email: fd.get('email'), password: fd.get('password') }),
         });
         await refreshMe();
         refreshAccount();
         await loadDirectory();
-        showView(state.user.role === 'business' ? 'business' : 'explore');
+        if (data.needs_verification) {
+          setAuthFlash('Signed in — verify your email to claim offers.');
+          showView('account');
+        } else {
+          setAuthFlash('');
+          showView(state.user.role === 'business' ? 'business' : 'explore');
+        }
       } catch (err) {
         alert(err.message);
+      }
+    });
+
+    $('#forgot-toggle')?.addEventListener('click', () => {
+      $('#login-form').hidden = true;
+      $('#register-form').hidden = true;
+      $('#reset-form').hidden = true;
+      $('#forgot-form').hidden = false;
+      setAuthFlash('Enter your email and we will send a reset link.');
+    });
+
+    $('#forgot-cancel')?.addEventListener('click', () => {
+      $('#forgot-form').hidden = true;
+      $('#reset-form').hidden = true;
+      $('#login-form').hidden = false;
+      $('#register-form').hidden = false;
+      setAuthFlash('');
+    });
+
+    $('#forgot-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const result = $('#forgot-result');
+      try {
+        const data = await api('/api/auth/forgot-password', {
+          method: 'POST',
+          body: JSON.stringify({ email: fd.get('email') }),
+        });
+        if (data.reset_link) {
+          result.textContent = `${data.message} Open reset: ${data.reset_link}`;
+        } else {
+          result.textContent = data.message || 'Check your email for a reset link.';
+        }
+      } catch (err) {
+        result.textContent = err.message;
+      }
+    });
+
+    $('#reset-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const result = $('#reset-result');
+      try {
+        const data = await api('/api/auth/reset-password', {
+          method: 'POST',
+          body: JSON.stringify({
+            token: fd.get('token') || $('#reset-token').value,
+            password: fd.get('password'),
+          }),
+        });
+        state.user = data.user;
+        setSessionChip();
+        refreshAccount();
+        $('#reset-form').hidden = true;
+        $('#forgot-form').hidden = true;
+        $('#login-form').hidden = false;
+        $('#register-form').hidden = false;
+        setAuthFlash(data.message || 'Password updated — you are signed in.');
+        showView('account');
+      } catch (err) {
+        result.textContent = err.message;
+      }
+    });
+
+    $('#resend-verify-btn')?.addEventListener('click', async () => {
+      try {
+        const data = await api('/api/auth/resend-verification', {
+          method: 'POST',
+          body: JSON.stringify({ email: state.user?.email }),
+        });
+        if (data.verify_link) {
+          setAuthFlash(`${data.message} Open: ${data.verify_link}`);
+        } else {
+          setAuthFlash(data.message || 'Verification email sent.');
+        }
+      } catch (err) {
+        setAuthFlash(err.message);
       }
     });
 
@@ -947,12 +1329,21 @@
       };
       if (role === 'business') body.business_id = fd.get('business_id');
       try {
-        await api('/api/auth/register', { method: 'POST', body: JSON.stringify(body) });
+        const data = await api('/api/auth/register', { method: 'POST', body: JSON.stringify(body) });
         await refreshMe();
         refreshAccount();
         await loadMetaAndClaimOptions();
         await loadDirectory();
-        showView(role === 'business' ? 'business' : 'explore');
+        if (data.verify_link) {
+          setAuthFlash(`${data.message || 'Registered.'} Verify: ${data.verify_link}`);
+          showView('account');
+        } else if (data.user && !data.user.email_verified) {
+          setAuthFlash(data.message || 'Check your email to verify your account.');
+          showView('account');
+        } else {
+          setAuthFlash('');
+          showView(role === 'business' ? 'business' : 'explore');
+        }
       } catch (err) {
         alert(err.message);
       }
@@ -964,18 +1355,37 @@
       state.businessesOwned = [];
       setSessionChip();
       refreshAccount();
+      setAuthFlash('');
       await loadDirectory();
     });
+  }
+
+  function routeFromHash() {
+    const m = location.hash.match(/^#\/b\/([^/?#]+)/);
+    if (m) {
+      openVenue(decodeURIComponent(m[1]), { pushHash: false });
+      return true;
+    }
+    return false;
   }
 
   async function boot() {
     bindEvents();
     initMap();
     bootstrapGeo();
+    window.addEventListener('hashchange', () => {
+      if (location.hash.startsWith('#/b/')) {
+        routeFromHash();
+      } else if (!$('#view-venue').hidden) {
+        showView('explore');
+      }
+    });
     try {
       await refreshMe();
+      await handleAuthQueryParams();
       await loadMetaAndClaimOptions();
       await loadDirectory();
+      routeFromHash();
     } catch (err) {
       $('#listing-count').textContent = `Could not load directory: ${err.message}`;
       $('#live-hud-text').textContent = 'Directory offline';

@@ -3,6 +3,9 @@
 /**
  * Netlify Function wrapping the Express app.
  * Redirects: /api/* → /.netlify/functions/api/:splat
+ *
+ * Reloads SQLite from Blobs at the start of each invocation (via Express
+ * middleware) and persists only when the in-memory db is dirty.
  */
 process.env.NETLIFY = 'true';
 
@@ -23,11 +26,6 @@ exports.handler = async (event, context) => {
     event.rawPath = '/api' + rest;
   }
 
-  // Express mounted routes expect /api/... — also handle bare splat
-  if (event.path === '/api' && event.rawQuery) {
-    /* keep */
-  }
-
   try {
     const result = await wrapped(event, context);
     if (typeof server.persistNow === 'function') {
@@ -36,6 +34,11 @@ exports.handler = async (event, context) => {
     return result;
   } catch (err) {
     console.error(err);
+    try {
+      if (typeof server.persistNow === 'function') await server.persistNow();
+    } catch {
+      /* ignore */
+    }
     return {
       statusCode: 500,
       headers: { 'content-type': 'application/json' },

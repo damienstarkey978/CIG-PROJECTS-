@@ -82,6 +82,13 @@
       <div id="business-list" class="feed"></div>
     </section>
 
+    <section id="view-venue" class="view" hidden>
+      <button type="button" id="venue-back" class="btn ghost venue-back">← Back to Explore</button>
+      <div id="venue-page" class="venue-page">
+        <p class="meta">Loading venue…</p>
+      </div>
+    </section>
+
     <section id="view-rewards" class="view" hidden>
       <header class="panel-head">
         <h2>Your signal score</h2>
@@ -117,6 +124,17 @@
             <span class="power-glyph">⏻</span>
             <span class="power-caption">TAP TO GO ON</span>
           </button>
+          <div class="boost-switch-row">
+            <label class="boost-switch" for="boost-toggle">
+              <input type="checkbox" id="boost-toggle" />
+              <span class="boost-track" aria-hidden="true"></span>
+              <span class="boost-copy">
+                <strong id="boost-label">Boost OFF</strong>
+                <span class="meta">Flip anytime — live on Explore + your venue page</span>
+              </span>
+            </label>
+            <p id="boost-result" class="meta" aria-live="polite"></p>
+          </div>
           <form id="offer-form" class="stack power-form">
             <label>Venue <select id="offer-business" required></select></label>
             <label>Offer title <input id="offer-title" type="text" value="BOGO draft beer" required maxlength="120" /></label>
@@ -230,8 +248,12 @@
 
       <div id="account-signed-in" class="sheet" hidden>
         <p id="account-summary"></p>
+        <p id="account-verify-banner" class="meta" hidden></p>
+        <button type="button" id="resend-verify-btn" class="btn ghost" hidden>Resend verification email</button>
         <button type="button" id="logout-btn" class="btn ghost">Sign out</button>
       </div>
+
+      <p id="auth-flash" class="meta" aria-live="polite" hidden></p>
 
       <div id="account-forms" class="auth-split">
         <form id="login-form" class="sheet stack">
@@ -239,7 +261,22 @@
           <label>Email <input name="email" type="email" required autocomplete="username" /></label>
           <label>Password <input name="password" type="password" required autocomplete="current-password" /></label>
           <button type="submit" class="btn primary">Sign in</button>
+          <button type="button" id="forgot-toggle" class="btn ghost">Forgot password?</button>
           <p class="meta">Demo customer: customer@ongo.demo / demo1234</p>
+        </form>
+        <form id="forgot-form" class="sheet stack" hidden>
+          <h3 class="label">Reset password</h3>
+          <label>Email <input name="email" type="email" required autocomplete="username" /></label>
+          <button type="submit" class="btn primary">Email reset link</button>
+          <button type="button" id="forgot-cancel" class="btn ghost">Back to sign in</button>
+          <p id="forgot-result" class="meta" aria-live="polite"></p>
+        </form>
+        <form id="reset-form" class="sheet stack" hidden>
+          <h3 class="label">Choose a new password</h3>
+          <input type="hidden" name="token" id="reset-token" />
+          <label>New password <input name="password" type="password" required minlength="6" autocomplete="new-password" /></label>
+          <button type="submit" class="btn primary">Update password</button>
+          <p id="reset-result" class="meta" aria-live="polite"></p>
         </form>
         <form id="register-form" class="sheet stack">
           <h3 class="label">Create account</h3>

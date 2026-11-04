@@ -258,6 +258,18 @@ function wrapDb(raw) {
   return api;
 }
 
+function ensureAuthColumns(db) {
+  const cols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  const add = (name, ddl) => {
+    if (!cols.includes(name)) db.exec(`ALTER TABLE users ADD COLUMN ${ddl}`);
+  };
+  add('email_verified_at', 'email_verified_at TEXT');
+  add('verify_token', 'verify_token TEXT');
+  add('verify_expires', 'verify_expires TEXT');
+  add('reset_token', 'reset_token TEXT');
+  add('reset_expires', 'reset_expires TEXT');
+}
+
 function ensureSchema(db) {
   db.exec(`
     PRAGMA foreign_keys = ON;
@@ -269,6 +281,11 @@ function ensureSchema(db) {
       display_name TEXT NOT NULL,
       role TEXT NOT NULL,
       points_balance INTEGER NOT NULL DEFAULT 0,
+      email_verified_at TEXT,
+      verify_token TEXT,
+      verify_expires TEXT,
+      reset_token TEXT,
+      reset_expires TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -438,20 +455,20 @@ function seedIfEmpty(db) {
     const hash = bcrypt.hashSync('demo1234', 10);
 
     db.prepare(`
-      INSERT INTO users (id, email, password_hash, display_name, role, points_balance, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-    `).run(customerId, 'customer@ongo.demo', hash, 'Beach Explorer', 'customer', ts, ts);
+      INSERT INTO users (id, email, password_hash, display_name, role, points_balance, email_verified_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+    `).run(customerId, 'customer@ongo.demo', hash, 'Beach Explorer', 'customer', ts, ts, ts);
 
     db.prepare(`
-      INSERT INTO users (id, email, password_hash, display_name, role, points_balance, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-    `).run(businessUserId, 'business@ongo.demo', hash, "Pete's Bar Manager", 'business', ts, ts);
+      INSERT INTO users (id, email, password_hash, display_name, role, points_balance, email_verified_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+    `).run(businessUserId, 'business@ongo.demo', hash, "Pete's Bar Manager", 'business', ts, ts, ts);
 
     const escUserId = uuid();
     db.prepare(`
-      INSERT INTO users (id, email, password_hash, display_name, role, points_balance, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-    `).run(escUserId, 'european@ongo.demo', hash, 'European Street Cafe', 'business', ts, ts);
+      INSERT INTO users (id, email, password_hash, display_name, role, points_balance, email_verified_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+    `).run(escUserId, 'european@ongo.demo', hash, 'European Street Cafe', 'business', ts, ts, ts);
 
     const { assignProTrial } = require('./subscriptions');
     const { KNOWN_WEBSITES } = require('./logos');
@@ -515,10 +532,17 @@ function migrateDemoClaims(db) {
     if (!user) {
       const id = uuid();
       db.prepare(`
-        INSERT INTO users (id, email, password_hash, display_name, role, points_balance, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'business', 0, ?, ?)
-      `).run(id, email, hash, displayName, ts, ts);
+        INSERT INTO users (id, email, password_hash, display_name, role, points_balance, email_verified_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'business', 0, ?, ?, ?)
+      `).run(id, email, hash, displayName, ts, ts, ts);
       user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+      db.dirty = true;
+    } else if (!user.email_verified_at) {
+      db.prepare('UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?), updated_at = ? WHERE id = ?').run(
+        ts,
+        ts,
+        user.id
+      );
       db.dirty = true;
     }
     return user;
@@ -623,11 +647,15 @@ function schedulePersist(db) {
 }
 
 async function persistNow(db) {
-  if (!db.dirty) return;
+  if (!db || !db.dirty) return;
   const bytes = db.export();
   db.dirty = false;
   if (process.env.NETLIFY || process.env.USE_NETLIFY_BLOBS === '1') {
-    await saveBytesToBlobs(bytes);
+    const ok = await saveBytesToBlobs(bytes);
+    if (!ok) {
+      db.dirty = true;
+      return;
+    }
   }
   try {
     saveBytesToFile(bytes);
@@ -636,55 +664,186 @@ async function persistNow(db) {
   }
 }
 
+/** Persist whatever the current in-memory db holds (used after Netlify request reload). */
+async function persistDbBytes(db) {
+  return persistNow(db);
+}
+
+let sqlJsPromise = null;
+async function getSQL() {
+  if (!sqlJsPromise) {
+    const initSql = require('sql.js/dist/sql-wasm-inline.js');
+    sqlJsPromise = initSql();
+  }
+  return sqlJsPromise;
+}
+
+function applyMigrations(db) {
+  ensureSchema(db);
+  ensureAuthColumns(db);
+  const {
+    ensureLogoColumns,
+    backfillWebsites,
+  } = require('./logos');
+  const { ensureProTrialsForClaimed } = require('./subscriptions');
+  const { ensureEnrichColumns, applyEnrichmentCache } = require('./enrich');
+  ensureLogoColumns(db);
+  ensureEnrichColumns(db);
+  backfillWebsites(db);
+  const seedResult = seedIfEmpty(db);
+  migrateDemoClaims(db);
+  ensureProTrialsForClaimed(db);
+  recoverOwnerAccounts(db);
+  applyEnrichmentCache(db);
+  expireOffers(db);
+  return seedResult;
+}
+
+/**
+ * Owner accounts Damien reported as broken — ensure they exist, verified,
+ * with a known temporary password he can change after login.
+ * Bump OWNER_RECOVERY_GEN to re-apply the temp password once (then leave alone).
+ */
+const OWNER_RECOVERY_GEN = 1;
+const OWNER_RECOVERY = [
+  {
+    email: 'damienstarkey978@gmail.com',
+    display_name: 'Damien Starkey',
+    role: 'customer',
+    tempPassword: 'OngoRecover978!',
+  },
+  {
+    email: 'damien@worldconstructioninc.com',
+    display_name: 'Damien WCI',
+    role: 'customer',
+    tempPassword: 'OngoRecover978!',
+  },
+];
+
+function ensureAppMeta(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+}
+
+function recoverOwnerAccounts(db) {
+  ensureAuthColumns(db);
+  ensureAppMeta(db);
+  const bcrypt = require('bcryptjs');
+  const ts = nowIso();
+  const genRow = db.prepare(`SELECT value FROM app_meta WHERE key = 'owner_recovery_gen'`).get();
+  const appliedGen = genRow ? Number(genRow.value) || 0 : 0;
+  const forcePassword = appliedGen < OWNER_RECOVERY_GEN;
+
+  for (const acct of OWNER_RECOVERY) {
+    const email = acct.email.toLowerCase();
+    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    const hash = bcrypt.hashSync(acct.tempPassword, 10);
+    if (!user) {
+      const id = uuid();
+      db.prepare(`
+        INSERT INTO users (
+          id, email, password_hash, display_name, role, points_balance,
+          email_verified_at, verify_token, verify_expires, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?)
+      `).run(id, email, hash, acct.display_name, acct.role, ts, ts, ts);
+      db.dirty = true;
+      continue;
+    }
+    if (!user.email_verified_at || forcePassword) {
+      db.prepare(`
+        UPDATE users
+        SET password_hash = ?,
+            display_name = COALESCE(NULLIF(display_name, ''), ?),
+            email_verified_at = COALESCE(email_verified_at, ?),
+            verify_token = NULL,
+            verify_expires = NULL,
+            reset_token = NULL,
+            reset_expires = NULL,
+            updated_at = ?
+        WHERE id = ?
+      `).run(hash, acct.display_name, ts, ts, user.id);
+      db.dirty = true;
+    }
+  }
+
+  if (forcePassword) {
+    db.prepare(`
+      INSERT INTO app_meta (key, value, updated_at) VALUES ('owner_recovery_gen', ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).run(String(OWNER_RECOVERY_GEN), ts);
+    db.dirty = true;
+  }
+}
+
 async function openDb() {
   // Inline WASM build — single JS file, no separate .wasm fetch (Netlify-friendly).
-  const initSql = require('sql.js/dist/sql-wasm-inline.js');
-  const SQL = await initSql();
+  const SQL = await getSQL();
 
   let bytes = null;
+  let loadedFromBlob = false;
   if (process.env.NETLIFY || process.env.USE_NETLIFY_BLOBS === '1') {
     bytes = await loadBytesFromBlobs();
+    loadedFromBlob = Boolean(bytes);
   }
   if (!bytes) bytes = loadBytesFromFile();
 
   const raw = bytes ? new SQL.Database(bytes) : new SQL.Database();
   const db = wrapDb(raw);
-  ensureSchema(db);
-  const {
-    ensureLogoColumns,
-    backfillWebsites,
-    resolveLogosBatch,
-  } = require('./logos');
-  const { ensureProTrialsForClaimed } = require('./subscriptions');
-  ensureLogoColumns(db);
-  backfillWebsites(db);
-  const seedResult = seedIfEmpty(db);
-  migrateDemoClaims(db);
-  ensureProTrialsForClaimed(db);
-  expireOffers(db);
-  db.dirty = true;
-  await persistNow(db);
+  const seedResult = applyMigrations(db);
+  if (db.dirty) await persistNow(db);
 
-  // Fill logos in background so serverless cold starts stay fast
-  setTimeout(() => {
-    const allBiz = db.prepare('SELECT * FROM businesses ORDER BY name ASC').all();
-    resolveLogosBatch(db, allBiz, { limit: allBiz.length || 24, concurrency: 4 })
-      .then(() => persistNow(db))
-      .catch((err) => console.warn('boot logo resolve skipped', err.message));
-  }, 0);
+  // Fill logos in background (local/dev). On Netlify, directory API resolves logos.
+  if (!process.env.NETLIFY) {
+    setTimeout(() => {
+      const { resolveLogosBatch } = require('./logos');
+      const allBiz = db.prepare('SELECT * FROM businesses ORDER BY name ASC').all();
+      resolveLogosBatch(db, allBiz, { limit: allBiz.length || 24, concurrency: 4 })
+        .then(() => persistNow(db))
+        .catch((err) => console.warn('boot logo resolve skipped', err.message));
+    }, 0);
+  }
 
-  const persist = () => persistNow(db);
+  const persist = async () => persistNow(db);
   return {
     db,
     seedResult,
     dbPath: DB_PATH,
+    loadedFromBlob,
     schedulePersist,
     persistNow: persist,
   };
 }
 
+/**
+ * Reload SQLite from Netlify Blobs so concurrent function instances don't
+ * overwrite each other with stale in-memory copies.
+ */
+async function loadDbFromStore() {
+  const SQL = await getSQL();
+  let bytes = null;
+  if (process.env.NETLIFY || process.env.USE_NETLIFY_BLOBS === '1') {
+    bytes = await loadBytesFromBlobs();
+  }
+  if (!bytes) bytes = loadBytesFromFile();
+  const raw = bytes ? new SQL.Database(bytes) : new SQL.Database();
+  const db = wrapDb(raw);
+  const seedResult = applyMigrations(db);
+  return { db, seedResult, dbPath: DB_PATH };
+}
+
 module.exports = {
   openDb,
+  loadDbFromStore,
+  persistNow,
+  persistDbBytes,
+  recoverOwnerAccounts,
+  OWNER_RECOVERY,
+  OWNER_RECOVERY_GEN,
   expireOffers,
   nowIso,
   uuid,
@@ -692,4 +851,5 @@ module.exports = {
   DATA_DIR,
   DB_PATH,
   SEED_BUSINESSES,
+  ensureAuthColumns,
 };
