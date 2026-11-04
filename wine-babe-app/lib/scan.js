@@ -779,16 +779,16 @@ const CONTROL_CODE_RE = /\b([A-Z]{2})[\s-](BIO|ÖKO|OKO|ECO|EKO|ORG|ORGANIC|BIO-
 
 function findMarks(text) {
   const t = String(text || "");
+  // Just the matched phrase, so details read cleanly ("NO OGM").
   const snippet = (re) => {
     const m = t.match(re);
-    if (!m) return "";
-    const i = m.index ?? t.search(re);
-    return t.slice(Math.max(0, i - 40), i + m[0].length + 60).replace(/\s+/g, " ").trim();
+    return m ? m[0].replace(/\s+/g, " ").trim() : "";
   };
   const codes = [...new Set([...t.matchAll(CONTROL_CODE_RE)].map((m) => `${m[1]}-${m[2]}-${m[3]}`.toUpperCase()))];
   return {
     nonGmo: snippet(NON_GMO_RE),
     organic: snippet(ORGANIC_RE),
+    bioWord: snippet(/\b(bio|biologico|biologique|organic)\b/i),
     organicLogo: snippet(ORGANIC_LOGO_RE),
     codes,
   };
@@ -799,7 +799,7 @@ function marksToChecks(marks, source) {
   const out = [];
   const base = { scope: source.scope || "this_wine", as_of: "", source_url: source.url || "" };
   if (marks.nonGmo) {
-    out.push({ ...base, id: "non_gmo", status: "pass", evidence: "winery", detail: `${source.label}: "${marks.nonGmo.slice(0, 120)}"` });
+    out.push({ ...base, id: "non_gmo", status: "pass", evidence: "winery", detail: `${source.label} says "${marks.nonGmo}".` });
   }
   const codeNote = marks.codes.length ? ` Control body code ${marks.codes.join(", ")}.` : "";
   // On the bottle label an EU control body code is itself the certification
@@ -808,10 +808,14 @@ function marksToChecks(marks, source) {
   const labelCode = source.label === "Label" && marks.codes.length;
   if (marks.organicLogo || labelCode || (marks.organic && marks.codes.length)) {
     // Logo, label code, or organic wording with a control body code.
-    out.push({ ...base, id: "organic", status: "pass", evidence: "certified", detail: `${source.label}: ${marks.organicLogo ? `organic certification mark (${marks.organicLogo.slice(0, 80)})` : marks.organic ? `"${marks.organic.slice(0, 100)}"` : "EU organic control body code"}.${codeNote}` });
+    out.push({ ...base, id: "organic", status: "pass", evidence: "certified", detail: `${source.label}: ${marks.organicLogo ? `organic certification mark (${marks.organicLogo})` : marks.organic ? `"${marks.organic}"` : "EU organic control body code"}.${codeNote}` });
     out.push({ ...base, id: "certifications", status: "pass", evidence: "certified", detail: `${source.label}: EU organic certification.${codeNote}` });
   } else if (marks.organic) {
-    out.push({ ...base, id: "organic", status: "pass", evidence: "winery", detail: `${source.label}: "${marks.organic.slice(0, 120)}"` });
+    out.push({ ...base, id: "organic", status: "pass", evidence: "winery", detail: `${source.label} says "${marks.organic}".` });
+  } else if (source.label === "Label" && marks.bioWord) {
+    // "Bio" printed on the bottle is the producer's organic claim (in the EU
+    // the word is legally reserved for organic products).
+    out.push({ ...base, id: "organic", status: "pass", evidence: "winery", detail: `Label says "${marks.bioWord}" (organic claim).` });
   }
   // A code alone on a web page or sheet is not a pass: it may cover other wines.
   return out;
@@ -947,7 +951,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v38";
+const ENGINE_VERSION = "v39";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1006,8 +1010,10 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   const wine = id.wine;
   // Text sources scanned by the certification recognizer.
   const markSources = [];
-  if (Array.isArray(id.label_marks) && id.label_marks.length) {
-    markSources.push({ label: "Label", text: id.label_marks.join(" | "), url: "", scope: "this_wine" });
+  {
+    // Label marks from the photo, plus the wine's own name (e.g. "Bonny Bio").
+    const labelText = [...(Array.isArray(id.label_marks) ? id.label_marks : []), image ? wine.name : ""].filter(Boolean).join(" | ");
+    if (labelText) markSources.push({ label: "Label", text: labelText, url: "", scope: "this_wine" });
   }
   send({ type: "status", text: `Found ${[wine.producer, wine.name].filter(Boolean).join(" ")}` });
 
