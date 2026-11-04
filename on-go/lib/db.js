@@ -610,8 +610,9 @@ let lastBlobOk = null;
 
 function blobStore() {
   const { getStore } = require('@netlify/blobs');
-  // Strong consistency so a login persist is visible to the next function.
-  return getStore({ name: 'on-go-data', consistency: 'strong' });
+  // Default eventual consistency — 'strong' needs uncachedEdgeURL which
+  // Lambda-compat connectLambda context does not provide.
+  return getStore('on-go-data');
 }
 
 async function loadBytesFromBlobs() {
