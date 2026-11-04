@@ -199,6 +199,7 @@ Run exactly one web search, with exactly the query you are given (the full wine 
 Return:
 - pages: up to 4 result pages, the winery's own product / specs / nutrition page first, each tagged winery, importer, retailer or other.
 - The figures given for THIS wine by the best source (winery first; otherwise importer, then any page in the results that states them for this wine, such as a wine site, nutrition database or retailer): calories, carbohydrates and sugar per 5 oz (148 ml) serving (convert other serving sizes), residual sugar in g/L if stated, ABV. Use null for anything not stated. Ranges count: use the midpoint for calories and carbs, the highest value for sugar.
+- ABV is printed on almost every retail listing: always return it when any result states it for this wine (if listings differ, use the most common value).
 - source_url and source_kind of the page the figures came from ("none" if no figures).`;
 
 const SHEET_SEARCH_SYSTEM = `You find a wine's official technical sheet for the Wine Babe app, fast.
@@ -809,7 +810,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v26";
+const ENGINE_VERSION = "v27";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -846,7 +847,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     const retry = await runAgent({ diag,
       name: "identify-retry",
       system: IDENTIFY_SYSTEM + `
-This is a second try: you MUST run a web search for the exact wine name first. If the name is a brand rather than a winery (store and private label wines, e.g. "Terracotta Pinot Grigio"), use the brand as producer, or the bottler named on retail pages. Set identified true whenever the search shows a real wine with this name; identified false only if nothing matches.`,
+This is a second try: you MUST run a web search for the exact wine name first. If the name is a brand rather than a winery (store and private label wines, e.g. "Terracotta Pinot Grigio"), use the brand as producer, or the bottler named on retail pages. Also find the brand's own website and this wine's page on it (e.g. terracottawines.com/our-wines/pinot-grigio) for winery_website and product_page_url. Set identified true whenever the search shows a real wine with this name; identified false only if nothing matches.`,
       content: idContent,
       schema: IDENTIFY_SCHEMA,
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
@@ -895,7 +896,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   let producerOrigin = "";
   // Started up front so it runs alongside everything else.
   const nutritionSearch = runAgent({ diag,
-    name: "nutrition-search", system: NUTRITION_SEARCH_SYSTEM, schema: NUTRITION_SCHEMA, send, deadline: deadline - 4000,
+    name: "nutrition-search", model: SMART_MODEL, system: NUTRITION_SEARCH_SYSTEM, schema: NUTRITION_SCHEMA, send, deadline: deadline - 4000,
     content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. Search exactly: ${brandAndName(wine)} nutrition facts`),
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
   });
@@ -1319,7 +1320,12 @@ This is a second try: you MUST run a web search for the exact wine name first. I
 
   // Complete results are kept 30 days; partial ones (no tech sheet, or a
   // lookup ran out of time) for 1 day, so they get retried soon.
-  if (cache) await cache.set(key, { cached_at: Date.now(), result }).catch(() => {});
+  // A thin result (fewer than 4 of the top 10 known) is not cached: lookups
+  // vary run to run, so the next scan gets a fresh try instead of a stored
+  // empty answer.
+  const knownTop = ALL_ITEMS.filter((i) => i.top).filter((i) => checks.some((c) => c.id === i.id && (c.status === "pass" || c.status === "fail"))).length;
+  diag.push({ name: "cache", outcome: knownTop >= 4 ? `stored (${knownTop}/10 known)` : `skipped, thin result (${knownTop}/10 known)` });
+  if (cache && knownTop >= 4) await cache.set(key, { cached_at: Date.now(), result }).catch(() => {});
   return result;
 }
 
