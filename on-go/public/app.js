@@ -89,9 +89,11 @@
     const chip = $('#session-chip');
     if (!state.user) {
       chip.textContent = 'Not signed in';
+      chip.setAttribute('aria-label', 'Open account — sign in or create account');
       return;
     }
     chip.textContent = `${state.user.display_name} · ${state.user.role} · ${state.user.points_balance} pts`;
+    chip.setAttribute('aria-label', `Open account — ${state.user.display_name}`);
   }
 
   function showView(name) {
@@ -967,6 +969,8 @@
     $$('.sw').forEach((btn) => {
       btn.addEventListener('click', () => showView(btn.dataset.view));
     });
+
+    $('#session-chip')?.addEventListener('click', () => showView('account'));
 
     document.body.addEventListener('click', (e) => {
       const goto = e.target.closest('[data-goto]');

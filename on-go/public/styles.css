@@ -105,6 +105,7 @@ body {
 }
 
 .chip {
+  font: inherit;
   font-size: 0.72rem;
   font-weight: 600;
   padding: 0.28rem 0.65rem;
@@ -112,6 +113,21 @@ body {
   border: 1px solid rgba(26, 255, 90, 0.35);
   background: var(--signal-dim);
   color: var(--signal);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.chip:hover,
+.chip:focus-visible {
+  border-color: var(--signal);
+  background: rgba(26, 255, 90, 0.18);
+  outline: none;
+}
+
+.chip:focus-visible {
+  box-shadow: 0 0 0 2px rgba(26, 255, 90, 0.35);
 }
 
 /* —— Full-bleed map stage —— */
