@@ -58,6 +58,13 @@ const KNOWN_OFFICIAL_LOGOS = {
   "Poe's Tavern": '/assets/venues/poes-tavern.jpg',
   'Valley Smoke': '/assets/venues/valley-smoke.jpg',
   'Green Room Brewing': '/assets/venues/green-room-brewing.jpg',
+  "Lucky's Bar": '/assets/venues/luckys-bar.jpg',
+  'Tavern on 1st': '/assets/venues/tavern-on-1st.jpg',
+  // Social / brand-mark pulls (FB profile / official LandShark mark)
+  "Ginger's Place": '/assets/venues/gingers-place.png',
+  'Salt Beachside Bar': '/assets/venues/salt-beachside.png',
+  'LandShark Bar & Grill': '/assets/venues/landshark-bar-grill.png',
+  'Factory After Dark': '/assets/venues/factory-after-dark.png',
   // Official site brand marks
   "Pete's Bar": '/assets/venues/petes-bar.jpg',
   'Southern Grounds & Co.': '/assets/venues/southern-grounds.png',
