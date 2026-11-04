@@ -156,16 +156,6 @@ const SEED_BUSINESSES = [
     osm_ref: 'overpass:palm-valley-fish-camp',
   },
   {
-    name: "Fly's Tie Irish Pub",
-    area: 'Atlantic Beach',
-    category: 'Bar',
-    address: '177 Sailfish Drive East, Atlantic Beach, FL 32233',
-    lat: 30.3257705,
-    lng: -81.4068543,
-    hours_json: JSON.stringify({ daily: '11-2' }),
-    osm_ref: 'overpass:flys-tie',
-  },
-  {
     name: 'Azurea',
     area: 'Atlantic Beach',
     category: 'Dinner',
@@ -175,7 +165,307 @@ const SEED_BUSINESSES = [
     hours_json: JSON.stringify({ daily: '5-10' }),
     osm_ref: 'overpass:azurea',
   },
+  {
+    name: 'The Local',
+    area: 'Neptune Beach',
+    category: 'Dinner',
+    address: '301 Atlantic Blvd, Neptune Beach, FL 32266',
+    phone: '(904) 372-9791',
+    lat: 30.3243442,
+    lng: -81.3975144,
+    hours_json: JSON.stringify({ mon_wed: '9-10', thu_sat: '9-12', sun: '9-9' }),
+    osm_ref: 'address:301-atlantic-blvd-neptune',
+  },
+  {
+    name: 'Island Girl Cigar Bar (Neptune Beach)',
+    area: 'Neptune Beach',
+    category: 'Bar',
+    address: '108 1st Street, Neptune Beach, FL 32266',
+    phone: '(904) 372-4194',
+    lat: 30.3241963,
+    lng: -81.3962405,
+    hours_json: JSON.stringify({ sun_wed: '11-1', thu_sat: '11-2' }),
+    osm_ref: 'address:108-1st-st-neptune',
+  },
+  {
+    name: 'Island Girl Cigar Bar (Mayport)',
+    area: 'Atlantic Beach',
+    category: 'Bar',
+    address: '2294 Mayport Road #25, Atlantic Beach, FL 32233',
+    phone: '(904) 595-5042',
+    lat: 30.3509839,
+    lng: -81.414418,
+    hours_json: JSON.stringify({ daily: '11-2' }),
+    osm_ref: 'address:2294-mayport-rd-25',
+  },
+  {
+    name: "Mr. Chubby's Wings",
+    area: 'Ponte Vedra Beach',
+    category: 'Dinner',
+    address: '150 Valley Circle, Ponte Vedra Beach, FL 32082',
+    phone: '(904) 500-9464',
+    lat: 30.1905473,
+    lng: -81.3807582,
+    hours_json: JSON.stringify({ sun_thu: '11-11', fri_sat: '11-12' }),
+    osm_ref: 'address:150-valley-circle-pvb',
+  },
+  {
+    name: "Surfer the Bar",
+    area: "Jacksonville Beach",
+    category: "Bar",
+    address: "200 1st St N, Jacksonville Beach, FL 32250",
+    phone: "(904) 372-9756",
+    lat: 30.2905266,
+    lng: -81.3900981,
+    hours_json: "{\"tue_fri\":\"16-2\",\"sat_sun\":\"11-2\",\"mon\":\"closed\"}",
+    osm_ref: "overpass:surfer-the-bar",
+  },
+  {
+    name: "Mango's Beach Bar & Grille",
+    area: "Jacksonville Beach",
+    category: "Bar",
+    address: "602 1st St N, Jacksonville Beach, FL 32250",
+    phone: "(904) 246-4200",
+    lat: 30.2942306,
+    lng: -81.3909948,
+    hours_json: "{\"daily\":\"11-2\"}",
+    osm_ref: "address:602-1st-st-n",
+  },
+  {
+    name: "Ginger's Place",
+    area: "Jacksonville Beach",
+    category: "Bar",
+    address: "304 3rd St S, Jacksonville Beach, FL 32250",
+    phone: "(904) 249-8711",
+    lat: 30.2851579,
+    lng: -81.3914062,
+    hours_json: "{\"daily\":\"13-2\"}",
+    osm_ref: "address:304-3rd-st-s",
+  },
+  {
+    name: "Wreck Tiki Lounge",
+    area: "Jacksonville Beach",
+    category: "Bar",
+    address: "401 1st St N, Jacksonville Beach, FL 32250",
+    phone: "(904) 247-0507",
+    lat: 30.2936114,
+    lng: -81.3904478,
+    hours_json: "{\"mon\":\"16-22\"}",
+    osm_ref: "address:401-1st-st-n-wreck",
+  },
+  {
+    name: "Sandbar Jax Beach",
+    area: "Jacksonville Beach",
+    category: "Dinner",
+    address: "465 1st St N, Jacksonville Beach, FL 32250",
+    phone: "(904) 246-6160",
+    lat: 30.2937257,
+    lng: -81.3904705,
+    hours_json: "{\"sun_thu\":\"11-22\",\"fri_sat\":\"11-23\"}",
+    osm_ref: "overpass:pier-cantina-sandbar",
+  },
+  {
+    name: "The Ritz Lounge",
+    area: "Jacksonville Beach",
+    category: "Bar",
+    address: "185 3rd Ave N, Jacksonville Beach, FL 32250",
+    phone: "(904) 246-2255",
+    lat: 30.2923349,
+    lng: -81.391035,
+    hours_json: "{\"daily\":\"13-2\"}",
+    osm_ref: "address:185-3rd-ave-n",
+  },
+  {
+    name: "Lucky's Bar",
+    area: "Jacksonville Beach",
+    category: "Bar",
+    address: "333 1st St N #150, Jacksonville Beach, FL 32250",
+    phone: "(904) 222-0796",
+    lat: 30.2916409,
+    lng: -81.3902345,
+    hours_json: "{\"wed_thu\":\"17-2\",\"fri_sun\":\"15-2\",\"mon_tue\":\"closed\"}",
+    osm_ref: "address:333-1st-st-n-150",
+  },
+  {
+    name: "Tavern on 1st",
+    area: "Jacksonville Beach",
+    category: "Bar",
+    address: "401 1st St N, Jacksonville Beach, FL 32250",
+    phone: "(904) 247-0507",
+    lat: 30.2924628,
+    lng: -81.3899486,
+    hours_json: "{\"mon_fri\":\"16-2\",\"sat_sun\":\"13-2\"}",
+    osm_ref: "overpass:tavern-on-1st",
+  },
+  {
+    name: "Salt Beachside Bar",
+    area: "Jacksonville Beach",
+    category: "Bar",
+    address: "1515 1st St N, Jacksonville Beach, FL 32250",
+    phone: "(904) 241-2311",
+    lat: 30.302903,
+    lng: -81.391849,
+    hours_json: "{\"daily\":\"until-22\"}",
+    osm_ref: "address:1515-1st-st-n-hampton",
+  },
+  {
+    name: "Flask & Cannon",
+    area: "Jacksonville Beach",
+    category: "Bar",
+    address: "528 1st St N, Jacksonville Beach, FL 32250",
+    phone: "(904) 853-6633",
+    lat: 30.2938201,
+    lng: -81.3907128,
+    hours_json: "{\"mon_thu\":\"11-22\",\"fri_sat\":\"11-23\",\"sun\":\"10-21\"}",
+    osm_ref: "address:528-1st-st-n-vpizza",
+  },
+  {
+    name: "Brix Taphouse & Bar",
+    area: "Jacksonville Beach",
+    category: "Bar",
+    address: "300 2nd St N, Jacksonville Beach, FL 32250",
+    phone: "(904) 241-4668",
+    lat: 30.2913014,
+    lng: -81.3913324,
+    hours_json: "{\"sun_thu\":\"11-23\",\"fri_sat\":\"11-24\"}",
+    osm_ref: "overpass:brix-taphouse",
+  },
+  {
+    name: "Pusser's Bar and Grille",
+    area: "Ponte Vedra Beach",
+    category: "Bar",
+    address: "816 A1A N Suite 100, Ponte Vedra Beach, FL 32082",
+    phone: "(904) 280-7766",
+    lat: 30.201062,
+    lng: -81.381256,
+    hours_json: "{\"sun_thu\":\"11-21\",\"fri_sat\":\"11-22\"}",
+    osm_ref: "exa:pussers-pvb",
+  },
+  {
+    name: "Jax Beach Bar & Grill",
+    area: "Jacksonville Beach",
+    category: "Dinner",
+    address: "265 5th Ave N, Jacksonville Beach, FL 32250",
+    phone: "(904) 746-7774",
+    lat: 30.2941017,
+    lng: -81.3924804,
+    hours_json: "{}",
+    osm_ref: "address:265-5th-ave-n",
+  },
+  {
+    name: "Kava & Co",
+    area: "Jacksonville Beach",
+    category: "Bar",
+    address: "223 9th Ave S, Jacksonville Beach, FL 32250",
+    phone: "(904) 595-5150",
+    lat: 30.2801026,
+    lng: -81.3897947,
+    hours_json: "{}",
+    osm_ref: "address:223-9th-ave-s",
+  },
+  {
+    name: "Factory After Dark",
+    area: "Jacksonville Beach",
+    category: "Bar",
+    address: "1396 Beach Blvd, Jacksonville Beach, FL 32250",
+    phone: "(904) 372-0366",
+    lat: 30.2875192,
+    lng: -81.4040388,
+    hours_json: "{}",
+    osm_ref: "address:1396-beach-blvd",
+  },
+  {
+    name: "LandShark Bar & Grill",
+    area: "Jacksonville Beach",
+    category: "Dinner",
+    address: "715 1st St N, Jacksonville Beach, FL 32250",
+    phone: "(904) 222-0222",
+    lat: 30.2954067,
+    lng: -81.390692,
+    hours_json: "{}",
+    osm_ref: "address:715-1st-st-n-margaritaville",
+  },
+  {
+    name: "Monkey's Uncle Tavern",
+    area: "Jacksonville Beach",
+    category: "Bar",
+    address: "1728 3rd St N, Jacksonville Beach, FL 32250",
+    phone: "(904) 246-1070",
+    lat: 30.3045241,
+    lng: -81.3958344,
+    hours_json: "{}",
+    osm_ref: "address:1728-3rd-st-n",
+  },
+  {
+    name: "1912 Ocean Bar & Rooftop",
+    area: "Ponte Vedra Beach",
+    category: "Bar",
+    address: "619 Ponte Vedra Blvd, Ponte Vedra Beach, FL 32082",
+    phone: "(904) 373-2063",
+    lat: 30.2172861,
+    lng: -81.3716646,
+    hours_json: "{\"mon_sat\":\"16-22\",\"sun_brunch\":\"11-14\"}",
+    osm_ref: "address:619-ponte-vedra-blvd",
+  },
+  {
+    name: "Sneakers Sports Grille",
+    area: "Jacksonville Beach",
+    category: "Dinner",
+    address: "111 Beach Blvd, Jacksonville Beach, FL 32250",
+    phone: "(904) 482-1000",
+    lat: 30.2888403,
+    lng: -81.3900168,
+    hours_json: "{\"sun_thu\":\"11-22\",\"fri_sat\":\"11-24\"}",
+    osm_ref: "overpass:sneakers-sports-grille",
+  },
+  {
+    name: "Green Room Brewing",
+    area: "Jacksonville Beach",
+    category: "Bar",
+    address: "228 3rd St N, Jacksonville Beach, FL 32250",
+    phone: "(904) 201-9283",
+    lat: 30.2907112,
+    lng: -81.3926017,
+    hours_json: "{\"mon\":\"closed\",\"tue_thu\":\"15-24\",\"fri\":\"15-1\",\"sat\":\"12-1\",\"sun\":\"12-22\"}",
+    osm_ref: "address:228-3rd-st-n",
+  },
+  {
+    name: "Harbor Tavern",
+    area: "Atlantic Beach",
+    category: "Bar",
+    address: "160 Mayport Rd, Atlantic Beach, FL 32233",
+    phone: "(904) 246-2555",
+    lat: 30.3258562,
+    lng: -81.4193621,
+    hours_json: "{\"daily\":\"11-2\"}",
+    osm_ref: "address:160-mayport-rd",
+  },
+  {
+    name: "Dragonfly Lounge",
+    area: "Neptune Beach",
+    category: "Bar",
+    address: "1505 Atlantic Blvd #1537, Neptune Beach, FL 32266",
+    phone: "(904) 903-7162",
+    lat: 30.3235608,
+    lng: -81.4145501,
+    hours_json: "{\"mon\":\"11-22\",\"tue\":\"closed\",\"wed_thu\":\"11-22\",\"fri_sat\":\"11-24\",\"sun\":\"11-22\"}",
+    osm_ref: "address:1505-atlantic-blvd-1537",
+  },
+  {
+    name: "Culhane's Irish Pub",
+    area: "Atlantic Beach",
+    category: "Bar",
+    address: "967 Atlantic Blvd, Atlantic Beach, FL 32233",
+    phone: "(904) 249-9595",
+    lat: 30.3257567,
+    lng: -81.410551,
+    hours_json: "{\"mon\":\"11:30-24\",\"tue_wed\":\"11:30-22\",\"thu\":\"11:30-24\",\"fri\":\"11:30-1:30\",\"sat\":\"9-1:30\",\"sun\":\"8:30-24\"}",
+    osm_ref: "address:967-atlantic-blvd-ab",
+  },
 ];
+
+/** Permanently closed — remove from live directory/map on every boot */
+const CLOSED_VENUE_NAMES = ["Fly's Tie Irish Pub"];
 
 const AD_SLOTS = [
   { zone: 'All Beaches', category: 'Coffee', slot_label: '6–10 AM Coffee', hoursAheadStart: 1, durationHours: 4, min_bid_cents: 500 },
@@ -709,6 +999,73 @@ async function getSQL() {
   return sqlJsPromise;
 }
 
+function purgeClosedVenues(db) {
+  let removed = 0;
+  for (const name of CLOSED_VENUE_NAMES) {
+    const rows = db
+      .prepare('SELECT id FROM businesses WHERE name = ? OR slug = ?')
+      .all(name, slugify(name));
+    for (const row of rows) {
+      const id = row.id;
+      db.prepare('DELETE FROM favorites WHERE business_id = ?').run(id);
+      db.prepare('DELETE FROM bids WHERE business_id = ?').run(id);
+      db.prepare('DELETE FROM business_members WHERE business_id = ?').run(id);
+      db.prepare('DELETE FROM subscriptions WHERE business_id = ?').run(id);
+      db.prepare('DELETE FROM redemptions WHERE business_id = ?').run(id);
+      db.prepare('DELETE FROM offers WHERE business_id = ?').run(id);
+      db.prepare('DELETE FROM businesses WHERE id = ?').run(id);
+      db.dirty = true;
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+/** Insert any SEED_BUSINESSES missing from an already-seeded DB (idempotent). */
+function ensureSeedVenues(db) {
+  const ts = nowIso();
+  const insertBiz = db.prepare(`
+    INSERT INTO businesses (
+      id, name, slug, area, category, address, phone, website, hours_json,
+      lat, lng, status, claimed_by_user_id, is_directory_only, featured_until, osm_ref, created_at, updated_at
+    ) VALUES (
+      ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?
+    )
+  `);
+  let added = 0;
+  for (const b of SEED_BUSINESSES) {
+    const slug = slugify(b.name);
+    const existing = db
+      .prepare('SELECT id FROM businesses WHERE name = ? OR slug = ?')
+      .get(b.name, slug);
+    if (existing) continue;
+    insertBiz.run(
+      uuid(),
+      b.name,
+      slug,
+      b.area,
+      b.category,
+      b.address || '',
+      b.phone || '',
+      '',
+      b.hours_json || '{}',
+      b.lat,
+      b.lng,
+      'unclaimed',
+      null,
+      1,
+      null,
+      b.osm_ref || null,
+      ts,
+      ts
+    );
+    db.dirty = true;
+    added += 1;
+  }
+  return added;
+}
+
 function applyMigrations(db) {
   ensureSchema(db);
   ensureAuthColumns(db);
@@ -723,6 +1080,8 @@ function applyMigrations(db) {
   ensureEnrichColumns(db);
   backfillWebsites(db);
   const seedResult = seedIfEmpty(db);
+  ensureSeedVenues(db);
+  purgeClosedVenues(db);
   migrateDemoClaims(db);
   ensureProTrialsForClaimed(db);
   recoverOwnerAccounts(db);

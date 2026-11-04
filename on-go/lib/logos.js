@@ -18,11 +18,32 @@ const KNOWN_WEBSITES = {
   'Marker 32': 'https://www.marker32.com',
   'Valley Smoke': 'https://www.valleysmoke.com',
   'Aqua Grill': 'https://www.aquagrill.net',
-  'The Lemon Bar': 'https://www.thelemonbar.com',
+  'The Lemon Bar': 'https://www.lemonbarjax.com',
   'European Street Cafe': 'https://www.europeanstreet.com',
   'Palm Valley Fish Camp': 'https://www.palmvalleyfishcamp.com',
-  "Fly's Tie Irish Pub": 'https://www.flystie.com',
   Azurea: 'https://www.oneoceanresort.com/dining/azurea',
+  'The Local': 'https://www.thelocaljax.com',
+  'Island Girl Cigar Bar (Neptune Beach)': 'https://islandgirlcigarbar.com/neptune-beach/',
+  'Island Girl Cigar Bar (Mayport)': 'https://islandgirlcigarbar.com/mayport/',
+  "Mr. Chubby's Wings": 'https://mrchubbyswings.com/ponte-vedra-beach-location',
+  "Surfer the Bar": "https://surferthebar.com/",
+  "Mango's Beach Bar & Grille": "https://www.mangosjaxbeach.com/",
+  "Ginger's Place": "https://www.gingers-place.net/",
+  "Wreck Tiki Lounge": "https://wrecktikilounge.com/",
+  "Sandbar Jax Beach": "https://www.jaxbeachsandbar.com/",
+  "The Ritz Lounge": "https://www.the-ritz-lounge.com/",
+  "Flask & Cannon": "https://www.vpizza.com/locations/jacksonville-beach-fl/",
+  "Brix Taphouse & Bar": "https://jacksonvillebeachbar.com/",
+  "Pusser's Bar and Grille": "https://pusserspvb.com/",
+  "Jax Beach Bar & Grill": "https://www.jaxbeachbarandgrill.com/",
+  "Kava & Co": "https://kavaandcompany.com/",
+  "LandShark Bar & Grill": "https://www.margaritavilleresorts.com/margaritaville-hotel-jacksonville-beach/eat-drink/landshark-bar-grill",
+  "Monkey's Uncle Tavern": "https://monkeysuncletavern.com/",
+  "1912 Ocean Bar & Rooftop": "https://www.1912oceanbarandrooftop.com/",
+  "Sneakers Sports Grille": "https://sneakerssportsgrille.com/",
+  "Green Room Brewing": "https://greenroombrewing.com/",
+  "Dragonfly Lounge": "https://dragonflylounge-beaches.com/",
+  "Culhane's Irish Pub": "https://www.culhanesirishpub.com/",
 };
 
 /** Hand-verified logos shipped in public/ — beat Clearbit/favicon defaults */
@@ -31,6 +52,30 @@ const KNOWN_OFFICIAL_LOGOS = {
   "Lynch's Irish Pub": '/assets/venues/lynchs-irish-pub.jpg',
   "Poe's Tavern": '/assets/venues/poes-tavern.jpg',
   'Valley Smoke': '/assets/venues/valley-smoke.jpg',
+  'The Lemon Bar': '/assets/venues/the-lemon-bar.png',
+  'The Local': '/assets/venues/the-local.png',
+  'Island Girl Cigar Bar (Neptune Beach)': '/assets/venues/island-girl.png',
+  'Island Girl Cigar Bar (Mayport)': '/assets/venues/island-girl.png',
+  "Mr. Chubby's Wings": '/assets/venues/mr-chubbys-wings.png',
+  "Surfer the Bar": "/assets/venues/surfer-the-bar.png",
+  "Mango's Beach Bar & Grille": "/assets/venues/mangos-beach-bar.jpg",
+  "Ginger's Place": "/assets/venues/gingers-place.jpg",
+  "Wreck Tiki Lounge": "/assets/venues/wreck-tiki-lounge.png",
+  "Sandbar Jax Beach": "/assets/venues/sandbar-jax-beach.png",
+  "The Ritz Lounge": "/assets/venues/the-ritz-lounge.png",
+  "Lucky's Bar": "/assets/venues/luckys-bar.png",
+  "Tavern on 1st": "/assets/venues/tavern-on-1st.png",
+  "Salt Beachside Bar": "/assets/venues/salt-beachside-bar.png",
+  "Brix Taphouse & Bar": "/assets/venues/brix-taphouse.png",
+  "Pusser's Bar and Grille": "/assets/venues/pussers-bar-grille.png",
+  "Jax Beach Bar & Grill": "/assets/venues/jax-beach-bar-grill.png",
+  "LandShark Bar & Grill": "/assets/venues/landshark-bar-grill.png",
+  "Monkey's Uncle Tavern": "/assets/venues/monkeys-uncle-tavern.png",
+  "1912 Ocean Bar & Rooftop": "/assets/venues/1912-ocean-bar.png",
+  "Sneakers Sports Grille": "/assets/venues/sneakers-sports-grille.png",
+  "Harbor Tavern": "/assets/venues/harbor-tavern.png",
+  "Dragonfly Lounge": "/assets/venues/dragonfly-lounge.png",
+  "Culhane's Irish Pub": "/assets/venues/culhanes-irish-pub.png",
 };
 
 const WEAK_LOGO_SOURCES = new Set(['missing', 'google_favicon', 'duckduckgo', 'clearbit', null, '']);
@@ -61,10 +106,14 @@ function backfillWebsites(db) {
     const site = KNOWN_WEBSITES[row.name];
     if (!site) continue;
     const wrongLegacy =
-      row.name === "Cinotti's Bakery" &&
-      row.website &&
-      /cinottis\.com/i.test(row.website) &&
-      !/cinottisbakery\.com/i.test(row.website);
+      (row.name === "Cinotti's Bakery" &&
+        row.website &&
+        /cinottis\.com/i.test(row.website) &&
+        !/cinottisbakery\.com/i.test(row.website)) ||
+      (row.name === 'The Lemon Bar' &&
+        row.website &&
+        /thelemonbar\.com/i.test(row.website) &&
+        !/lemonbarjax\.com/i.test(row.website));
     if (row.website && !wrongLegacy) continue;
     db.prepare('UPDATE businesses SET website = ?, updated_at = ? WHERE id = ?').run(
       site,
@@ -171,7 +220,12 @@ async function resolveLogoForBusiness(db, business, { force = false } = {}) {
   }
 
   let website = business.website || KNOWN_WEBSITES[business.name] || '';
-  if ((!business.website || /cinottis\.com$/i.test(String(business.website))) && website) {
+  if (
+    (!business.website ||
+      /cinottis\.com$/i.test(String(business.website)) ||
+      (business.name === 'The Lemon Bar' && /thelemonbar\.com/i.test(String(business.website)))) &&
+    website
+  ) {
     db.prepare('UPDATE businesses SET website = ?, updated_at = ? WHERE id = ?').run(
       website,
       new Date().toISOString(),
@@ -227,8 +281,9 @@ async function resolveLogosBatch(db, businesses, { limit = 6, force = false, con
       !b.logo_source ||
       b.logo_source === 'missing' ||
       (!b.logo_url && b.logo_source !== 'missing');
-    // Skip recently resolved missing to avoid hammering (unless force / official upgrade)
-    if (!force && !needsOfficial && b.logo_source === 'missing' && b.logo_updated_at) {
+    // Skip recently resolved missing to avoid hammering — but never leave Explore
+    // on a letter placeholder while the venue page can still resolve a logo.
+    if (!force && !needsOfficial && b.logo_source === 'missing' && b.logo_url && b.logo_updated_at) {
       const age = Date.now() - Date.parse(b.logo_updated_at);
       if (age < 1000 * 60 * 60 * 12) continue; // 12h
     }

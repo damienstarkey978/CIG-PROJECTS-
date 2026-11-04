@@ -38,6 +38,15 @@
       .replace(/"/g, '&quot;');
   }
 
+  /** Shared logo markup — Explore list + venue page stay consistent */
+  function logoHtml(b, { className = 'listing-logo', size = 48 } = {}) {
+    const initial = escapeHtml((b.name || '?').slice(0, 1));
+    if (b.logo_url) {
+      return `<img class="${className}" src="${escapeHtml(b.logo_url)}" alt="" width="${size}" height="${size}" loading="lazy" referrerpolicy="no-referrer" />`;
+    }
+    return `<div class="${className} placeholder" aria-hidden="true">${initial}</div>`;
+  }
+
   function formatEnds(iso) {
     try {
       return new Date(iso).toLocaleString(undefined, {
@@ -120,9 +129,7 @@
 
   function renderVenuePage(b) {
     const e = b.enrichment || {};
-    const logo = b.logo_url
-      ? `<img class="venue-logo" src="${escapeHtml(b.logo_url)}" alt="" width="72" height="72" referrerpolicy="no-referrer" />`
-      : `<div class="venue-logo placeholder" aria-hidden="true">${escapeHtml((b.name || '?').slice(0, 1))}</div>`;
+    const logo = logoHtml(b, { className: 'venue-logo', size: 72 });
     const liveOffers = b.live_offers || (b.live_offer ? [b.live_offer] : []);
     const offersHtml = liveOffers.length
       ? liveOffers
@@ -454,9 +461,7 @@
           : `<div class="listing-actions">
               <button type="button" class="btn ghost" data-fav="${b.id}" data-on="${b.is_favorite ? '1' : '0'}">${favLabel}</button>
             </div>`;
-        const logo = b.logo_url
-          ? `<img class="listing-logo" src="${escapeHtml(b.logo_url)}" alt="" width="48" height="48" loading="lazy" referrerpolicy="no-referrer" />`
-          : `<div class="listing-logo placeholder" aria-hidden="true">${escapeHtml((b.name || '?').slice(0, 1))}</div>`;
+        const logo = logoHtml(b, { className: 'listing-logo', size: 48 });
         return `<article class="listing is-link" data-id="${b.id}" data-open-venue="${escapeHtml(
           b.slug || b.id
         )}" tabindex="0" role="link" aria-label="Open ${escapeHtml(b.name)}">
