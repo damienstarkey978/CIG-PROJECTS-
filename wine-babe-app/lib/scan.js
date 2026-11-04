@@ -301,6 +301,40 @@ function cleanRatings(raw, wine) {
     .slice(0, 8);
 }
 
+// ---------- winery tasting notes ----------
+// The winery's (or its importer's) own description of how the wine tastes.
+// Critic reviews are not used here; those belong to the ratings card.
+
+const TASTING_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["found", "notes", "flavors", "source", "source_url"],
+  properties: {
+    found: { type: "boolean" },
+    notes: str,
+    flavors: { type: "array", items: str },
+    source: { type: "string", enum: ["winery", "importer", "none"] },
+    source_url: str,
+  },
+};
+
+const tastingPrompt = (w, site, page) => `You find the winery's own tasting notes for the Wine Babe app. Wine: ${wineLine(w)}.
+Winery website: ${site || "unknown"}. Product page: ${page || "unknown"}.
+
+Fetch the winery's product page for this exact wine (search once for "<producer> <wine name> tasting notes" if you don't have it). If the winery has none, the official importer's page for the wine is fine.
+Use only the producer's or importer's own description, never critic reviews, shops or blogs. Only this exact wine: a different cuvee or appellation (Beaujolais vs Beaujolais-Villages) is a different wine.
+notes: the tasting notes in 1 to 3 short plain sentences, close to their own words (aroma, palate, finish, food pairing if given). Max 350 characters.
+flavors: up to 8 short flavor and aroma words taken from those notes (e.g. "strawberry", "black cherry", "pepper").
+source: "winery" or "importer". source_url: the page you read. If you find nothing, found false, empty notes and flavors, source "none".`;
+
+function cleanTasting(raw) {
+  if (!raw?.found || !/^https?:\/\//.test(raw.source_url || "")) return null;
+  const notes = String(raw.notes || "").replace(/\s+/g, " ").trim().slice(0, 400);
+  if (notes.length < 15) return null;
+  const flavors = [...new Set((raw.flavors || []).map((f) => String(f).trim().toLowerCase()).filter((f) => f && f.length <= 30))].slice(0, 8);
+  return { notes, flavors, source: raw.source === "importer" ? "importer" : "winery", source_url: raw.source_url };
+}
+
 // ---------- custom tool: find document links on a page ----------
 // web_fetch returns page text, not its links, so PDF tech sheets linked from
 // a product page are easy to miss. This tool reads the raw HTML and returns
@@ -748,7 +782,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v13";
+const ENGINE_VERSION = "v14";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -989,6 +1023,11 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     return bv.error || bv.status === "unknown" ? null : bv;
   };
 
+  const tastingLookup = runAgent({ diag,
+    name: "tasting", model: SMART_MODEL, system: tastingPrompt(wine, site, page), schema: TASTING_SCHEMA, send, deadline,
+    content: ask("Find the winery's tasting notes for this wine."), tools: webTools(1, 1),
+  }).catch(() => null);
+
   const ratingsLookup = runAgent({ diag,
     name: "ratings", model: SMART_MODEL, system: ratingsPrompt(wine), schema: RATINGS_SCHEMA, send, deadline,
     content: ask("Find this wine's professional critic ratings."), tools: webTools(1, 1),
@@ -1152,6 +1191,8 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     .slice(0, 12);
 
   const ratings = cleanRatings(await ratingsLookup, wine);
+  const tasting = cleanTasting(await tastingLookup);
+  diag.push({ name: "tasting-found", outcome: tasting ? `${tasting.source}: ${tasting.source_url}` : "none" });
   diag.push({ name: "ratings-found", outcome: String(ratings.length) });
 
   const result = {
@@ -1160,6 +1201,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     nutrition,
     checks,
     ratings,
+    tasting,
     summary: summarize(wine, checks, nutrition),
     sources,
     seconds: Math.round((Date.now() - t0) / 1000),
@@ -1206,6 +1248,7 @@ function demoResult() {
     },
     nutrition: { abv: 12.5, residual_sugar_g_l: 2.1, calories_5oz: 108, carbs_5oz: 0.8, total_so2_mg_l: 78, free_so2_mg_l: 22, ph: 3.3, ta_g_l: 5.8, source: "lab" },
     checks: ALL_ITEMS.map((i) => known[i.id] || unk(i.id)),
+    tasting: { notes: "Pale straw with fine bubbles. Crisp green apple and white flowers, with a dry, mineral finish. Lovely with oysters.", flavors: ["green apple", "white flowers", "citrus", "mineral"], source: "winery", source_url: "" },
     ratings: [
       { publication: "Wine Enthusiast", score: 91, scale: 100, vintage: "2024", source_url: "" },
       { publication: "James Suckling", score: 90, scale: 100, vintage: "2023", source_url: "" },

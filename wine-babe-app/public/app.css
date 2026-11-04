@@ -373,3 +373,10 @@ details.cat .checks { padding: 0 1rem 0.4rem; }
 .ratings li.other { opacity: 0.8; }
 .ratings .r-note, .ratings .r-none { margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--muted); }
 .ratings .lbl { font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+
+/* Winery tasting notes */
+.tasting .lbl { font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.tasting .t-flavors { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.7rem 0 0.2rem; }
+.tasting .t-flavors span { padding: 0.25rem 0.65rem; border-radius: 999px; background: var(--blush-soft); color: var(--wine); font-size: 0.8rem; font-weight: 600; }
+.tasting .t-notes { margin: 0.6rem 0 0; font-family: var(--serif); font-size: 1.05rem; line-height: 1.5; font-style: italic; }
+.tasting .t-src, .tasting .t-none { margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--muted); }

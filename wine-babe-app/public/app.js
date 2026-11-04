@@ -311,6 +311,8 @@
 
       ${ratingsCard(data.ratings, w.vintage)}
 
+      ${tastingCard(data.tasting, data.ratings)}
+
       <div class="card summary"><p>${esc(data.summary)}</p>${vintageNote}
         ${techUrl ? `<p style="margin-top:.6rem"><a href="${esc(techUrl)}" target="_blank" rel="noopener">Open the tech sheet</a></p>` : ""}
       </div>
@@ -371,6 +373,20 @@
       ${ratings.length
         ? `<ul class="rating-list">${rows}</ul><p class="r-note">Scores from wine critics, not shoppers. A score is for the vintage shown; other vintages can differ.</p>`
         : `<p class="r-none">No professional critic ratings found for this wine.</p>`}
+    </div>`;
+  }
+
+  // Winery tasting notes. Older results have neither ratings nor tasting, so skip the card for them.
+  function tastingCard(t, ratings) {
+    if (t === undefined && !Array.isArray(ratings)) return "";
+    if (!t) return `<div class="card tasting"><div class="lbl">Tasting notes</div><p class="t-none">The winery hasn't published tasting notes for this wine.</p></div>`;
+    let host = "";
+    try { host = t.source_url ? new URL(t.source_url).hostname.replace(/^www\./, "") : ""; } catch {}
+    return `<div class="card tasting">
+      <div class="lbl">Tasting notes from the ${t.source === "importer" ? "importer" : "winery"}</div>
+      ${t.flavors?.length ? `<div class="t-flavors">${t.flavors.map((f) => `<span>${esc(f)}</span>`).join("")}</div>` : ""}
+      <p class="t-notes">${esc(t.notes)}</p>
+      ${host ? `<p class="t-src">Source: <a href="${esc(t.source_url)}" target="_blank" rel="noopener">${esc(host)}</a></p>` : ""}
     </div>`;
   }
 
