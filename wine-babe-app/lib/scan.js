@@ -360,6 +360,20 @@ function wineTerms(wine) {
   return [...new Set(terms)];
 }
 
+// Pull the text out of a PDF (base64). Sending Claude plain text is far faster
+// than sending the PDF itself, which is processed page by page as images.
+async function pdfText(base64) {
+  try {
+    const { extractText, getDocumentProxy } = await import("unpdf");
+    const pdf = await getDocumentProxy(new Uint8Array(Buffer.from(base64, "base64")));
+    const { text } = await extractText(pdf, { mergePages: true });
+    return String(text || "").replace(/[ \t]+\n/g, "\n").slice(0, 15000);
+  } catch (err) {
+    console.error("[pdf text]", err.message);
+    return "";
+  }
+}
+
 // Returns { url, data } for the best matching tech sheet PDF, or null.
 // Tries the product page links and the WordPress media search in parallel.
 async function findTechSheet(wine, pageUrl, siteUrl, send) {
@@ -399,6 +413,8 @@ async function runAgent({ name, system, content, schema, tools = [], effort = "l
         messages,
         ...(tools.length ? { tools } : {}),
         output_config: { effort, format: { type: "json_schema", schema } },
+        // Speed: no thinking. Sonnet 5.5 turns it off with between_tools; Haiku 5.5 with disabled.
+        thinking: model.includes("haiku") ? { type: "disabled" } : { type: "between_tools" },
         // Server side refusal fallbacks are not offered for Haiku.
         ...(model.includes("haiku") ? {} : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" }),
         ...extra,
@@ -513,7 +529,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     system: IDENTIFY_SYSTEM,
     content: idContent,
     schema: IDENTIFY_SCHEMA,
-    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 1 }],
+    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
     send,
     deadline: t0 + IDENTIFY_MS,
   });
@@ -547,8 +563,8 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
   const ask = (text) => [{ type: "text", text }];
   const deadline = Date.now() + LOOKUP_MS;
   const webTools = (searches, fetches) => [
-    { type: "web_search_20260209", name: "web_search", max_uses: searches },
-    { type: "web_fetch_20260209", name: "web_fetch", max_uses: fetches },
+    { type: "web_search_20250305", name: "web_search", max_uses: searches },
+    { type: "web_fetch_20250910", name: "web_fetch", max_uses: fetches },
   ];
 
   // Tech sheet: three routes at once. Fast routes (product page links and
@@ -556,9 +572,9 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
   // runs alongside in case the fast routes find nothing.
   const techLookup = async () => {
     const searched = runAgent({ diag,
-      name: "sheet-search", system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline: deadline - 9000,
+      name: "sheet-search", system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline,
       content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}.`),
-      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 1 }],
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
     });
     let sheet = await findTechSheet(wine, page, site, send);
     diag.push({ name: "sheet-fast", ms: Date.now() - t0, outcome: sheet ? `pdf ${sheet.url} (${Math.round(sheet.data.length * 0.75 / 1024)} KB)` : "none" });
@@ -576,13 +592,17 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     }
     if (!sheet) return null;
     send({ type: "status", text: "Reading the tech sheet" });
+    const text = await pdfText(sheet.data);
+    diag.push({ name: "sheet-text", outcome: `${text.length} chars` });
+    const content = text.length >= 200
+      ? [{ type: "text", text: `Text extracted from the winery's tech sheet at ${sheet.url}. Labels and values may sit in separate columns; match them in order.\n\n<tech_sheet>\n${text}\n</tech_sheet>\n\nFill the items. tech_sheet_url is ${sheet.url}.` }]
+      : [
+          { type: "document", source: { type: "base64", media_type: "application/pdf", data: sheet.data } },
+          { type: "text", text: `This is the winery's tech sheet, from ${sheet.url}. Read it and fill the items. tech_sheet_url is that url.` },
+        ];
     return runAgent({ diag,
-      name: "tech", system: sheetPrompt(wine), schema: agentSchema(SHEET_IDS, true), send,
-      model: READ_MODEL, deadline: Math.max(deadline, Date.now() + 15000),
-      content: [
-        { type: "document", source: { type: "base64", media_type: "application/pdf", data: sheet.data } },
-        { type: "text", text: `This is the winery's tech sheet, from ${sheet.url}. Read it and fill the items. tech_sheet_url is that url. Do not search.` },
-      ],
+      name: "tech", system: sheetPrompt(wine), schema: agentSchema(SHEET_IDS, true), send, content,
+      model: READ_MODEL, deadline: Math.max(deadline, Date.now() + 10000),
     });
   };
 
