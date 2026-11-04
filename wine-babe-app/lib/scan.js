@@ -788,7 +788,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v17";
+const ENGINE_VERSION = "v18";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1029,10 +1029,20 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     return bv.error || bv.status === "unknown" ? null : bv;
   };
 
-  const tastingLookup = runAgent({ diag,
-    name: "tasting", model: SMART_MODEL, system: tastingPrompt(wine, site, page), schema: TASTING_SCHEMA, send, deadline,
-    content: ask("Find the winery's tasting notes and food pairings for this wine."), tools: webTools(3, 2),
-  }).catch(() => null);
+  // Second pass when the first finds nothing: many winery sites block
+  // fetching, but the importer usually publishes the same notes.
+  const tastingLookup = (async () => {
+    const first = await runAgent({ diag,
+      name: "tasting", model: SMART_MODEL, system: tastingPrompt(wine, site, page), schema: TASTING_SCHEMA, send, deadline,
+      content: ask("Find the winery's tasting notes and food pairings for this wine."), tools: webTools(2, 2),
+    }).catch(() => null);
+    if (cleanTasting(first) || Date.now() > deadline - 6000) return first;
+    return runAgent({ diag,
+      name: "tasting-importer", model: SMART_MODEL, system: tastingPrompt(wine, "", ""), schema: TASTING_SCHEMA, send, deadline: deadline + 4000,
+      content: ask(`The winery's own site gave nothing. Search "${[wine.producer, wine.name].filter(Boolean).join(" ")} importer tasting notes food pairing" and use the official importer's or distributor's page for this exact wine.`),
+      tools: webTools(2, 2),
+    }).catch(() => null);
+  })();
 
   const ratingsLookup = runAgent({ diag,
     name: "ratings", model: SMART_MODEL, system: ratingsPrompt(wine), schema: RATINGS_SCHEMA, send, deadline,
