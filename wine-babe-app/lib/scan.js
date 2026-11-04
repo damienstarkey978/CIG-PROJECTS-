@@ -16,13 +16,13 @@ const { CHECKLIST, ALL_ITEMS, EVIDENCE } = require("../public/checklist.js");
 
 // Haiku 5.5 is the fastest model and every step is a simple job. If a Haiku
 // call errors, that step retries once on Sonnet 5.5.
-const MODEL = process.env.WINE_BABE_MODEL || "claude-haiku-5-5";
+const MODEL = process.env.WINE_BABE_MODEL || "claude-sonnet-5-5";
 // Steps that need judgment (naming the wine and its site, choosing sources)
 // run on Sonnet: in live tests Haiku often refused to name a wine from text.
 const SMART_MODEL = process.env.WINE_BABE_SMART_MODEL || "claude-sonnet-5-5";
 const BACKUP_MODEL = process.env.WINE_BABE_BACKUP_MODEL || "claude-sonnet-5-5";
 // Reading an attached tech sheet is simple extraction, so it uses the fastest model.
-const READ_MODEL = process.env.WINE_BABE_READ_MODEL || "claude-haiku-5-5";
+const READ_MODEL = process.env.WINE_BABE_READ_MODEL || "claude-sonnet-5-5";
 const HAS_KEY = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
 // Time budget (target: about 30s per scan).
 const IDENTIFY_MS = Number(process.env.WINE_BABE_IDENTIFY_MS || 12000);
@@ -823,7 +823,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v29";
+const ENGINE_VERSION = "v30";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
