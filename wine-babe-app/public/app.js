@@ -346,17 +346,17 @@
         </div>
       </div>
 
+      <div class="block">
+        <h2>The Wine Babe top 10</h2>
+        <div class="card"><ul class="checks">${r.top.map((c) => checkRow(c, true)).join("")}</ul></div>
+      </div>
+
       ${ratingsCard(data.ratings, w.vintage)}
 
       ${tastingCard(data.tasting, data.ratings)}
 
       <div class="card summary"><p>${esc(data.summary)}</p>${vintageNote}
         ${techUrl ? `<p style="margin-top:.6rem"><a href="${esc(techUrl)}" target="_blank" rel="noopener">Open the tech sheet</a></p>` : ""}
-      </div>
-
-      <div class="block">
-        <h2>The Wine Babe top 10</h2>
-        <div class="card"><ul class="checks">${r.top.map((c) => checkRow(c, true)).join("")}</ul></div>
       </div>
 
       <div class="block">
