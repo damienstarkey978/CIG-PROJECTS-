@@ -309,6 +309,8 @@
         </div>
       </div>
 
+      ${ratingsCard(data.ratings, w.vintage)}
+
       <div class="card summary"><p>${esc(data.summary)}</p>${vintageNote}
         ${techUrl ? `<p style="margin-top:.6rem"><a href="${esc(techUrl)}" target="_blank" rel="noopener">Open the tech sheet</a></p>` : ""}
       </div>
@@ -348,6 +350,28 @@
         if (fg) fg.style.strokeDashoffset = fg.dataset.to;
       })
     );
+  }
+
+  // Professional critic ratings (Wine Enthusiast, Wine Spectator, Decanter ...).
+  // Older results have no ratings field, so the card is skipped for them.
+  function ratingsCard(ratings, vintage) {
+    if (!Array.isArray(ratings)) return "";
+    const want = String(vintage || "").trim();
+    const rows = ratings.map((x) => {
+      const other = want && /^\d{4}$/.test(want) && x.vintage && x.vintage !== want;
+      const pub = x.source_url ? `<a href="${esc(x.source_url)}" target="_blank" rel="noopener">${esc(x.publication)}</a>` : esc(x.publication);
+      return `<li${other ? ' class="other"' : ""}>
+        <span class="r-vin">${esc(x.vintage || "–")}</span>
+        <span class="r-pub">${pub}${other ? ' <small>other vintage</small>' : ""}</span>
+        <span class="r-score"><span aria-hidden="true">★</span> ${esc(fmt(x.score, 1))}<small>/${x.scale}</small></span>
+      </li>`;
+    }).join("");
+    return `<div class="card ratings">
+      <div class="lbl">Professional ratings</div>
+      ${ratings.length
+        ? `<ul class="rating-list">${rows}</ul><p class="r-note">Scores from wine critics, not shoppers. A score is for the vintage shown; other vintages can differ.</p>`
+        : `<p class="r-none">No professional critic ratings found for this wine.</p>`}
+    </div>`;
   }
 
   function goHome() {

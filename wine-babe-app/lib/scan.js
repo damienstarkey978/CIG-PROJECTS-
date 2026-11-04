@@ -254,6 +254,52 @@ ${RULES}
 Items:
 ${itemList(VEGAN_IDS)}`;
 
+// ---------- professional critic ratings ----------
+// Scores from wine critics and publications (Wine Enthusiast, Wine Spectator,
+// James Suckling, Decanter, Vinous, Wine Advocate ...). Consumer apps are not
+// critics, so Vivino and CellarTracker averages are left out.
+
+const RATINGS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ratings"],
+  properties: {
+    ratings: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["publication", "score", "scale", "vintage", "source_url"],
+        properties: { publication: str, score: { type: "number" }, scale: { type: "number" }, vintage: str, source_url: str },
+      },
+    },
+  },
+};
+
+const ratingsPrompt = (w) => `You find professional critic ratings for the Wine Babe app. Wine: ${wineLine(w)}.
+
+One web search for this wine's critic scores (for example "<producer> <wine name> rating Wine Enthusiast Wine Spectator James Suckling Decanter Vinous"), then fetch the single most useful page (the winery's or importer's press / accolades page lists several at once).
+Only professional critics and publications: Wine Enthusiast, Wine Spectator, Wine Advocate (Robert Parker), James Suckling, Decanter, Vinous, Jancis Robinson, Jeb Dunnuck, Tasting Panel, Wine & Spirits, Gambero Rosso, Falstaff, Bettane+Desseauve and similar. Do NOT include Vivino, CellarTracker, Wine-Searcher averages, shop staff picks or medals without a score.
+Each rating: publication name, the numeric score exactly as published, scale (100, or 20 for Jancis Robinson style scores), the vintage it was given to ("NV" for non vintage, "" if unknown), and source_url of the page showing it.
+Only list scores you actually saw on a page. Never guess or round. Up to 8 ratings, the wine's own vintage first, then newest vintages. Return an empty list if you find none.`;
+
+function cleanRatings(raw, wine) {
+  const want = String(wine.vintage || "").trim();
+  const seen = new Set();
+  return (raw?.ratings || [])
+    .map((x) => ({
+      publication: String(x.publication || "").trim().slice(0, 60),
+      score: Number(x.score),
+      scale: Number(x.scale) === 20 ? 20 : 100,
+      vintage: String(x.vintage || "").trim().slice(0, 8),
+      source_url: /^https?:\/\//.test(x.source_url || "") ? x.source_url : "",
+    }))
+    .filter((x) => x.publication && !/vivino|cellartracker|wine-searcher/i.test(x.publication) && x.score > 0 && x.score <= x.scale && (x.scale === 20 || x.score >= 50))
+    .filter((x) => { const k = `${x.publication.toLowerCase()}|${x.vintage}|${x.score}`; return !seen.has(k) && seen.add(k); })
+    .sort((a, b) => (b.vintage === want) - (a.vintage === want) || (parseInt(b.vintage) || 0) - (parseInt(a.vintage) || 0) || b.score / b.scale - a.score / a.scale)
+    .slice(0, 8);
+}
+
 // ---------- custom tool: find document links on a page ----------
 // web_fetch returns page text, not its links, so PDF tech sheets linked from
 // a product page are easy to miss. This tool reads the raw HTML and returns
@@ -701,7 +747,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v11";
+const ENGINE_VERSION = "v12";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -942,6 +988,11 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     return bv.error || bv.status === "unknown" ? null : bv;
   };
 
+  const ratingsLookup = runAgent({ diag,
+    name: "ratings", model: SMART_MODEL, system: ratingsPrompt(wine), schema: RATINGS_SCHEMA, send, deadline,
+    content: ask("Find this wine's professional critic ratings."), tools: webTools(1, 1),
+  }).catch(() => null);
+
   let [tech, farm, vegan, cert, barnivore] = await Promise.all([
     techLookup(),
     runAgent({ diag,
@@ -1099,11 +1150,15 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     .filter((s) => s.url && !seen.has(s.url) && seen.add(s.url))
     .slice(0, 12);
 
+  const ratings = cleanRatings(await ratingsLookup, wine);
+  diag.push({ name: "ratings-found", outcome: String(ratings.length) });
+
   const result = {
     identified: true,
     wine: { ...wine, tech_sheet_url: tech?.tech_sheet_url || "", tech_sheet_vintage: tech?.tech_sheet_vintage || "" },
     nutrition,
     checks,
+    ratings,
     summary: summarize(wine, checks, nutrition),
     sources,
     seconds: Math.round((Date.now() - t0) / 1000),
@@ -1150,6 +1205,11 @@ function demoResult() {
     },
     nutrition: { abv: 12.5, residual_sugar_g_l: 2.1, calories_5oz: 108, carbs_5oz: 0.8, total_so2_mg_l: 78, free_so2_mg_l: 22, ph: 3.3, ta_g_l: 5.8, source: "lab" },
     checks: ALL_ITEMS.map((i) => known[i.id] || unk(i.id)),
+    ratings: [
+      { publication: "Wine Enthusiast", score: 91, scale: 100, vintage: "2024", source_url: "" },
+      { publication: "James Suckling", score: 90, scale: 100, vintage: "2023", source_url: "" },
+      { publication: "Decanter", score: 88, scale: 100, vintage: "2022", source_url: "" },
+    ],
     summary: "Demo result. Add an ANTHROPIC_API_KEY on the server to scan real bottles. This sample shows how a well documented sparkling wine looks.",
     sources: [],
   };

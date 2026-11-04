@@ -358,3 +358,18 @@ details.cat .checks { padding: 0 1rem 0.4rem; }
 .so2__scale i { display: block; height: 0.4rem; border-radius: 999px; background: var(--c); opacity: 0.3; margin-bottom: 0.25rem; }
 .so2__scale span.on { color: var(--ink); font-weight: 600; }
 .so2__scale span.on i { opacity: 1; height: 0.55rem; }
+
+/* Professional ratings */
+.ratings .rating-list { list-style: none; margin: 0.6rem 0 0; padding: 0; }
+.ratings .rating-list li { display: grid; grid-template-columns: 3.2rem 1fr auto; align-items: center; gap: 0.6rem; padding: 0.55rem 0; border-top: 1px solid var(--line); }
+.ratings .rating-list li:first-child { border-top: 0; }
+.ratings .r-vin { font-weight: 600; color: var(--wine); }
+.ratings .r-pub { min-width: 0; overflow-wrap: anywhere; }
+.ratings .r-pub a { color: inherit; text-decoration: underline; text-decoration-color: var(--blush); }
+.ratings .r-pub small { display: block; font-size: 0.72rem; color: var(--muted); }
+.ratings .r-score { font-family: var(--serif); font-size: 1.15rem; font-weight: 700; white-space: nowrap; }
+.ratings .r-score span { color: #d9a520; }
+.ratings .r-score small { font-family: inherit; font-size: 0.75rem; font-weight: 400; color: var(--muted); }
+.ratings li.other { opacity: 0.8; }
+.ratings .r-note, .ratings .r-none { margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--muted); }
+.ratings .lbl { font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
