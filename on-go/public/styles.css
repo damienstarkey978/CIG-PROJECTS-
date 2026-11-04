@@ -134,9 +134,9 @@ body {
   font: inherit;
 }
 
-/* Mild lift on Carto dark_all tiles — keep Signal Night, improve road/label read */
+/* Free OSM + night grade — brighter than earlier ultra-dim invert; no paid/key basemaps */
 .leaflet-tile-pane {
-  filter: brightness(1.18) contrast(1.08) saturate(0.92);
+  filter: grayscale(0.18) invert(0.78) contrast(1.14) brightness(1.22) hue-rotate(55deg) saturate(0.78);
 }
 
 .leaflet-control-attribution {

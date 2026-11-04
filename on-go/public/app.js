@@ -250,11 +250,10 @@
     }
     state.map = L.map('map', { scrollWheelZoom: false, zoomControl: false }).setView([30.287, -81.397], 11);
     L.control.zoom({ position: 'topright' }).addTo(state.map);
-    // Free Carto dark tiles (OSM data) — readable night labels without harsh invert
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '© OpenStreetMap © CARTO',
-      subdomains: 'abcd',
-      maxZoom: 20,
+    // Free OSM tiles only — no Carto/API key. Night look comes from CSS filter on .leaflet-tile-pane.
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 19,
     }).addTo(state.map);
   }
 
