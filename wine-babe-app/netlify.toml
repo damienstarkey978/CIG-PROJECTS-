@@ -1,9 +1,16 @@
 # Netlify: static app from public/, API as functions in netlify/functions.
 # Set ANTHROPIC_API_KEY in Site configuration > Environment variables.
 [build]
+  command = "node scripts/stamp.js"
   publish = "public"
   functions = "netlify/functions"
 
 [functions]
   node_bundler = "esbuild"
   included_files = ["public/checklist.js", "lib/**"]
+
+# Always check for a fresh copy, so phones show the latest deploy on refresh.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"

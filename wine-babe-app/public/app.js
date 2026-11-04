@@ -40,7 +40,7 @@
   }
   $("#recentList").addEventListener("click", (ev) => {
     const b = ev.target.closest("button[data-i]");
-    if (b) renderResult(loadHistory()[+b.dataset.i].data, false);
+    if (b) { const e = loadHistory()[+b.dataset.i]; renderResult(e.data, false, e.at); }
   });
 
   // ---------- image prep ----------
@@ -217,7 +217,7 @@
     </li>`;
   }
 
-  function renderResult(data, isNew) {
+  function renderResult(data, isNew, savedAt) {
     // Not identified: no score or checklist, just what happened and what to try.
     if (!data.identified) {
       screens.result.innerHTML = `
@@ -262,6 +262,7 @@
 
     const sources = (data.sources || []).map((s) => ({ ...s, url: safeUrl(s.url) })).filter((s) => s.url);
     const techUrl = safeUrl(w.tech_sheet_url);
+    const savedNote = isNew ? "" : `<div class="saved-note">Saved scan${savedAt ? ` from ${new Date(savedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}. Rescan to get the latest results. <button type="button" class="btn small" id="rescan">Rescan for the latest</button></div>`;
 
     screens.result.innerHTML = `
       <div class="wine-head">
@@ -271,6 +272,7 @@
         <p class="meta">${esc([w.vintage, w.grapes, [w.region, w.country].filter(Boolean).join(", ")].filter(Boolean).join(" · "))}</p>
       </div>
 
+      ${savedNote}
       <div class="card score">
         <div class="score-head">
           <span class="score-title">Wine Babe score</span>
@@ -373,6 +375,8 @@
       <p class="fine">The Wine Babe score shows how a wine measures up to the Wine Babe standards based on published information. It is not medical advice. Sulfite ratings are a Wine Babe comparison scale, not a regulatory classification. Results can vary by vintage.</p>
     `;
     $("#backHome").onclick = goHome;
+    const rb = $("#rescan");
+    if (rb) rb.onclick = () => scan({ query: [w.producer, w.name, w.vintage].filter(Boolean).join(" "), fresh: true }, null);
     show("result");
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
@@ -445,4 +449,7 @@
 
   fetch("/api/health").then((r) => r.json()).then((h) => { $("#demoNote").hidden = h.live; }).catch(() => {});
   renderRecent();
+  // Which deploy this page is running, so updates are easy to confirm.
+  const v = window.WB_VERSION;
+  if (v && v.at) $("#appVersion").textContent = `Version ${v.ref} · updated ${new Date(v.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
 })();

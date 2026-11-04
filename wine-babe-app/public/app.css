@@ -384,3 +384,8 @@ details.cat .checks { padding: 0 1rem 0.4rem; }
 .tasting .t-pair-h { font-weight: 600; color: var(--wine); font-size: 0.9rem; }
 .tasting .t-pair ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
 .tasting .t-pair li { margin-bottom: 0.2rem; }
+
+/* Saved scan notice and deploy version */
+.saved-note { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.8rem; margin: 0 0 1rem; padding: 0.75rem 0.9rem; border-radius: var(--radius); background: var(--blush-soft); color: var(--wine); font-size: 0.85rem; }
+.saved-note .btn.small { padding: 0.35rem 0.9rem; font-size: 0.82rem; }
+.app-version { margin: 1.5rem 0 2rem; text-align: center; font-size: 0.72rem; color: var(--muted); }
