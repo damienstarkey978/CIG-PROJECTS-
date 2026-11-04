@@ -428,7 +428,7 @@ const STYLE_WORDS = [
   "brut", "nature", "extra", "dry", "sec", "demi", "doux", "dosaggio", "zero", "pas", "dose", "bio", "organic",
   "biologico", "rose", "rosato", "rosado", "millesimato", "frizzante", "riserva", "reserve", "reserva", "superiore",
   "classico", "rive", "cartizze", "blanc", "noir", "rosso", "bianco", "late", "harvest", "ice", "sweet", "moscato",
-  "cuvee", "single", "vineyard", "estate", "limited", "magnum", "half",
+  "cuvee", "vineyard", "estate", "limited", "magnum", "half",
 ];
 
 // Style words a file must carry when the wine's name has them (dosage,
