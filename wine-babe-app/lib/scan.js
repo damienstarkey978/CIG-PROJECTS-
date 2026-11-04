@@ -335,16 +335,19 @@ function rankPdfs(links, wine, siteUrl) {
       if (producerWords.some((w) => words.has(w))) score += 1;
       if (/\b(en|eng|english)\b/.test(file)) score += 0.5;
       if (/\b(scheda|tecnica|technical|tech|sheet|fiche|ficha|ts|tn)\b/.test(file)) score += 0.5;
-      if (/\b(award|medal|gold|silver|bronze|decanter|trophy|press|menu|price|listino|catalog|catalogue)\b/.test(file)) score -= 4;
+      const junk = /\b(award|awards|medal|gold|silver|bronze|decanter|trophy|press|menu|price|prices|listino|catalog|catalogue|brochure)\b/.test(file);
       try { if (siteHost && new URL(l.url).hostname.replace(/^www\./, "").endsWith(siteHost)) score += 1; } catch {}
+      // Newer uploads first (WordPress keeps the upload year in the path).
+      const upload = raw.match(/\/uploads\/(20\d{2})\//);
+      if (upload) score += Math.min(1.5, Math.max(0, (Number(upload[1]) - 2018) * 0.2));
       const fileYears = fileName.match(/\b(19|20)\d{2}\b/g) || [];
       if (year && fileYears.includes(year)) score += 1;
       else if (year && fileYears.length) score -= 0.5;
-      return { ...l, score, matched, missingStyle };
+      return { ...l, score, matched, missingStyle, junk };
     })
     // Must match at least half the name, carry every style word in the name
     // (Brut Nature, not Brut), and not look like an award or price list.
-    .filter((l) => l.matched >= Math.max(1, Math.ceil(nameWords.length * 0.5)) && l.missingStyle === 0 && l.score > 0)
+    .filter((l) => l.matched >= Math.max(1, Math.ceil(nameWords.length * 0.5)) && l.missingStyle === 0 && !l.junk && l.score > 0)
     .sort((a, b) => b.score - a.score);
 }
 
@@ -378,7 +381,7 @@ async function wpMediaSearch(origin, term) {
   u.searchParams.set("_fields", "source_url,title");
   if (!isPublicHost(u)) return [];
   try {
-    const res = await fetch(u, { signal: AbortSignal.timeout(5000), headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)", Accept: "application/json" } });
+    const res = await fetch(u, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)", Accept: "application/json" } });
     if (!res.ok) return [];
     const list = await res.json();
     return Array.isArray(list)
@@ -413,14 +416,16 @@ async function pdfText(base64) {
 
 // Tech sheet candidates from the fast routes: the product page links and the
 // WordPress media search, run in parallel. No downloading here.
-async function findTechCandidates(wine, pageUrl, siteUrl) {
+async function findTechCandidates(wine, pageUrl, siteUrl, diag = []) {
   let origin = "";
   try { origin = new URL(pageUrl || siteUrl).origin; } catch {}
-  const [page, ...wp] = await Promise.all([
-    pageUrl ? findPageLinks(pageUrl) : Promise.resolve({ links: [] }),
-    ...(origin ? wineTerms(wine).map((t) => wpMediaSearch(origin, t)) : []),
+  const t = Date.now();
+  const timed = (label, p) => p.then((links) => { diag.push({ name: label, ms: Date.now() - t, outcome: `${links.filter((l) => /\.pdf/i.test(l.url)).length} pdf links` }); return links; });
+  const lists = await Promise.all([
+    pageUrl ? timed("sheet-page", findPageLinks(pageUrl).then((r) => r.links || [])) : Promise.resolve([]),
+    ...(origin ? wineTerms(wine).map((term) => timed(`sheet-wp "${term}"`, wpMediaSearch(origin, term))) : []),
   ]);
-  return [...(page.links || []), ...wp.flat()];
+  return lists.flat();
 }
 
 // ---------- one Claude call with tools, under a deadline ----------
@@ -611,9 +616,10 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     // Gather candidates from all routes, rank them together, then download
     // the best ones in order until one works.
     const tFast = Date.now();
-    const fast = await findTechCandidates(wine, page, site);
+    const fast = await findTechCandidates(wine, page, site, diag);
     diag.push({ name: "sheet-fast", ms: Date.now() - tFast, outcome: `${fast.filter((l) => /\.pdf/i.test(l.url)).length} pdf links` });
     let ranked = rankPdfs(fast, wine, site);
+    let searchPool = [];
     const fullName = norm(wine.name).split(" ").filter((w) => w.length > 2).length;
     if (!(ranked[0] && ranked[0].matched >= fullName)) {
       // No exact match from the fast routes: add the web search results.
@@ -621,10 +627,28 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       const searchUrls = (found?.pdf_urls || []).filter((u) => /^https?:\/\//.test(u)).slice(0, 5);
       diag.push({ name: "sheet-search-urls", outcome: JSON.stringify(searchUrls).slice(0, 400) });
       ranked = rankPdfs([...fast, ...searchUrls.map((url) => ({ url, text: "" }))], wine, site);
+      searchPool = searchUrls.filter((u) => /\.pdf(\?|$)/i.test(u));
     }
     diag.push({ name: "sheet-ranked", outcome: JSON.stringify(ranked.slice(0, 3).map((r) => `${r.score.toFixed(1)} ${r.url}`)).slice(0, 600) });
     let sheet = null;
-    for (const c of ranked.slice(0, 3)) {
+    // Search results with unhelpful file names (e.g. 394499-untitled.pdf):
+    // download and keep one whose text names this wine.
+    if (!ranked.length && searchPool.length) {
+      const nameWords = norm(wine.name).split(" ").filter((w) => w.length > 2);
+      const prodWords = norm(wine.producer).split(" ").filter((w) => w.length > 2);
+      for (const url of searchPool.slice(0, 2)) {
+        if (Date.now() > deadline - 6000) break;
+        send({ type: "fetch", text: url });
+        const got = await fetchPdf(url, 6000);
+        if (!got.data) { diag.push({ name: "sheet-download", outcome: `${got.error}: ${url}`.slice(0, 300) }); continue; }
+        const words = new Set(norm(await pdfText(got.data)).split(" "));
+        const hits = nameWords.filter((w) => words.has(w)).length;
+        const ok = prodWords.some((w) => words.has(w)) && hits >= Math.ceil(nameWords.length * 0.5);
+        diag.push({ name: "sheet-text-check", outcome: `${ok ? "match" : "no match"} (${hits}/${nameWords.length}): ${url}`.slice(0, 300) });
+        if (ok) { sheet = { url, data: got.data }; break; }
+      }
+    }
+    for (const c of sheet ? [] : ranked.slice(0, 3)) {
       if (Date.now() > deadline - 4000) break;
       send({ type: "fetch", text: c.url });
       const got = await fetchPdf(c.url, 6000);
