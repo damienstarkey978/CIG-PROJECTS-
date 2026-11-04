@@ -14,7 +14,10 @@
 
 const { CHECKLIST, ALL_ITEMS, EVIDENCE } = require("../public/checklist.js");
 
-const MODEL = process.env.WINE_BABE_MODEL || "claude-sonnet-5-5";
+// Haiku 5.5 is the fastest model and every step is a simple job. If a Haiku
+// call errors, that step retries once on Sonnet 5.5.
+const MODEL = process.env.WINE_BABE_MODEL || "claude-haiku-5-5";
+const BACKUP_MODEL = process.env.WINE_BABE_BACKUP_MODEL || "claude-sonnet-5-5";
 // Reading an attached tech sheet is simple extraction, so it uses the fastest model.
 const READ_MODEL = process.env.WINE_BABE_READ_MODEL || "claude-haiku-5-5";
 const HAS_KEY = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
@@ -641,7 +644,16 @@ async function runAgent({ name, system, content, schema, tools = [], effort = "l
     }
     return null;
   } catch (err) {
-    if (!ctrl.signal.aborted) { console.error(`[${name}]`, err); note("error", err?.message || err); return null; }
+    if (!ctrl.signal.aborted) {
+      console.error(`[${name}]`, err);
+      note("error", err?.message || err);
+      // Retry once on the backup model if there is time left.
+      if (model !== BACKUP_MODEL && deadline - Date.now() > 5000) {
+        clearTimeout(timer);
+        return runAgent({ name: `${name}@backup`, system, content, schema, tools, effort, send, deadline, model: BACKUP_MODEL, diag });
+      }
+      return null;
+    }
     console.error(`[${name}] deadline reached`);
     if (messages.length < 3) { note("deadline, nothing gathered"); return null; }
     try {
@@ -686,7 +698,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v9";
+const ENGINE_VERSION = "v10";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
