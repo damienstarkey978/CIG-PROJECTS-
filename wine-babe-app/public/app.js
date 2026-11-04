@@ -153,6 +153,14 @@
     }
     const byId = Object.fromEntries((data.checks || []).map((c) => [c.id, c]));
     const checks = ALL_ITEMS.map((i) => ({ ...i, ...(byId[i.id] || { status: "unknown", evidence: "none", detail: "Not checked.", source_url: null }) }));
+    // Calories and carbs worked out here from published ABV and sugar count as
+    // an estimate, matching the Estimate tag shown on the stat cards.
+    const fill = (id, text) => {
+      const c = checks.find((x) => x.id === id);
+      if (c && c.status === "unknown") Object.assign(c, { status: "pass", evidence: "estimate", scope: "this_wine", detail: text });
+    };
+    if (est.calories) fill("calories", `About ${Math.round(n.calories_5oz)} calories per 5 oz, calculated from the published alcohol and sugar.`);
+    if (est.carbs) fill("carbs", `About ${n.carbs_5oz.toFixed(1)} g carbs per 5 oz, calculated from the published sugar.`);
 
     // Documentation score: evidence weight on passes, top 10 count double.
     let got = 0, max = 0;
