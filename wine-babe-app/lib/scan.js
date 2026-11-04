@@ -809,7 +809,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v24";
+const ENGINE_VERSION = "v25";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1206,6 +1206,10 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     ns.sugar_g_5oz = sane(ns.sugar_g_5oz, 0, 25);
     ns.residual_sugar_g_l = sane(ns.residual_sugar_g_l, 0, 200);
     ns.abv = sane(ns.abv, 4, 22);
+    // With published ABV (tech sheet or winery), calories and carbs are
+    // calculated below from the real figures; don't let a third party
+    // estimate override that.
+    if (tech?.nutrition?.abv != null) { ns.calories_5oz = null; ns.carbs_5oz = null; }
     // Estimates only from wine databases and nutrition databases, not from
     // menus or random aggregators.
     // Not from the winery: show the figures, clearly labeled as estimates.
