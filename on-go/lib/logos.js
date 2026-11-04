@@ -12,7 +12,7 @@ const KNOWN_WEBSITES = {
   'Southern Grounds & Co.': 'https://www.southerngrounds.com',
   "Lynch's Irish Pub": 'https://www.lynchsirishpub.com',
   TacoLu: 'https://www.tacolu.com',
-  "Cinotti's Bakery": 'https://www.cinottis.com',
+  "Cinotti's Bakery": 'https://cinottisbakery.com',
   'North Beach Fish Camp': 'https://www.northbeachfishcamp.com',
   'Flying Iguana Taqueria & Tequila Bar': 'https://www.flyingiguana.com',
   'Marker 32': 'https://www.marker32.com',
@@ -24,6 +24,14 @@ const KNOWN_WEBSITES = {
   "Fly's Tie Irish Pub": 'https://www.flystie.com',
   Azurea: 'https://www.oneoceanresort.com/dining/azurea',
 };
+
+/** Hand-verified logos shipped in public/ — beat Clearbit/favicon defaults */
+const KNOWN_OFFICIAL_LOGOS = {
+  "Cinotti's Bakery": '/assets/venues/cinottis-bakery.jpg',
+  "Lynch's Irish Pub": '/assets/venues/lynchs-irish-pub.jpg',
+};
+
+const WEAK_LOGO_SOURCES = new Set(['missing', 'google_favicon', 'duckduckgo', 'clearbit', null, '']);
 
 function domainFromWebsite(website) {
   if (!website) return null;
@@ -48,16 +56,20 @@ function ensureLogoColumns(db) {
 function backfillWebsites(db) {
   const rows = db.prepare('SELECT id, name, website FROM businesses').all();
   for (const row of rows) {
-    if (row.website) continue;
     const site = KNOWN_WEBSITES[row.name];
-    if (site) {
-      db.prepare('UPDATE businesses SET website = ?, updated_at = ? WHERE id = ?').run(
-        site,
-        new Date().toISOString(),
-        row.id
-      );
-      db.dirty = true;
-    }
+    if (!site) continue;
+    const wrongLegacy =
+      row.name === "Cinotti's Bakery" &&
+      row.website &&
+      /cinottis\.com/i.test(row.website) &&
+      !/cinottisbakery\.com/i.test(row.website);
+    if (row.website && !wrongLegacy) continue;
+    db.prepare('UPDATE businesses SET website = ?, updated_at = ? WHERE id = ?').run(
+      site,
+      new Date().toISOString(),
+      row.id
+    );
+    db.dirty = true;
   }
 }
 
@@ -102,8 +114,53 @@ function candidateUrls(domain) {
   ];
 }
 
+function applyOfficialLogos(db) {
+  ensureLogoColumns(db);
+  const ts = new Date().toISOString();
+  let applied = 0;
+  for (const [name, url] of Object.entries(KNOWN_OFFICIAL_LOGOS)) {
+    const row = db.prepare('SELECT id, logo_url, logo_source FROM businesses WHERE name = ?').get(name);
+    if (!row) continue;
+    // Keep a real user upload served via API; otherwise force official asset
+    const keepUpload =
+      row.logo_source === 'upload' &&
+      row.logo_url &&
+      String(row.logo_url).includes('/logo/file');
+    if (keepUpload) continue;
+    if (row.logo_url === url && row.logo_source === 'official') continue;
+    db.prepare(
+      `UPDATE businesses SET logo_url = ?, logo_source = 'official', logo_updated_at = ?, updated_at = ? WHERE id = ?`
+    ).run(url, ts, ts, row.id);
+    db.dirty = true;
+    applied += 1;
+  }
+  return applied;
+}
+
 async function resolveLogoForBusiness(db, business, { force = false } = {}) {
   ensureLogoColumns(db);
+
+  const official = KNOWN_OFFICIAL_LOGOS[business.name];
+  const keepUpload =
+    business.logo_source === 'upload' &&
+    business.logo_url &&
+    String(business.logo_url).includes('/logo/file');
+
+  // Official static logos beat WordPress/Google favicon defaults
+  if (official && !keepUpload) {
+    const weak = force || WEAK_LOGO_SOURCES.has(business.logo_source) || business.logo_url !== official;
+    if (weak || business.logo_source === 'official') {
+      if (business.logo_url !== official || business.logo_source !== 'official') {
+        const ts = new Date().toISOString();
+        db.prepare(
+          `UPDATE businesses SET logo_url = ?, logo_source = 'official', logo_updated_at = ?, updated_at = ? WHERE id = ?`
+        ).run(official, ts, ts, business.id);
+        db.dirty = true;
+      }
+      return { logo_url: official, logo_source: 'official', status: 'found' };
+    }
+  }
+
   if (!force && business.logo_source === 'upload' && business.logo_url) {
     return { logo_url: business.logo_url, logo_source: 'upload', status: 'found' };
   }
@@ -112,7 +169,7 @@ async function resolveLogoForBusiness(db, business, { force = false } = {}) {
   }
 
   let website = business.website || KNOWN_WEBSITES[business.name] || '';
-  if (!business.website && website) {
+  if ((!business.website || /cinottis\.com$/i.test(String(business.website))) && website) {
     db.prepare('UPDATE businesses SET website = ?, updated_at = ? WHERE id = ?').run(
       website,
       new Date().toISOString(),
@@ -153,13 +210,23 @@ async function resolveLogosBatch(db, businesses, { limit = 6, force = false, con
   const queue = [];
   for (const b of businesses) {
     if (queue.length >= limit) break;
+    const official = KNOWN_OFFICIAL_LOGOS[b.name];
+    const keepUpload =
+      b.logo_source === 'upload' &&
+      b.logo_url &&
+      String(b.logo_url).includes('/logo/file');
+    const needsOfficial =
+      Boolean(official) &&
+      !keepUpload &&
+      (b.logo_source !== 'official' || b.logo_url !== official);
     const needs =
       force ||
+      needsOfficial ||
       !b.logo_source ||
       b.logo_source === 'missing' ||
       (!b.logo_url && b.logo_source !== 'missing');
-    // Skip recently resolved missing to avoid hammering (unless force)
-    if (!force && b.logo_source === 'missing' && b.logo_updated_at) {
+    // Skip recently resolved missing to avoid hammering (unless force / official upgrade)
+    if (!force && !needsOfficial && b.logo_source === 'missing' && b.logo_updated_at) {
       const age = Date.now() - Date.parse(b.logo_updated_at);
       if (age < 1000 * 60 * 60 * 12) continue; // 12h
     }
@@ -284,9 +351,11 @@ function buildCreative(business, slot, logo) {
 
 module.exports = {
   KNOWN_WEBSITES,
+  KNOWN_OFFICIAL_LOGOS,
   AD_PLACEMENTS,
   ensureLogoColumns,
   backfillWebsites,
+  applyOfficialLogos,
   resolveLogoForBusiness,
   resolveLogosBatch,
   saveUploadedLogo,

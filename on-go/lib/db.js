@@ -715,6 +715,7 @@ function applyMigrations(db) {
   const {
     ensureLogoColumns,
     backfillWebsites,
+    applyOfficialLogos,
   } = require('./logos');
   const { ensureProTrialsForClaimed } = require('./subscriptions');
   const { ensureEnrichColumns, applyEnrichmentCache } = require('./enrich');
@@ -726,6 +727,7 @@ function applyMigrations(db) {
   ensureProTrialsForClaimed(db);
   recoverOwnerAccounts(db);
   applyEnrichmentCache(db);
+  applyOfficialLogos(db);
   expireOffers(db);
   return seedResult;
 }
