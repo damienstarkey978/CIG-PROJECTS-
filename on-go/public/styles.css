@@ -287,6 +287,38 @@ body {
   background: #04180c;
 }
 
+.venue-hh-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.venue-hh-list li {
+  color: var(--text, #e8f0ea);
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
+}
+
+.venue-hh-link {
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+}
+
+a.venue-hh-menu-link {
+  display: inline-block;
+  color: var(--signal, #1aff5a);
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+a.venue-hh-menu-link:hover,
+a.venue-hh-menu-link:focus-visible {
+  color: #b8ffd0;
+}
+
 @keyframes venue-live-glow {
   0% {
     transform: scale(0.92);
@@ -1036,6 +1068,36 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.65); }
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+.venue-hh-list {
+  list-style: none;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.venue-hh-list li {
+  color: #e8f0ea;
+  font-size: 1.05rem;
+}
+
+.venue-hh-link {
+  margin-top: 0.35rem;
+}
+
+a.venue-hh-menu-link {
+  display: inline-block;
+  color: var(--signal);
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+a.venue-hh-menu-link:hover,
+a.venue-hh-menu-link:focus-visible {
+  color: #b8ffd0;
 }
 
 .venue-section p {

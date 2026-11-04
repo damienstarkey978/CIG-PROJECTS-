@@ -22,6 +22,7 @@ function ensureEnrichColumns(db) {
   add('menu_url', 'menu_url TEXT');
   add('menu_notes', 'menu_notes TEXT');
   add('happy_hour_notes', 'happy_hour_notes TEXT');
+  add('happy_hour_menu_url', 'happy_hour_menu_url TEXT');
   add('specials_notes', 'specials_notes TEXT');
   add('enrichment_status', 'enrichment_status TEXT');
   add('enrichment_updated_at', 'enrichment_updated_at TEXT');
@@ -396,6 +397,7 @@ function publicEnrichment(business) {
       : notListed,
     happy_hour: business.happy_hour_notes || null,
     happy_hour_display: business.happy_hour_notes || notListed,
+    happy_hour_menu_url: business.happy_hour_menu_url || null,
     specials: business.specials_notes || null,
     specials_display: business.specials_notes || notListed,
     enrichment_status: business.enrichment_status || 'pending',
@@ -429,7 +431,35 @@ function applyEnrichmentCache(db) {
   for (const v of venues) {
     const row = db.prepare('SELECT * FROM businesses WHERE name = ? OR slug = ?').get(v.name, v.slug);
     if (!row) continue;
-    // Don't overwrite fresher live enrichment
+
+    // Always refresh HH schedule + menu URL from cache when present (research pass wins).
+    const hasHhUpdate =
+      Object.prototype.hasOwnProperty.call(v, 'happy_hour_notes') ||
+      Object.prototype.hasOwnProperty.call(v, 'happy_hour_menu_url');
+    if (hasHhUpdate) {
+      db.prepare(`
+        UPDATE businesses SET
+          happy_hour_notes = ?,
+          happy_hour_menu_url = ?,
+          enrichment_sources_json = COALESCE(?, enrichment_sources_json),
+          enrichment_status = COALESCE(?, enrichment_status),
+          enrichment_updated_at = ?,
+          updated_at = ?
+        WHERE id = ?
+      `).run(
+        v.happy_hour_notes || null,
+        v.happy_hour_menu_url || null,
+        v.enrichment_sources_json || null,
+        v.enrichment_status || 'ok',
+        ts,
+        ts,
+        row.id
+      );
+      db.dirty = true;
+      applied += 1;
+    }
+
+    // Don't overwrite fresher live enrichment for other fields
     if (
       row.enrichment_status === 'ok' &&
       row.about_text &&
@@ -451,7 +481,6 @@ function applyEnrichmentCache(db) {
         hours_source = COALESCE(?, hours_source),
         menu_url = COALESCE(?, menu_url),
         menu_notes = COALESCE(?, menu_notes),
-        happy_hour_notes = COALESCE(?, happy_hour_notes),
         specials_notes = COALESCE(?, specials_notes),
         enrichment_status = COALESCE(?, enrichment_status),
         enrichment_sources_json = COALESCE(?, enrichment_sources_json),
@@ -470,7 +499,6 @@ function applyEnrichmentCache(db) {
       v.hours_source || null,
       v.menu_url || null,
       v.menu_notes || null,
-      v.happy_hour_notes || null,
       v.specials_notes || null,
       v.enrichment_status || null,
       v.enrichment_sources_json || null,

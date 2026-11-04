@@ -199,13 +199,22 @@
       </section>
 
       <section class="venue-section">
-        <h3>Happy hour &amp; specials</h3>
-        <p class="${e.happy_hour ? '' : 'empty'}">${escapeHtml(
-          e.happy_hour_display || 'Not listed yet'
-        )}</p>
-        <p class="${e.specials ? '' : 'empty'}">${escapeHtml(
-          e.specials_display || 'Not listed yet'
-        )}</p>
+        <h3>Happy hour</h3>
+        ${
+          e.happy_hour
+            ? `<ul class="venue-hh-list">${String(e.happy_hour)
+                .split(/\n+/)
+                .map((line) => line.trim())
+                .filter(Boolean)
+                .map((line) => `<li>${escapeHtml(line)}</li>`)
+                .join('')}</ul>`
+            : `<p class="empty">Not listed yet</p>`
+        }
+        ${
+          e.specials
+            ? `<p class="meta">${escapeHtml(e.specials)}</p>`
+            : ''
+        }
       </section>
 
       <section class="venue-section">
@@ -217,6 +226,16 @@
             : `<p class="meta">Unclaimed directory listing — claim to run live boosts.</p>`
         }
       </section>
+
+      ${
+        e.happy_hour_menu_url
+          ? `<section class="venue-section venue-hh-link">
+        <a class="venue-hh-menu-link" href="${escapeHtml(
+          e.happy_hour_menu_url
+        )}" target="_blank" rel="noopener noreferrer">Happy Hour Menu</a>
+      </section>`
+          : ''
+      }
     `;
   }
 
