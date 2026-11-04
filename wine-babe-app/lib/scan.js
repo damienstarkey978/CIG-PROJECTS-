@@ -802,14 +802,18 @@ function marksToChecks(marks, source) {
     out.push({ ...base, id: "non_gmo", status: "pass", evidence: "winery", detail: `${source.label}: "${marks.nonGmo.slice(0, 120)}"` });
   }
   const codeNote = marks.codes.length ? ` Control body code ${marks.codes.join(", ")}.` : "";
-  if (marks.organicLogo || (marks.organic && marks.codes.length)) {
-    // Logo, or organic wording with a control body code: a certification mark.
-    out.push({ ...base, id: "organic", status: "pass", evidence: "certified", detail: `${source.label}: ${marks.organicLogo ? `organic certification mark (${marks.organicLogo.slice(0, 80)})` : `"${marks.organic.slice(0, 100)}"`}.${codeNote}` });
+  // On the bottle label an EU control body code is itself the certification
+  // mark: EU rules require it on certified organic products and forbid it on
+  // others. On a web page or sheet it needs organic wording or the logo too.
+  const labelCode = source.label === "Label" && marks.codes.length;
+  if (marks.organicLogo || labelCode || (marks.organic && marks.codes.length)) {
+    // Logo, label code, or organic wording with a control body code.
+    out.push({ ...base, id: "organic", status: "pass", evidence: "certified", detail: `${source.label}: ${marks.organicLogo ? `organic certification mark (${marks.organicLogo.slice(0, 80)})` : marks.organic ? `"${marks.organic.slice(0, 100)}"` : "EU organic control body code"}.${codeNote}` });
     out.push({ ...base, id: "certifications", status: "pass", evidence: "certified", detail: `${source.label}: EU organic certification.${codeNote}` });
   } else if (marks.organic) {
     out.push({ ...base, id: "organic", status: "pass", evidence: "winery", detail: `${source.label}: "${marks.organic.slice(0, 120)}"` });
   }
-  // A code alone is noted nowhere as a pass: it identifies the certifier, not the wine.
+  // A code alone on a web page or sheet is not a pass: it may cover other wines.
   return out;
 }
 
@@ -943,7 +947,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v37";
+const ENGINE_VERSION = "v38";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
