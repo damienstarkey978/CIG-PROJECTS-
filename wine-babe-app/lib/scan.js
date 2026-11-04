@@ -600,9 +600,16 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v3";
-const cacheKey = (w) =>
-  ENGINE_VERSION + "__" + [w.producer, w.name, w.vintage].map((x) => String(x || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")).join("__");
+const ENGINE_VERSION = "v4";
+// The identify step can name the same wine slightly differently between runs
+// ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
+// the key drops appellation words, sorts the rest, and treats NV as no vintage.
+const KEY_NOISE = new Set(["doc", "docg", "igt", "igp", "aoc", "aop", "do", "doca", "dop", "ava", "spumante", "vino", "wine", "wines", "the", "and", "di", "de", "del", "della"]);
+const keyWords = (x) => [...new Set(norm(x).split(" ").filter((t) => t && !KEY_NOISE.has(t)))].sort().join("-");
+const cacheKey = (w) => {
+  const vintage = /^(19|20)\d{2}$/.test(String(w.vintage || "").trim()) ? String(w.vintage).trim() : "nv";
+  return `${ENGINE_VERSION}__${keyWords(w.producer)}__${keyWords(w.name)}__${vintage}`;
+};
 
 // ---------- main ----------
 
@@ -784,7 +791,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     const wineYear = String(wine.vintage || "").match(/(19|20)\d{2}/)?.[0];
     if (sheetYear && wineYear && sheetYear !== wineYear) {
       for (const c of tech.checks || []) {
-        if (c.status === "pass" && c.scope === "this_wine") {
+        if (c.status !== "unknown" && c.status !== "na" && c.scope === "this_wine") {
           c.scope = "related_wine";
           c.detail = `${sheetYear} sheet: ${c.detail}`;
         }
@@ -804,6 +811,19 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       // The winery's own site beats any non certified finding from elsewhere.
       if (!(best[id]?.status === "pass" && best[id]?.evidence === "certified")) best[id] = mine;
     }
+  }
+  // Sugar per glass is computed here, not left to the model's wording.
+  const rs = (tech?.nutrition || {}).residual_sugar_g_l;
+  if (rs != null) {
+    const perGlass = (rs * 0.148).toFixed(1);
+    const base = best.sugar_under_1g?.status === "pass" || best.sugar_under_1g?.status === "fail"
+      ? best.sugar_under_1g
+      : { id: "sugar_under_1g", evidence: tech.nutrition.source === "none" ? "lab" : tech.nutrition.source, scope: "this_wine", as_of: "", source_url: tech.tech_sheet_url || "" };
+    best.sugar_under_1g = {
+      ...base,
+      status: rs * 0.148 < 1 ? "pass" : "fail",
+      detail: `About ${perGlass} g sugar per 5 oz glass (${rs} g/L residual sugar).${base.scope === "related_wine" ? " From another vintage's sheet." : ""}`,
+    };
   }
   // Zero dosage only applies to sparkling wine.
   const sparkling = /sparkl|spumante|champagne|cava|cr[eé]mant|prosecco|franciacorta|sekt|brut|p[eé]tillant|frizzante|mousseux|espumoso/i.test(`${wine.style} ${wine.name}`);
