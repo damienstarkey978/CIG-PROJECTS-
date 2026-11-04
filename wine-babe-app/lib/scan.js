@@ -383,7 +383,7 @@ async function wpMediaSearch(origin, term) {
   u.searchParams.set("_fields", "source_url,title");
   if (!isPublicHost(u)) return [];
   try {
-    const res = await fetch(u, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)", Accept: "application/json" } });
+    const res = await fetch(u, { signal: AbortSignal.timeout(11000), headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)", Accept: "application/json" } });
     if (!res.ok) return [];
     const list = await res.json();
     return Array.isArray(list)
@@ -458,7 +458,7 @@ async function certScan(siteUrl, country, diag) {
       u.searchParams.set("search", term);
       u.searchParams.set("per_page", "5");
       u.searchParams.set("_fields", "link,content");
-      const res = await fetch(u, { signal: AbortSignal.timeout(6000), headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)", Accept: "application/json" } });
+      const res = await fetch(u, { signal: AbortSignal.timeout(10000), headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)", Accept: "application/json" } });
       const hits = res.ok ? await res.json().catch(() => null) : null;
       if (!Array.isArray(hits) || !hits.length) continue;
       const ordered = [...hits.filter((h) => /\/en\//.test(h.link)), ...hits.filter((h) => !/\/en\//.test(h.link))];
@@ -503,8 +503,13 @@ async function readBarnivore(url) {
     const head = text.slice(0, 1500);
     const status = /\bNot Vegan\b/i.test(head) ? "fail" : /\bSome\b[^.]{0,40}\bvegan\b/i.test(head) || /\bUnknown\b/.test(head) ? "unknown" : /\bVegan\b/.test(head) ? "pass" : "unknown";
     const checked = (head.match(/Checked[^()]{0,40}\(([^)]+)\)/) || [])[1] || "";
-    const quote = (text.match(/(?:email|letter|phone)\s*\(([^)]+)\)\s*"([^"]{10,220})/i) || []);
-    return { status, as_of: quote[1] || checked, quote: quote[2] || "", url: u.href };
+    // The company's reply: take the sentence that explains the status
+    // (fining agent, animal products, "not vegan"), not a polite opening.
+    const reply = text.match(/(?:email|letter|phone|message)\s*\(([^)]+)\)\s*"([^"]{10,2000})"/i) || [];
+    const sentences = String(reply[2] || "").split(/(?<=[.!?])\s+/);
+    const key = /vegan|animal|casein|milk|egg|albumin|gelatin|isinglass|fish|chitosan|pea|bentonite|fining|protein/i;
+    const quote = (sentences.find((x) => key.test(x)) || sentences[0] || "").slice(0, 240);
+    return { status, as_of: reply[1] || checked, quote, url: u.href };
   } catch (err) {
     return { error: err.name };
   }
@@ -631,7 +636,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v6";
+const ENGINE_VERSION = "v7";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -927,6 +932,12 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     if (!own && !c.detail.includes(host)) c.detail = `${c.detail} (via ${host})`;
   }
 
+  // The label's dosage term is the winery's own statement of zero dosage.
+  const labelText = norm(`${wine.name} ${wine.style}`);
+  const zeroTerm = labelText.match(/\b(brut nature|pas dose|dosaggio zero|zero dosage|non dose|brut zero|dosage zero)\b/);
+  if (zeroTerm && best.zero_dosage?.status !== "fail" && best.zero_dosage?.status !== "pass") {
+    best.zero_dosage = { id: "zero_dosage", status: "pass", evidence: "winery", scope: "this_wine", as_of: "", detail: `Label says "${zeroTerm[1].replace(/\b\w/g, (c) => c.toUpperCase())}": no sugar added at dosage.`, source_url: "" };
+  }
   // Zero dosage only applies to sparkling wine.
   const sparkling = /sparkl|spumante|champagne|cava|cr[eé]mant|prosecco|franciacorta|sekt|brut|p[eé]tillant|frizzante|mousseux|espumoso/i.test(`${wine.style} ${wine.name}`);
   if (!sparkling && (!best.zero_dosage || best.zero_dosage.status === "unknown")) {
