@@ -849,7 +849,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v33";
+const ENGINE_VERSION = "v34";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1354,6 +1354,18 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
         ? `About ${perGlass} g sugar per 5 oz glass, typical for a ${tech.nutrition.typical.style} (${rs} g/L). Not published for this wine.`
         : `About ${perGlass} g sugar per 5 oz glass (${rs} g/L residual sugar).${base.scope === "related_wine" ? " From another vintage's sheet." : ""}`,
     };
+  }
+  // Sugar is only reported when verified (lab sheet, winery, importer or
+  // certifier). Estimates and typical values are removed here, so every
+  // client shows it as Unverified. Calories and carbs were already worked out.
+  {
+    const sc = best.sugar_under_1g;
+    const verified = sc && (sc.status === "pass" || sc.status === "fail") && ["lab", "winery", "certified"].includes(sc.evidence);
+    if (!verified) {
+      best.sugar_under_1g = { id: "sugar_under_1g", status: "unknown", evidence: "none", scope: "this_wine", as_of: "", detail: "Unverified: no published sugar figure for this wine.", source_url: "" };
+      if (tech?.nutrition) { tech.nutrition.residual_sugar_g_l = null; if (["estimate", "typical"].includes(tech.nutrition.source)) tech.nutrition.source = "none"; }
+      diag.push({ name: "sugar", outcome: `unverified (${sc ? `${sc.status}/${sc.evidence}` : "none"}), hidden` });
+    }
   }
   // Honest sourcing: a "winery" statement found on another site (importer,
   // shop) names that site in the detail.
