@@ -385,7 +385,8 @@
     return `<div class="card tasting">
       <div class="lbl">Tasting notes from the ${t.source === "importer" ? "importer" : "winery"}</div>
       ${t.flavors?.length ? `<div class="t-flavors">${t.flavors.map((f) => `<span>${esc(f)}</span>`).join("")}</div>` : ""}
-      <p class="t-notes">${esc(t.notes)}</p>
+      ${t.notes ? `<p class="t-notes">${esc(t.notes)}</p>` : ""}
+      ${t.pairings?.length ? `<div class="t-pair"><div class="t-pair-h">🍽️ Pairs well with</div><ul>${t.pairings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul></div>` : ""}
       ${host ? `<p class="t-src">Source: <a href="${esc(t.source_url)}" target="_blank" rel="noopener">${esc(host)}</a></p>` : ""}
     </div>`;
   }
