@@ -109,8 +109,8 @@
           </button>
           <form id="offer-form" class="stack power-form">
             <label>Venue <select id="offer-business" required></select></label>
-            <label>Offer title <input id="offer-title" value="BOGO draft beer" required maxlength="120" /></label>
-            <label>Product <input id="offer-product" value="Any draft beer" maxlength="120" /></label>
+            <label>Offer title <input id="offer-title" type="text" value="BOGO draft beer" required maxlength="120" /></label>
+            <label>Product <input id="offer-product" type="text" value="Any draft beer" maxlength="120" /></label>
             <div class="split">
               <label>Minutes <input id="offer-duration" type="number" min="5" max="1440" value="60" /></label>
               <label>Limit <input id="offer-limit" type="number" min="1" placeholder="∞" /></label>
@@ -122,7 +122,7 @@
         <div class="sheet">
           <h3 class="label">Verify QR</h3>
           <form id="verify-form" class="stack">
-            <label>Token <input id="verify-token" placeholder="ongo:… or paste token" autocomplete="off" /></label>
+            <label>Token <input id="verify-token" type="text" placeholder="ongo:… or paste token" autocomplete="off" /></label>
             <button type="submit" class="btn primary">Verify &amp; award</button>
           </form>
           <p id="verify-result" class="meta" aria-live="polite"></p>
@@ -179,9 +179,9 @@
         </form>
         <form id="register-form" class="sheet stack">
           <h3 class="label">Create account</h3>
-          <label>Name <input name="display_name" required maxlength="80" /></label>
-          <label>Email <input name="email" type="email" required /></label>
-          <label>Password <input name="password" type="password" required minlength="6" /></label>
+          <label>Name <input name="display_name" type="text" required maxlength="80" autocomplete="name" /></label>
+          <label>Email <input name="email" type="email" required autocomplete="username" /></label>
+          <label>Password <input name="password" type="password" required minlength="6" autocomplete="new-password" /></label>
           <label>I am a
             <select name="role" id="register-role">
               <option value="customer">Customer</option>

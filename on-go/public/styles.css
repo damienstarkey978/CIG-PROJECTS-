@@ -373,22 +373,42 @@ body {
   color: var(--muted);
 }
 
+/* Auth/forms: catch typeless inputs too — [type="text"] alone misses bare <input> */
 select,
+input:not([type]),
 input[type="search"],
 input[type="text"],
 input[type="email"],
 input[type="password"],
-input[type="number"] {
+input[type="number"],
+input[type="tel"],
+input[type="url"] {
   width: 100%;
+  min-height: 2.75rem;
   padding: 0.7rem 0.75rem;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--panel);
+  background-color: var(--panel);
   color: var(--ink);
   font: inherit;
 }
 
-select option { background: #0f1612; }
+select option { background: #0f1612; color: var(--ink); }
+
+/* Kill browser autofill white flash on dark Signal Night fields */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--ink) !important;
+  caret-color: var(--ink);
+  box-shadow: 0 0 0 1000px var(--panel) inset !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--panel) inset !important;
+  border: 1px solid var(--line) !important;
+  transition: background-color 99999s ease-out;
+}
 
 label {
   display: grid;
