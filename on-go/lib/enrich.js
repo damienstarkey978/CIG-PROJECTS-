@@ -441,6 +441,11 @@ function applyEnrichmentCache(db) {
         UPDATE businesses SET
           happy_hour_notes = ?,
           happy_hour_menu_url = ?,
+          phone = COALESCE(NULLIF(?, ''), phone),
+          website = COALESCE(NULLIF(?, ''), website),
+          menu_url = COALESCE(NULLIF(?, ''), menu_url),
+          hours_display = COALESCE(NULLIF(?, ''), hours_display),
+          hours_source = COALESCE(NULLIF(?, ''), hours_source),
           enrichment_sources_json = COALESCE(?, enrichment_sources_json),
           enrichment_status = COALESCE(?, enrichment_status),
           enrichment_updated_at = ?,
@@ -449,6 +454,11 @@ function applyEnrichmentCache(db) {
       `).run(
         v.happy_hour_notes || null,
         v.happy_hour_menu_url || null,
+        v.phone || '',
+        v.website || '',
+        v.menu_url || '',
+        v.hours_display || '',
+        v.hours_source || '',
         v.enrichment_sources_json || null,
         v.enrichment_status || 'ok',
         ts,
