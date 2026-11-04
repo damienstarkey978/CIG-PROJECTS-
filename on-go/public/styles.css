@@ -134,9 +134,9 @@ body {
   font: inherit;
 }
 
-/* Night-drive grade on free OSM tiles — eased so roads/labels read (still night, not light mode) */
+/* Mild lift on Carto dark_all tiles — keep Signal Night, improve road/label read */
 .leaflet-tile-pane {
-  filter: grayscale(0.22) invert(0.8) contrast(1.12) brightness(1.05) hue-rotate(60deg) saturate(0.7);
+  filter: brightness(1.18) contrast(1.08) saturate(0.92);
 }
 
 .leaflet-control-attribution {

@@ -250,10 +250,11 @@
     }
     state.map = L.map('map', { scrollWheelZoom: false, zoomControl: false }).setView([30.287, -81.397], 11);
     L.control.zoom({ position: 'topright' }).addTo(state.map);
-    // Free OSM tiles + CSS night filter (no third-party map API keys)
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 18,
+    // Free Carto dark tiles (OSM data) — readable night labels without harsh invert
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap © CARTO',
+      subdomains: 'abcd',
+      maxZoom: 20,
     }).addTo(state.map);
   }
 
