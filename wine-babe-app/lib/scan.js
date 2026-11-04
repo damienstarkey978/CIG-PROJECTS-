@@ -893,7 +893,7 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
   for (const part of [tech, farm, vegan]) for (const c of part?.checks || []) best[c.id] = better(best[c.id], c);
   if (barnivore) {
     const detail = barnivore.quote
-      ? `Barnivore, winery's reply: "${barnivore.quote.split(" ").slice(0, 18).join(" ")}${barnivore.quote.split(" ").length > 18 ? "..." : ""}"`
+      ? `Barnivore, winery's reply: "${barnivore.quote.length > 220 ? barnivore.quote.slice(0, 217).replace(/\s+\S*$/, "") + "..." : barnivore.quote}"`
       : `Barnivore lists the producer as ${barnivore.status === "pass" ? "vegan" : "not vegan"}.`;
     best.vegan = { id: "vegan", status: barnivore.status, evidence: "winery", scope: "producer", as_of: barnivore.as_of, detail, source_url: barnivore.url };
   }
