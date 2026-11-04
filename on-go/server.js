@@ -16,11 +16,13 @@ const {
 } = require('./lib/db');
 const {
   COOKIE_NAME,
+  UID_COOKIE,
   hashPassword,
   verifyPassword,
   createSession,
   destroySession,
   getUserFromSession,
+  resolveUser,
   publicUser,
   isEmailVerified,
   isTrustedDemoEmail,
@@ -132,7 +134,15 @@ function createApp() {
       syncingDb = syncingDb.then(() => syncDbFromStore()).catch(() => {});
       await syncingDb;
       expireOffers(db);
-      req.user = getUserFromSession(db, req.cookies[COOKIE_NAME]);
+      const resolved = resolveUser(db, {
+        sessionId: req.cookies[COOKIE_NAME],
+        signedUserId: req.signedCookies && req.signedCookies[UID_COOKIE],
+      });
+      req.user = resolved.user;
+      if (resolved.repairedSession) {
+        touch();
+        setSessionCookie(res, resolved.repairedSession, req);
+      }
       next();
     } catch (err) {
       next(err);
@@ -151,24 +161,31 @@ function createApp() {
     return undefined;
   }
 
-  function setSessionCookie(res, session, req) {
+  function cookieOpts(req, expires) {
     const opts = {
       httpOnly: true,
       sameSite: 'lax',
       secure: process.env.NODE_ENV === 'production' || Boolean(process.env.NETLIFY),
-      expires: new Date(session.expires),
       path: '/',
     };
+    if (expires) opts.expires = new Date(expires);
     const domain = cookieDomain(req);
     if (domain) opts.domain = domain;
+    return opts;
+  }
+
+  function setSessionCookie(res, session, req) {
+    const opts = cookieOpts(req, session.expires);
     res.cookie(COOKIE_NAME, session.id, opts);
+    // Signed uid survives Blobs lag when the session row isn't visible yet
+    const uidOpts = { ...opts, signed: true };
+    res.cookie(UID_COOKIE, session.userId || (req.user && req.user.id) || '', uidOpts);
   }
 
   function clearSessionCookie(res, req) {
-    const opts = { path: '/' };
-    const domain = cookieDomain(req);
-    if (domain) opts.domain = domain;
+    const opts = cookieOpts(req);
     res.clearCookie(COOKIE_NAME, opts);
+    res.clearCookie(UID_COOKIE, { ...opts, signed: true });
   }
 
   function requireVerified(req, res) {

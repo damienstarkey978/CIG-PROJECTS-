@@ -6,6 +6,8 @@ const { nowIso, uuid } = require('./db');
 
 const SESSION_DAYS = 14;
 const COOKIE_NAME = 'ongo_sid';
+/** Signed cookie backup — survives Netlify Blobs eventual-consistency lag */
+const UID_COOKIE = 'ongo_uid';
 
 function hashPassword(password) {
   return bcrypt.hashSync(password, 10);
@@ -22,12 +24,20 @@ function createSession(db, userId) {
     INSERT INTO sessions (id, user_id, expires_at, created_at)
     VALUES (?, ?, ?, ?)
   `).run(id, userId, expires, nowIso());
-  return { id, expires };
+  return { id, expires, userId };
 }
 
 function destroySession(db, sessionId) {
   if (!sessionId) return;
   db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+}
+
+function getUserById(db, userId) {
+  if (!userId) return null;
+  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (!row) return null;
+  delete row.password_hash;
+  return row;
 }
 
 function getUserFromSession(db, sessionId) {
@@ -46,6 +56,19 @@ function getUserFromSession(db, sessionId) {
   delete row.password_hash;
   delete row.session_expires;
   return row;
+}
+
+/**
+ * Resolve the signed-in user. Prefer the server session row; if Blobs lag
+ * dropped it, fall back to the signed uid cookie and re-create the session.
+ */
+function resolveUser(db, { sessionId, signedUserId } = {}) {
+  let user = getUserFromSession(db, sessionId);
+  if (user) return { user, repairedSession: null };
+  user = getUserById(db, signedUserId);
+  if (!user) return { user: null, repairedSession: null };
+  const repairedSession = createSession(db, user.id);
+  return { user, repairedSession };
 }
 
 function publicUser(user) {
@@ -106,11 +129,15 @@ function randomToken() {
 
 module.exports = {
   COOKIE_NAME,
+  UID_COOKIE,
+  SESSION_DAYS,
   hashPassword,
   verifyPassword,
   createSession,
   destroySession,
   getUserFromSession,
+  getUserById,
+  resolveUser,
   publicUser,
   isEmailVerified,
   isTrustedDemoEmail,
