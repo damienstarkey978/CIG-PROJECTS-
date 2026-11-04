@@ -156,7 +156,7 @@ const PDF_URLS_SCHEMA = {
 };
 
 const SHEET_SEARCH_SYSTEM = `You find a wine's official technical sheet PDF for the Wine Babe app, fast.
-Run exactly one web search, such as: <producer> <wine> tech sheet pdf (use the producer's language too: scheda tecnica, fiche technique, ficha técnica). Prefer the winery's or importer's own site.
+Run exactly one web search, such as: <producer> <wine> tech sheet pdf. Wineries also call it a fact sheet, technical data, wine notes or tasting notes, and in their own language scheda tecnica, fiche technique, ficha técnica, Datenblatt. Prefer the winery's or importer's own site.
 Return up to 5 direct PDF URLs from the results, best match for this exact wine first. Return an empty list if none.`;
 
 const techPrompt = (w, site, page) => `You read a wine's technical sheet for the Wine Babe app. Wine: ${wineLine(w)}.
@@ -179,7 +179,9 @@ Items:
 ${itemList(TECH_IDS)}`;
 
 const sheetPrompt = (w) => `You read a wine's attached technical sheet for the Wine Babe app. Wine: ${wineLine(w)}.
-Use only the attached sheet. Read every line: residual sugar, ABV, total and free SO2 (if a range, use the highest value and quote the range), pH, acidity, GMO, allergens, vegan, fining, yeast, dosage, harvest, vineyard, grapes, origin.
+Use only the attached sheet. Read every line: residual sugar, ABV, total and free SO2, pH, acidity, GMO, allergens, vegan, fining, yeast, dosage, harvest, vineyard, grapes, origin.
+Residual sugar may be labelled "sugars", "sugars (glucose + fructose)", "residual sugar", "RS", "zuccheri", "zuccheri residui", "sucres résiduels", "azúcar residual", "Restzucker". It may be given in g/L or as a percent (0.3% = 3 g/L).
+For ANY range (sugar 2 - 3 g/L, SO2 130 - 145 mg/L), use the highest value and quote the range in the detail. Labels and values may be listed in separate blocks in the same order; match them by position.
 If the sheet is for a sister wine of the same producer, use scope "related_wine" and say which wine.
 Nutrition per 5 oz (148 ml): if calories or carbs are not printed, calculate them (alcohol g = 148 x ABV/100 x 0.789 x 7 kcal; carbs ~ sugar g + 0.5; sugar g = residual sugar g/L x 0.148) and mark those checks "estimate". Leave numbers null rather than invent them. nutrition.source = evidence behind the sugar number ("lab" when the sheet gives it).
 tech_sheet: pass, evidence "lab" if it gives analysis numbers. zero_dosage: sparkling with no sugar added at dosage (Brut Nature, Pas Dosé, Dosaggio Zero, 0 g/L dosage); still wines "na".
@@ -588,7 +590,8 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
   const key = cacheKey(wine);
   if (cache && !fresh && key.replace(/_/g, "")) {
     const hit = await cache.get(key).catch(() => null);
-    if (hit && Date.now() - (hit.cached_at || 0) < CACHE_DAYS * 864e5) {
+    const ttlDays = hit?.result?.partial ? 1 : CACHE_DAYS;
+    if (hit && Date.now() - (hit.cached_at || 0) < ttlDays * 864e5) {
       send({ type: "status", text: "Already checked this wine" });
       return { ...hit.result, cached: true };
     }
@@ -630,14 +633,21 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       searchPool = searchUrls.filter((u) => /\.pdf(\?|$)/i.test(u));
     }
     diag.push({ name: "sheet-ranked", outcome: JSON.stringify(ranked.slice(0, 3).map((r) => `${r.score.toFixed(1)} ${r.url}`)).slice(0, 600) });
-    let sheet = null;
-    // Search results with unhelpful file names (e.g. 394499-untitled.pdf):
-    // download and keep one whose text names this wine.
-    if (!ranked.length && searchPool.length) {
-      const nameWords = norm(wine.name).split(" ").filter((w) => w.length > 2);
-      const prodWords = norm(wine.producer).split(" ").filter((w) => w.length > 2);
-      for (const url of searchPool.slice(0, 2)) {
-        if (Date.now() > deadline - 6000) break;
+    // Download the best ranked PDFs in order; for unhelpfully named search
+    // results (e.g. 394499-untitled.pdf), keep one whose text names the wine.
+    const nameWords = norm(wine.name).split(" ").filter((w) => w.length > 2);
+    const prodWords = norm(wine.producer).split(" ").filter((w) => w.length > 2);
+    const download = async (rankedList, pool) => {
+      for (const c of rankedList.slice(0, 3)) {
+        if (Date.now() > deadline - 4000) return null;
+        send({ type: "fetch", text: c.url });
+        const got = await fetchPdf(c.url, 6000);
+        if (got.data) return { url: c.url, data: got.data };
+        diag.push({ name: "sheet-download", outcome: `${got.error}: ${c.url}`.slice(0, 300) });
+      }
+      const tried = new Set(rankedList.slice(0, 3).map((c) => c.url));
+      for (const url of pool.filter((u) => !tried.has(u)).slice(0, 2)) {
+        if (Date.now() > deadline - 6000) return null;
         send({ type: "fetch", text: url });
         const got = await fetchPdf(url, 6000);
         if (!got.data) { diag.push({ name: "sheet-download", outcome: `${got.error}: ${url}`.slice(0, 300) }); continue; }
@@ -645,15 +655,24 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
         const hits = nameWords.filter((w) => words.has(w)).length;
         const ok = prodWords.some((w) => words.has(w)) && hits >= Math.ceil(nameWords.length * 0.5);
         diag.push({ name: "sheet-text-check", outcome: `${ok ? "match" : "no match"} (${hits}/${nameWords.length}): ${url}`.slice(0, 300) });
-        if (ok) { sheet = { url, data: got.data }; break; }
+        if (ok) return { url, data: got.data };
       }
-    }
-    for (const c of sheet ? [] : ranked.slice(0, 3)) {
-      if (Date.now() > deadline - 4000) break;
-      send({ type: "fetch", text: c.url });
-      const got = await fetchPdf(c.url, 6000);
-      if (got.data) { sheet = { url: c.url, data: got.data }; break; }
-      diag.push({ name: "sheet-download", outcome: `${got.error}: ${c.url}`.slice(0, 300) });
+      return null;
+    };
+    let sheet = await download(ranked, searchPool);
+
+    // Nothing usable and time left: one more search with different wording.
+    if (!sheet && Date.now() < deadline - 10000) {
+      let host = "";
+      try { host = new URL(site).hostname.replace(/^www\./, ""); } catch {}
+      const retry = await runAgent({ diag,
+        name: "sheet-search-2", system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline: deadline - 5000,
+        content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. A first search found nothing usable${searchPool.length ? ` (tried: ${searchPool.join(", ")})` : ""}. Use different wording this time, for example "${wine.producer} ${wine.name} fact sheet pdf"${host ? ` or site:${host} pdf` : ""}.`),
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
+      });
+      const urls2 = (retry?.pdf_urls || []).filter((u) => /^https?:\/\//.test(u) && !searchPool.includes(u)).slice(0, 5);
+      diag.push({ name: "sheet-search-2-urls", outcome: JSON.stringify(urls2).slice(0, 400) });
+      if (urls2.length) sheet = await download(rankPdfs(urls2.map((url) => ({ url, text: "" })), wine, site), urls2.filter((u) => /\.pdf(\?|$)/i.test(u)));
     }
     if (!sheet) return null;
     send({ type: "status", text: "Reading the tech sheet" });
@@ -686,6 +705,11 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
   // 4. Merge.
   const best = {};
   for (const part of [tech, farm, vegan]) for (const c of part?.checks || []) best[c.id] = better(best[c.id], c);
+  // Zero dosage only applies to sparkling wine.
+  const sparkling = /sparkl|spumante|champagne|cava|cr[eé]mant|prosecco|franciacorta|sekt|brut|p[eé]tillant|frizzante|mousseux|espumoso/i.test(`${wine.style} ${wine.name}`);
+  if (!sparkling && (!best.zero_dosage || best.zero_dosage.status === "unknown")) {
+    best.zero_dosage = { id: "zero_dosage", status: "na", evidence: "none", scope: "this_wine", as_of: "", detail: "Still wine, so dosage does not apply.", source_url: "" };
+  }
   const checks = ALL_ITEMS.map(
     (i) => best[i.id] || { id: i.id, status: "unknown", evidence: "none", scope: "this_wine", as_of: "", detail: "No public information found.", source_url: "" }
   );
@@ -708,8 +732,9 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     partial: [tech, farm, vegan].some((p) => !p),
   };
 
-  // Only cache complete results, so a timed out lookup gets retried next time.
-  if (cache && !result.partial) await cache.set(key, { cached_at: Date.now(), result }).catch(() => {});
+  // Complete results are kept 30 days; partial ones (no tech sheet, or a
+  // lookup ran out of time) for 1 day, so they get retried soon.
+  if (cache) await cache.set(key, { cached_at: Date.now(), result }).catch(() => {});
   return result;
 }
 
