@@ -324,6 +324,32 @@ function cleanRatings(raw, wine) {
     .slice(0, 8);
 }
 
+// ---------- typical values by style ----------
+// Used only when nothing is published for this wine, and always labeled as
+// typical for the style. Residual sugar g/L, ABV %, total SO2 mg/L.
+function typicalProfile(w) {
+  const t = ` ${norm(`${w.style} ${w.name} ${w.grapes} ${w.region}`)} `;
+  const has = (...words) => words.some((x) => t.includes(` ${x} `));
+  if (has("port", "porto", "sherry", "madeira", "marsala", "fortified")) return { label: "fortified wine", abv: 19.5, rs: 90, so2: 100 };
+  if (has("moscato", "asti")) return { label: "Moscato", abv: 7, rs: 90, so2: 150 };
+  if (has("sauternes", "icewine", "tokaji", "dessert", "sweet") || t.includes(" late harvest ") || t.includes(" ice wine ")) return { label: "dessert wine", abv: 11, rs: 100, so2: 200 };
+  if (has("sparkling", "spumante", "champagne", "prosecco", "cava", "cremant", "frizzante", "brut", "sekt", "lambrusco", "franciacorta")) {
+    let rs = 9, label = "Brut sparkling wine";
+    if (t.includes(" brut nature ") || t.includes(" pas dose ") || t.includes(" dosaggio zero ") || t.includes(" zero dosage ") || t.includes(" extra brut ")) { rs = 2; label = "Brut Nature sparkling wine"; }
+    else if (t.includes(" extra dry ")) { rs = 15; label = "Extra Dry sparkling wine"; }
+    else if (has("demi", "dolce", "doux", "dry")) { rs = 30; label = "off-dry sparkling wine"; }
+    else if (has("brut")) { rs = 8; }
+    else if (has("prosecco")) { rs = 14; label = "Prosecco"; }
+    return { label, abv: 11.5, rs, so2: 100 };
+  }
+  if (has("rose", "rosato", "rosado", "blush")) return { label: "dry rosé", abv: 12.5, rs: 4, so2: 120 };
+  if (has("riesling", "gewurztraminer", "moscatel") || t.includes(" white zinfandel ") || t.includes(" off dry ") || has("semi")) return { label: "off-dry white", abv: 11, rs: 15, so2: 150 };
+  if (has("red", "rosso", "tinto", "rouge", "cabernet", "merlot", "noir", "syrah", "shiraz", "zinfandel", "malbec", "sangiovese", "tempranillo",
+    "grenache", "garnacha", "chianti", "rioja", "beaujolais", "gamay", "nebbiolo", "barolo", "barbaresco", "montepulciano", "primitivo", "carmenere",
+    "sirah", "bordeaux", "amarone", "valpolicella", "barbera", "dolcetto", "lambrusco", "nero", "mourvedre", "petit", "cotes")) return { label: "dry red", abv: 13.5, rs: 2.5, so2: 100 };
+  return { label: "dry white", abv: 12.5, rs: 3, so2: 130 };
+}
+
 // ---------- winery tasting notes ----------
 // The winery's (or its importer's) own description of how the wine tastes.
 // Critic reviews are not used here; those belong to the ratings card.
@@ -823,7 +849,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v30";
+const ENGINE_VERSION = "v31";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1265,6 +1291,22 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       }
     } else diag.push({ name: "abv", outcome: "not found" });
   }
+  // Still nothing published: use typical values for this style of wine,
+  // labeled as such. Published or looked up figures always win.
+  {
+    if (!tech) tech = { checks: [], sources: [], nutrition: { ...EMPTY_NUTRITION }, tech_sheet_url: "", tech_sheet_vintage: "" };
+    tech.nutrition = tech.nutrition || { ...EMPTY_NUTRITION };
+    const n = tech.nutrition;
+    const t = typicalProfile(wine);
+    const used = [];
+    if (n.abv == null) { n.abv = t.abv; used.push("abv"); }
+    if (n.residual_sugar_g_l == null) { n.residual_sugar_g_l = t.rs; n.source = "typical"; used.push("sugar"); }
+    if (n.total_so2_mg_l == null) { n.total_so2_mg_l = t.so2; used.push("so2"); }
+    if (used.length) {
+      n.typical = { style: t.label, fields: used };
+      diag.push({ name: "typical", outcome: `${t.label}: ${used.join(", ")}` });
+    }
+  }
   // Calories and carbs not published: calculate them from ABV and sugar.
   {
     const n = tech?.nutrition;
@@ -1294,7 +1336,9 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     best.sugar_under_1g = {
       ...base,
       status: rs * 0.148 < 1 ? "pass" : "fail",
-      detail: `About ${perGlass} g sugar per 5 oz glass (${rs} g/L residual sugar).${base.scope === "related_wine" ? " From another vintage's sheet." : ""}`,
+      detail: tech.nutrition.typical?.fields.includes("sugar")
+        ? `About ${perGlass} g sugar per 5 oz glass, typical for a ${tech.nutrition.typical.style} (${rs} g/L). Not published for this wine.`
+        : `About ${perGlass} g sugar per 5 oz glass (${rs} g/L residual sugar).${base.scope === "related_wine" ? " From another vintage's sheet." : ""}`,
     };
   }
   // Honest sourcing: a "winery" statement found on another site (importer,
@@ -1354,7 +1398,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // A thin result (fewer than 4 of the top 10 known) is not cached: lookups
   // vary run to run, so the next scan gets a fresh try instead of a stored
   // empty answer.
-  const knownTop = ALL_ITEMS.filter((i) => i.top).filter((i) => checks.some((c) => c.id === i.id && (c.status === "pass" || c.status === "fail"))).length;
+  const knownTop = ALL_ITEMS.filter((i) => i.top).filter((i) => checks.some((c) => c.id === i.id && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail"))).length;
   diag.push({ name: "cache", outcome: knownTop >= 4 ? `stored (${knownTop}/10 known)` : `skipped, thin result (${knownTop}/10 known)` });
   if (cache && knownTop >= 4) await cache.set(key, { cached_at: Date.now(), result }).catch(() => {});
   return result;

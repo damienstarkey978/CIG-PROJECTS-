@@ -171,7 +171,7 @@
     // of the applicable top 10 are known at all. Items nobody publishes don't
     // drag a good wine down to zero.
     const top = checks.filter((c) => c.top).sort((a, b) => a.top - b.top);
-    const POINTS = { lab: 1, certified: 1, winery: 0.9, estimate: 0.7 };
+    const POINTS = { lab: 1, certified: 1, winery: 0.9, estimate: 0.7, typical: 0.4 };
     const applicable = top.filter((c) => c.status !== "na");
     const known = applicable.filter((c) => c.status === "pass" || c.status === "fail");
     let score = null;
@@ -243,6 +243,7 @@
     }
 
     const sugar = n.sugar_5oz;
+    const typ = (n.typical && n.typical.fields) || [];
     const sugarCheck = r.checks.find((c) => c.id === "sugar_under_1g");
     const byId = Object.fromEntries(r.checks.map((c) => [c.id, c]));
     const tier = (id, label) => {
@@ -323,17 +324,18 @@
       </div>
 
       <div class="stats">
-        ${stat(n.calories_5oz != null ? fmt(n.calories_5oz, 0) : null, "", "Calories per 5 oz", r.est.calories ? "estimate" : null)}
-        ${stat(n.carbs_5oz != null ? fmt(n.carbs_5oz, 1) : null, "g", "Carbs per 5 oz", r.est.carbs ? "estimate" : null)}
-        ${stat(n.abv != null ? fmt(n.abv, 1) : null, "%", "Alcohol (ABV)")}
+        ${stat(n.calories_5oz != null ? fmt(n.calories_5oz, 0) : null, "", "Calories per 5 oz", r.est.calories || byId.calories?.evidence === "estimate" ? "estimate" : null)}
+        ${stat(n.carbs_5oz != null ? fmt(n.carbs_5oz, 1) : null, "g", "Carbs per 5 oz", r.est.carbs || byId.carbs?.evidence === "estimate" ? "estimate" : null)}
+        ${stat(n.abv != null ? fmt(n.abv, 1) : null, "%", "Alcohol (ABV)", typ.includes("abv") ? "typical" : null)}
       </div>
+      ${typ.length ? `<p class="typical-note">This wine doesn't publish full specs, so ${typ.map((f) => ({ sugar: "sugar", abv: "alcohol", so2: "sulfites" })[f]).join(", ").replace(/, ([^,]*)$/, " and $1")} ${typ.length > 1 ? "are" : "is"} typical for a ${esc(n.typical.style)} and calories and carbs are worked out from those. Treat them as estimates.</p>` : ""}
 
       <div class="card so2">
         <div class="so2__top">
           <div>
             <div class="lbl">Sulfites</div>
             <div class="so2__val">${sulfite == null ? "?" : `${sulfite} <small>mg/L</small>`}</div>
-            <div class="so2__sub">${so2 ? `About ${fmt(so2.perGlass, 0)} mg per 5 oz glass` : "No published sulfite level found"}${n.free_so2_mg_l != null ? ` · free ${fmt(n.free_so2_mg_l, 0)} mg/L` : ""}</div>
+            <div class="so2__sub">${typ.includes("so2") ? `<span class="chip typical">Typical for type</span> ` : ""}${so2 ? `About ${fmt(so2.perGlass, 0)} mg per 5 oz glass` : "No published sulfite level found"}${n.free_so2_mg_l != null ? ` · free ${fmt(n.free_so2_mg_l, 0)} mg/L` : ""}</div>
           </div>
           ${so2 ? `<span class="so2__pill" style="--c:${so2.color}">${so2.label}</span>` : ""}
         </div>
