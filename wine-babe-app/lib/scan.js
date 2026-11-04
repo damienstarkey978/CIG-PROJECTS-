@@ -681,12 +681,14 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     diag.push({ name: "sheet-fast", ms: Date.now() - tFast, outcome: `${fast.filter((l) => /\.pdf/i.test(l.url)).length} pdf links` });
     let ranked = rankPdfs(fast, wine, site);
     let searchPool = [];
+    let searchSeen = [];
     const fullName = norm(wine.name).split(" ").filter((w) => w.length > 2).length;
     if (!(ranked[0] && ranked[0].matched >= fullName)) {
       // No exact match from the fast routes: add the web search results.
       const found = await searched;
       const searchUrls = (found?.pdf_urls || []).filter((u) => /^https?:\/\//.test(u)).slice(0, 5);
       diag.push({ name: "sheet-search-urls", outcome: JSON.stringify(searchUrls).slice(0, 400) });
+      searchSeen = searchUrls;
       // No winery site from identify: if a search result is on the producer's
       // own domain, run the fast routes on that domain too.
       let extra = [];
@@ -766,10 +768,10 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       try { host = new URL(site).hostname.replace(/^www\./, ""); } catch {}
       const retry = await runAgent({ diag,
         name: "sheet-search-2", system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline: deadline - 5000,
-        content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. A first search found nothing usable${searchPool.length ? ` (tried: ${searchPool.join(", ")})` : ""}. Use different wording this time, for example "${wine.producer} ${wine.name} fact sheet pdf"${host ? ` or site:${host} pdf` : ""}.`),
+        content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. A first search found nothing usable${searchSeen.length ? ` (already tried: ${searchSeen.join(", ")})` : ""}. Use different wording this time, for example "${wine.producer} ${wine.name} fact sheet pdf"${host ? ` or site:${host} pdf` : ""}.`),
         tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
       });
-      const urls2 = (retry?.pdf_urls || []).filter((u) => /^https?:\/\//.test(u) && !searchPool.includes(u)).slice(0, 5);
+      const urls2 = (retry?.pdf_urls || []).filter((u) => /^https?:\/\//.test(u) && !searchSeen.includes(u)).slice(0, 5);
       diag.push({ name: "sheet-search-2-urls", outcome: JSON.stringify(urls2).slice(0, 400) });
       if (urls2.length) sheet = await download(rankPdfs(urls2.map((url) => ({ url, text: "" })), wine, site), urls2.filter((u) => /\.pdf(\?|$)/i.test(u)));
     }
