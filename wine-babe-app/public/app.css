@@ -389,3 +389,4 @@ details.cat .checks { padding: 0 1rem 0.4rem; }
 .saved-note { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.8rem; margin: 0 0 1rem; padding: 0.75rem 0.9rem; border-radius: var(--radius); background: var(--blush-soft); color: var(--wine); font-size: 0.85rem; }
 .saved-note .btn.small { padding: 0.35rem 0.9rem; font-size: 0.82rem; }
 .app-version { margin: 1.5rem 0 2rem; text-align: center; font-size: 0.72rem; color: var(--muted); }
+.upload-link { display: block; margin: -0.4rem auto 1.1rem; text-align: center; font-size: 0.9rem; font-weight: 600; color: var(--wine); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }

@@ -120,7 +120,7 @@
     }
   }
 
-  $("#photo").addEventListener("change", async (ev) => {
+  const onPhoto = async (ev) => {
     const file = ev.target.files[0];
     ev.target.value = "";
     if (!file) return;
@@ -130,7 +130,10 @@
     } catch (err) {
       alert(err.message);
     }
-  });
+  };
+  // Camera (Scan label) and photo library (upload) use the same scan.
+  $("#photo").addEventListener("change", onPhoto);
+  $("#photoLib").addEventListener("change", onPhoto);
 
   $("#searchForm").addEventListener("submit", (ev) => {
     ev.preventDefault();
