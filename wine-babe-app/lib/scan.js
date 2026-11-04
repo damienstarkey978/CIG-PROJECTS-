@@ -180,15 +180,15 @@ const NUTRITION_SCHEMA = {
   },
 };
 const NUTRITION_SEARCH_SYSTEM = `You look up a wine's published nutrition facts and specs for the Wine Babe app, fast.
-Run exactly one web search: <producer> <wine> nutrition facts.
+Run exactly one web search, exactly: <producer> <wine name> nutrition facts
 Return:
 - pages: up to 4 result pages, the winery's own product / specs / nutrition page first, each tagged winery, importer, retailer or other.
-- The figures stated for THIS wine on the best source: calories, carbohydrates and sugar per 5 oz (148 ml) serving (convert other serving sizes), residual sugar in g/L if stated, ABV. Use null for anything not stated. Never use generic or category averages ("a typical Pinot Grigio").
+- The figures given for THIS wine by the best source (winery first; otherwise the search answer or a wine site like Vivino): calories, carbohydrates and sugar per 5 oz (148 ml) serving (convert other serving sizes), residual sugar in g/L if stated, ABV. Use null for anything not stated. Ranges count: use the midpoint for calories and carbs, the highest value for sugar.
 - source_url and source_kind of the page the figures came from ("none" if no figures).`;
 
-const SHEET_SEARCH_SYSTEM = `You find a wine's official technical sheet PDF for the Wine Babe app, fast.
-Run exactly one web search, such as: <producer> <wine> tech sheet pdf. Wineries also call it a fact sheet, technical data, wine notes or tasting notes, and in their own language scheda tecnica, fiche technique, ficha técnica, Datenblatt. Prefer the winery's or importer's own site.
-Return up to 5 direct PDF URLs from the results, best match for this exact wine first. Return an empty list if none.`;
+const SHEET_SEARCH_SYSTEM = `You find a wine's official technical sheet for the Wine Babe app, fast.
+Run exactly one web search, exactly: <producer> <wine name> tech specs
+Return up to 5 URLs from the results that are this wine's tech sheet or spec page (PDFs first, then the winery's own spec page), best match for this exact wine first. Return an empty list if none.`;
 
 const techPrompt = (w, site, page) => `You read a wine's technical sheet for the Wine Babe app. Wine: ${wineLine(w)}.
 Winery website: ${site || "unknown"}. Product page: ${page || "unknown"}.
@@ -686,7 +686,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v8";
+const ENGINE_VERSION = "v9";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -873,7 +873,14 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     if (!sheet) {
       // No PDF: read the winery's (or importer's) own spec page instead.
       const ns = await nutritionSearch;
-      const specPage = (ns?.pages || []).find((p) => p.kind === "winery") || (ns?.pages || []).find((p) => p.kind === "importer");
+      // Spec pages from the "tech specs" search on the producer's own domain
+      // come first, then winery / importer pages from the nutrition search.
+      const prodW = norm(wine.producer).split(" ").filter((w) => w.length > 3);
+      const ownSpec = searchSeen
+        .filter((u) => !/\.pdf(\?|$)/i.test(u))
+        .find((u) => { try { const h = new URL(u).hostname.toLowerCase(); return prodW.some((w) => h.includes(w)) || (site && h.endsWith(new URL(site).hostname.replace(/^www\./, ""))); } catch { return false; } });
+      const specPage = (ownSpec && { url: ownSpec, kind: "winery" })
+        || (ns?.pages || []).find((p) => p.kind === "winery") || (ns?.pages || []).find((p) => p.kind === "importer");
       if (!specPage) return null;
       send({ type: "fetch", text: specPage.url });
       const text = await pageText(specPage.url);
@@ -1003,8 +1010,27 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     if (filled.includes("calories")) add("calories", `${ns.calories_5oz} calories per 5 oz, stated by the ${ns.source_kind}${via ? "" : ""}.`);
     if (filled.includes("carbs")) add("carbs", `${ns.carbs_5oz} g carbs per 5 oz, stated by the ${ns.source_kind}.`);
     diag.push({ name: "nutrition-facts", outcome: `${ns.source_kind}: ${filled.join(", ") || "nothing new"} from ${ns.source_url}`.slice(0, 300) });
-  } else if (ns) {
-    diag.push({ name: "nutrition-facts", outcome: `not used (${ns.source_kind}${ns.source_url ? ": " + ns.source_url : ""})`.slice(0, 300) });
+  } else if (ns && (ns.calories_5oz != null || ns.carbs_5oz != null || ns.sugar_g_5oz != null || ns.residual_sugar_g_l != null || ns.abv != null)) {
+    // Not from the winery: show the figures, clearly labeled as estimates.
+    if (!tech) tech = { checks: [], sources: [], nutrition: { ...EMPTY_NUTRITION }, tech_sheet_url: "", tech_sheet_vintage: "" };
+    tech.nutrition = tech.nutrition || { ...EMPTY_NUTRITION };
+    const n = tech.nutrition;
+    let host = "web search";
+    try { host = new URL(ns.source_url).hostname.replace(/^www\./, ""); } catch {}
+    const filled = [];
+    if (n.calories_5oz == null && ns.calories_5oz != null) { n.calories_5oz = ns.calories_5oz; filled.push("calories"); }
+    if (n.carbs_5oz == null && ns.carbs_5oz != null) { n.carbs_5oz = ns.carbs_5oz; filled.push("carbs"); }
+    if (n.abv == null && ns.abv != null) n.abv = ns.abv;
+    if (n.residual_sugar_g_l == null) {
+      const rsl = ns.residual_sugar_g_l ?? (ns.sugar_g_5oz != null ? Math.round((ns.sugar_g_5oz / 0.148) * 10) / 10 : null);
+      if (rsl != null) { n.residual_sugar_g_l = rsl; n.source = "estimate"; filled.push("sugar"); }
+    }
+    const add = (id, detail) => {
+      best[id] = better(best[id], { id, status: "pass", evidence: "estimate", scope: "this_wine", as_of: "", detail, source_url: ns.source_url || "" });
+    };
+    if (filled.includes("calories")) add("calories", `About ${ns.calories_5oz} calories per 5 oz (estimate via ${host}).`);
+    if (filled.includes("carbs")) add("carbs", `About ${ns.carbs_5oz} g carbs per 5 oz (estimate via ${host}).`);
+    diag.push({ name: "nutrition-facts", outcome: `estimate from ${host}: ${filled.join(", ") || "nothing new"}`.slice(0, 300) });
   }
   const rs = (tech?.nutrition || {}).residual_sugar_g_l;
   if (rs != null) {
