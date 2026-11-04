@@ -74,9 +74,14 @@ const SOURCES = {
 const IDENTIFY_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["identified", "wine", "winery_website", "product_page_url", "note"],
+  required: ["identified", "wine", "winery_website", "product_page_url", "note", "label_marks"],
   properties: {
     identified: { type: "boolean" },
+    label_marks: {
+      type: "array",
+      items: { type: "string" },
+      description: "Certification logos and claims visible on the label, written out: e.g. 'EU organic leaf logo', 'AB Agriculture Biologique logo', 'IT-BIO-006', 'Senza OGM', 'Vino biologico'. Empty if none or no photo.",
+    },
     wine: {
       type: "object",
       additionalProperties: false,
@@ -161,6 +166,7 @@ From the label photo or text, identify producer, wine name, vintage, region, cou
 Then find the winery's official website and this wine's product page on it, with at most one web search. Be quick. Prefer the winery's own domain over shops.
 A name without a vintage is fine: identify the wine and leave vintage "" (non vintage or latest).
 No producer given (e.g. "Pinot Noir Rosé Single Fermentation"): use your web search on the exact name to find which winery makes it. If the results point to one producer's wine, identify it with that producer. If several fit, pick the most popular one and say so in note.
+From a label photo, also list in label_marks every certification logo, code and claim you can see: EU organic leaf (Euroleaf), AB Agriculture Biologique, Demeter, codes like IT-BIO-006 or FR-BIO-01, and words like Sans OGM, Senza OGM, Privo di OGM, Non OGM, Vino biologico, Uve biologiche, Da agricoltura biologica, Vin biologique. With text input only, label_marks is [].
 Never ask for a photo or more details. Always give your best guess for anything that looks like a wine (even just a grape or style, e.g. "Pinot Grigio"): fill what you can and leave the rest "". Only set identified false when the input is clearly not a wine at all (a person, a scene, a different product), and explain in note. Unknown text fields are "".`;
 
 const PDF_URLS_SCHEMA = {
@@ -759,6 +765,54 @@ async function readBarnivore(url) {
   }
 }
 
+// ---------- certification and claim recognizer ----------
+// Finds non GMO and organic wording (English, French, Italian, Spanish,
+// German), organic logos, and EU organic control body codes (IT-BIO-006,
+// FR-BIO-01...) in label marks, tech sheets and winery pages. A control body
+// code on its own is not proof that a wine is certified organic; it only
+// counts together with organic wording or the EU / AB logo.
+
+const NON_GMO_RE = /\b(non[\s-]?gmo|gmo[\s-]?free|free from gmos?|no gmos?|sans ogm|non ogm|senza ogm|privo di ogm|no ogm|sin ogm|libre de ogm|ohne gentechnik|gentechnikfrei)\b|non deriva da organismi geneticamente modificati|not derived from genetically modified|n'est pas issu d'organismes g[eé]n[eé]tiquement modifi[eé]s/i;
+const ORGANIC_RE = /\b(certified organic|organic wine|organic grapes|organically grown|made with organic grapes|vino biologico|vini biologici|uve biologiche|agricoltura biologica|da agricoltura biologica|certificato biologico|vin biologique|vins biologiques|raisins biologiques|agriculture biologique|issu de l'agriculture biologique|vino ecol[oó]gico|uvas ecol[oó]gicas|agricultura ecol[oó]gica|[oö]kologischer anbau|bio[\s-]?wein|demeter|biodynamic|biodinamic[oa]|biodynamie)\b/i;
+const ORGANIC_LOGO_RE = /\b(euro[\s-]?leaf|eu organic|eu[\s-]?bio|organic leaf|ab logo|agriculture biologique logo|logo ab|usda organic|demeter)\b/i;
+const CONTROL_CODE_RE = /\b([A-Z]{2})[\s-](BIO|ÖKO|OKO|ECO|EKO|ORG|ORGANIC|BIO-OKO)[\s-](\d{2,3})\b/g;
+
+function findMarks(text) {
+  const t = String(text || "");
+  const snippet = (re) => {
+    const m = t.match(re);
+    if (!m) return "";
+    const i = m.index ?? t.search(re);
+    return t.slice(Math.max(0, i - 40), i + m[0].length + 60).replace(/\s+/g, " ").trim();
+  };
+  const codes = [...new Set([...t.matchAll(CONTROL_CODE_RE)].map((m) => `${m[1]}-${m[2]}-${m[3]}`.toUpperCase()))];
+  return {
+    nonGmo: snippet(NON_GMO_RE),
+    organic: snippet(ORGANIC_RE),
+    organicLogo: snippet(ORGANIC_LOGO_RE),
+    codes,
+  };
+}
+
+// Turns marks found in one source into checklist findings.
+function marksToChecks(marks, source) {
+  const out = [];
+  const base = { scope: source.scope || "this_wine", as_of: "", source_url: source.url || "" };
+  if (marks.nonGmo) {
+    out.push({ ...base, id: "non_gmo", status: "pass", evidence: "winery", detail: `${source.label}: "${marks.nonGmo.slice(0, 120)}"` });
+  }
+  const codeNote = marks.codes.length ? ` Control body code ${marks.codes.join(", ")}.` : "";
+  if (marks.organicLogo || (marks.organic && marks.codes.length)) {
+    // Logo, or organic wording with a control body code: a certification mark.
+    out.push({ ...base, id: "organic", status: "pass", evidence: "certified", detail: `${source.label}: ${marks.organicLogo ? `organic certification mark (${marks.organicLogo.slice(0, 80)})` : `"${marks.organic.slice(0, 100)}"`}.${codeNote}` });
+    out.push({ ...base, id: "certifications", status: "pass", evidence: "certified", detail: `${source.label}: EU organic certification.${codeNote}` });
+  } else if (marks.organic) {
+    out.push({ ...base, id: "organic", status: "pass", evidence: "winery", detail: `${source.label}: "${marks.organic.slice(0, 120)}"` });
+  }
+  // A code alone is noted nowhere as a pass: it identifies the certifier, not the wine.
+  return out;
+}
+
 // ---------- one Claude call with tools, under a deadline ----------
 // At the deadline the call is cut and, if earlier turns gathered anything, a
 // quick no-tools follow up turns what was found into the JSON answer.
@@ -889,7 +943,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v36";
+const ENGINE_VERSION = "v37";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -946,6 +1000,11 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     };
   }
   const wine = id.wine;
+  // Text sources scanned by the certification recognizer.
+  const markSources = [];
+  if (Array.isArray(id.label_marks) && id.label_marks.length) {
+    markSources.push({ label: "Label", text: id.label_marks.join(" | "), url: "", scope: "this_wine" });
+  }
   send({ type: "status", text: `Found ${[wine.producer, wine.name].filter(Boolean).join(" ")}` });
 
   // 2. Cache.
@@ -1127,6 +1186,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       if (!specPage) return null;
       send({ type: "fetch", text: specPage.url });
       const text = await pageText(specPage.url);
+      if (text) markSources.push({ label: "Winery page", text, url: specPage.url, scope: "this_wine" });
       diag.push({ name: "spec-page", outcome: `${text.length} chars (${specPage.kind}): ${specPage.url}`.slice(0, 300) });
       if (text.length < 300) return null;
       // A homepage or a page that does not name the wine is not its spec page.
@@ -1148,6 +1208,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     }
     send({ type: "status", text: "Reading the tech sheet" });
     const text = await pdfText(sheet.data);
+    if (text) markSources.push({ label: "Tech sheet", text, url: sheet.url, scope: "this_wine" });
     diag.push({ name: "sheet-text", outcome: `${text.length} chars` });
     const content = text.length >= 200
       ? [{ type: "text", text: `Text extracted from the winery's tech sheet at ${sheet.url}. Labels and values may sit in separate columns; match them in order.\n\n<tech_sheet>\n${text}\n</tech_sheet>\n\nFill the items. tech_sheet_url is ${sheet.url}.` }]
@@ -1256,6 +1317,12 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
   // 4. Merge.
   const best = {};
   for (const part of [tech, farm, vegan]) for (const c of part?.checks || []) best[c.id] = better(best[c.id], c);
+  for (const src of markSources) {
+    const marks = findMarks(src.text);
+    const found = marksToChecks(marks, src);
+    if (found.length || marks.codes.length) diag.push({ name: `marks ${src.label}`, outcome: `${found.map((c) => `${c.id}/${c.evidence}`).join(", ") || "none"}${marks.codes.length ? ` codes ${marks.codes.join(",")}` : ""}` });
+    for (const c of found) best[c.id] = better(best[c.id], c);
+  }
   if (barnivore) {
     const detail = barnivore.quote
       ? `Barnivore, winery's reply: "${barnivore.quote.length > 220 ? barnivore.quote.slice(0, 217).replace(/\s+\S*$/, "") + "..." : barnivore.quote}"`
