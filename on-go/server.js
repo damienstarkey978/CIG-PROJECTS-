@@ -19,6 +19,23 @@ const {
   userCanManageBusiness,
   randomToken,
 } = require('./lib/auth');
+const {
+  ensureLogoColumns,
+  resolveLogoForBusiness,
+  resolveLogosBatch,
+  saveUploadedLogo,
+  readUploadedLogo,
+  buildCreative,
+  AD_PLACEMENTS,
+  domainFromWebsite,
+  KNOWN_WEBSITES,
+} = require('./lib/logos');
+const {
+  assignProTrial,
+  formatSubscription,
+  ensureProTrialsForClaimed,
+  PRO_TRIAL_DAYS,
+} = require('./lib/subscriptions');
 
 const PORT = Number(process.env.PORT) || 3847;
 
@@ -57,7 +74,7 @@ function touch() {
 
 function createApp() {
   const app = express();
-  app.use(express.json({ limit: '100kb' }));
+  app.use(express.json({ limit: '2mb' }));
   app.use(cookieParser(process.env.SESSION_SECRET || 'on-go-dev-secret'));
   app.use(express.static(path.join(__dirname, 'public')));
 
@@ -93,7 +110,7 @@ function createApp() {
     });
   });
 
-  app.get('/api/businesses', (req, res) => {
+  app.get('/api/businesses', async (req, res) => {
     const now = nowIso();
     const { area, category, live, q, lat, lng, radius_mi } = req.query;
     let sql = `SELECT * FROM businesses WHERE 1=1`;
@@ -138,27 +155,134 @@ function createApp() {
       );
     }
 
+    const businesses = rows.map((b) => ({
+      ...b,
+      is_favorite: favoriteIds.has(b.id),
+      is_featured: b.featured_until && b.featured_until > now,
+      status_label: statusLabel(b.status),
+      logo_url: b.logo_url || null,
+      logo_source: b.logo_source || null,
+      endorsement_note:
+        b.status === 'unclaimed'
+          ? 'Listed from public OpenStreetMap directory data. This venue has not endorsed ON GO.'
+          : null,
+    }));
+
+    // Pull logos for venues still missing one (up to full directory on first loads).
+    if (req.query.skip_logo_resolve !== '1') {
+      try {
+        await resolveLogosBatch(db, rows, { limit: rows.length || 16, concurrency: 4 });
+        touch();
+        for (const biz of businesses) {
+          const fresh = db.prepare('SELECT logo_url, logo_source FROM businesses WHERE id = ?').get(biz.id);
+          if (fresh) {
+            biz.logo_url = fresh.logo_url;
+            biz.logo_source = fresh.logo_source;
+          }
+        }
+      } catch (err) {
+        console.warn('logo batch resolve skipped', err.message);
+      }
+    }
+
     res.json({
-      count: rows.length,
-      live_count: rows.filter((b) => b.live_offer).length,
-      businesses: rows.map((b) => ({
-        ...b,
-        is_favorite: favoriteIds.has(b.id),
-        is_featured: b.featured_until && b.featured_until > now,
-        status_label: statusLabel(b.status),
-        endorsement_note:
-          b.status === 'unclaimed'
-            ? 'Listed from public OpenStreetMap directory data. This venue has not endorsed ON GO.'
-            : null,
-      })),
+      count: businesses.length,
+      live_count: businesses.filter((b) => b.live_offer).length,
+      businesses,
     });
   });
 
-  app.get('/api/businesses/:id', (req, res) => {
+  app.get('/api/businesses/:id', async (req, res) => {
     const now = nowIso();
     const b = db.prepare('SELECT * FROM businesses WHERE id = ?').get(req.params.id);
     if (!b) return res.status(404).json({ error: 'Business not found' });
-    res.json({ ...attachLiveOffer(b, now), status_label: statusLabel(b.status) });
+    let logo = { logo_url: b.logo_url, logo_source: b.logo_source, status: b.logo_url ? 'found' : 'missing' };
+    if (req.query.resolve_logo === '1' || req.query.resolve_logo === 'true') {
+      logo = await resolveLogoForBusiness(db, b);
+      touch();
+    }
+    res.json({
+      ...attachLiveOffer(b, now),
+      status_label: statusLabel(b.status),
+      logo_url: logo.logo_url,
+      logo_source: logo.logo_source,
+      logo_status: logo.status,
+    });
+  });
+
+  app.post('/api/logos/resolve', async (req, res) => {
+    ensureLogoColumns(db);
+    const ids = Array.isArray(req.body.business_ids) ? req.body.business_ids.slice(0, 12) : [];
+    const force = Boolean(req.body.force);
+    let rows;
+    if (ids.length) {
+      rows = ids
+        .map((id) => db.prepare('SELECT * FROM businesses WHERE id = ?').get(id))
+        .filter(Boolean);
+    } else {
+      rows = db.prepare('SELECT * FROM businesses ORDER BY name ASC').all();
+    }
+    const resolved = await resolveLogosBatch(db, rows, { limit: ids.length || 8, force });
+    touch();
+    res.json({ resolved, count: resolved.length });
+  });
+
+  app.get('/api/businesses/:id/logo/file', async (req, res) => {
+    const b = db.prepare('SELECT id, logo_source FROM businesses WHERE id = ?').get(req.params.id);
+    if (!b) return res.status(404).json({ error: 'Business not found' });
+    const file = await readUploadedLogo(b.id);
+    if (!file) return res.status(404).json({ error: 'No uploaded logo' });
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(file.buffer);
+  });
+
+  app.post('/api/businesses/:id/logo', async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const b = db.prepare('SELECT * FROM businesses WHERE id = ?').get(req.params.id);
+    if (!b) return res.status(404).json({ error: 'Business not found' });
+    if (!userCanManageBusiness(db, req.user.id, b.id) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You do not manage this business' });
+    }
+    const dataUrl = String(req.body.image_base64 || '');
+    const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!match) {
+      return res.status(400).json({ error: 'image_base64 must be a data:image/...;base64 URL' });
+    }
+    const contentType = match[1];
+    const buffer = Buffer.from(match[2], 'base64');
+    if (buffer.length > 1_500_000) {
+      return res.status(400).json({ error: 'Logo must be under ~1.5MB' });
+    }
+    try {
+      const logo = await saveUploadedLogo(db, b.id, { buffer, contentType });
+      touch();
+      res.json({ ok: true, ...logo, business_id: b.id });
+    } catch (err) {
+      res.status(500).json({ error: err.message || 'Upload failed' });
+    }
+  });
+
+  app.get('/api/ads/preview', async (req, res) => {
+    if (!requireRole(req, res, ['business', 'admin'])) return;
+    const business_id = req.query.business_id;
+    const inventory_id = req.query.inventory_id;
+    if (!business_id) return res.status(400).json({ error: 'business_id required' });
+    const b = db.prepare('SELECT * FROM businesses WHERE id = ?').get(business_id);
+    if (!b) return res.status(404).json({ error: 'Business not found' });
+    if (!userCanManageBusiness(db, req.user.id, business_id) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You do not manage this business' });
+    }
+    const slot = inventory_id
+      ? db.prepare('SELECT * FROM ad_inventory WHERE id = ?').get(inventory_id)
+      : null;
+    const logo = await resolveLogoForBusiness(db, b);
+    touch();
+    res.json({
+      simulation: true,
+      creative: buildCreative(b, slot, logo),
+      placements: AD_PLACEMENTS,
+    });
   });
 
   app.post('/api/auth/register', (req, res) => {
@@ -201,10 +325,7 @@ function createApp() {
             INSERT INTO business_members (id, business_id, user_id, member_role, created_at)
             VALUES (?, ?, ?, 'owner', ?)
           `).run(uuid(), business_id, id, ts);
-          db.prepare(`
-            INSERT INTO subscriptions (id, business_id, plan, status, starts_at, ends_at, created_at)
-            VALUES (?, ?, 'free', 'active', ?, NULL, ?)
-          `).run(uuid(), business_id, ts, ts);
+          assignProTrial(db, business_id, { now: ts });
         }
       });
       tx();
@@ -245,11 +366,14 @@ function createApp() {
   app.get('/api/me', (req, res) => {
     if (!req.user) return res.json({ user: null, businesses: [] });
     const businesses = businessIdsForUser(db, req.user.id).map((id) => {
-      const b = db.prepare('SELECT id, name, area, status FROM businesses WHERE id = ?').get(id);
+      const b = db.prepare('SELECT id, name, area, status, logo_url, logo_source FROM businesses WHERE id = ?').get(id);
       const sub = db.prepare(`
-        SELECT plan, status FROM subscriptions WHERE business_id = ? ORDER BY created_at DESC LIMIT 1
+        SELECT * FROM subscriptions WHERE business_id = ? ORDER BY created_at DESC LIMIT 1
       `).get(id);
-      return { ...b, subscription: sub || { plan: 'free', status: 'active' } };
+      return {
+        ...b,
+        subscription: formatSubscription(sub || { plan: 'free', status: 'none' }),
+      };
     });
     res.json({ user: publicUser(req.user), businesses });
   });
@@ -627,7 +751,7 @@ function createApp() {
     });
   });
 
-  app.post('/api/ads/bids', (req, res) => {
+  app.post('/api/ads/bids', async (req, res) => {
     if (!requireRole(req, res, ['business', 'admin'])) return;
     const inventory_id = req.body.inventory_id;
     const business_id = req.body.business_id;
@@ -643,6 +767,8 @@ function createApp() {
     if (amount_cents < slot.min_bid_cents) {
       return res.status(400).json({ error: `Minimum bid is ${slot.min_bid_cents} cents` });
     }
+    const business = db.prepare('SELECT * FROM businesses WHERE id = ?').get(business_id);
+    if (!business) return res.status(404).json({ error: 'Business not found' });
     const id = uuid();
     db.prepare(`
       INSERT INTO bids (id, inventory_id, business_id, user_id, amount_cents, status, created_at)
@@ -655,28 +781,167 @@ function createApp() {
       nowIso(),
       business_id
     );
+    const logo = await resolveLogoForBusiness(db, business);
     touch();
     res.status(201).json({
       bid: db.prepare('SELECT * FROM bids WHERE id = ?').get(id),
       notice: 'Simulation only. No charge or placement guarantee. Featured badge may appear until slot end.',
+      creative: buildCreative(business, slot, logo),
     });
   });
 
   app.get('/api/subscriptions', (req, res) => {
     if (!requireRole(req, res, ['business', 'admin'])) return;
+    ensureProTrialsForClaimed(db);
+    touch();
     const ids = businessIdsForUser(db, req.user.id);
-    if (!ids.length) return res.json({ subscriptions: [], plans: PLAN_CATALOG });
+    if (!ids.length) {
+      return res.json({
+        subscriptions: [],
+        plans: PLAN_CATALOG,
+        trial_days: PRO_TRIAL_DAYS,
+        notice: `Claimed venues get Pro free trial (${PRO_TRIAL_DAYS} days) with full Pro features.`,
+      });
+    }
     const placeholders = ids.map(() => '?').join(',');
     const subscriptions = db.prepare(`
       SELECT s.*, b.name AS business_name FROM subscriptions s
       JOIN businesses b ON b.id = s.business_id
       WHERE s.business_id IN (${placeholders})
       ORDER BY s.created_at DESC
-    `).all(...ids);
+    `).all(...ids)
+      .map((s) => ({ ...formatSubscription(s), business_name: s.business_name }));
     res.json({
       subscriptions,
       plans: PLAN_CATALOG,
-      notice: 'Phase 2 scaffold — plans are informational; no payments collected.',
+      trial_days: PRO_TRIAL_DAYS,
+      notice: `Claimed venues unlock Pro · Free trial (${PRO_TRIAL_DAYS} days). Scheduling, ad bidding, and analytics are included — no paywall during trial.`,
+    });
+  });
+
+  /** Preview logo from name/website before creating a venue */
+  app.post('/api/logos/lookup', async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const name = String(req.body.name || '').trim();
+    let website = String(req.body.website || '').trim();
+    if (!website && name && KNOWN_WEBSITES[name]) website = KNOWN_WEBSITES[name];
+    const domain = domainFromWebsite(website);
+    if (!domain) {
+      return res.json({
+        status: 'missing',
+        logo_url: null,
+        logo_source: null,
+        website: website || null,
+        hint: 'Add a website to search for a logo, or upload one.',
+      });
+    }
+    const candidates = [
+      { source: 'clearbit', url: `https://logo.clearbit.com/${domain}` },
+      { source: 'google_favicon', url: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128` },
+      { source: 'duckduckgo', url: `https://icons.duckduckgo.com/ip3/${domain}.ico` },
+    ];
+    for (const cand of candidates) {
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 3000);
+        const r = await fetch(cand.url, { signal: ctrl.signal, headers: { 'User-Agent': 'ON-GO-LogoBot/1.0' } });
+        clearTimeout(t);
+        if (r.ok) {
+          return res.json({
+            status: 'found',
+            logo_url: cand.url,
+            logo_source: cand.source,
+            website,
+            domain,
+          });
+        }
+      } catch {
+        /* try next */
+      }
+    }
+    res.json({
+      status: 'missing',
+      logo_url: null,
+      logo_source: 'missing',
+      website,
+      domain,
+      hint: 'No logo found — upload one after saving.',
+    });
+  });
+
+  /** Business owner adds a new venue (auto Pro trial + logo fetch) */
+  app.post('/api/businesses', async (req, res) => {
+    if (!requireRole(req, res, ['business', 'admin'])) return;
+    const name = String(req.body.name || '').trim();
+    const area = String(req.body.area || '').trim();
+    const category = String(req.body.category || 'Dinner').trim();
+    const address = String(req.body.address || '').trim();
+    let website = String(req.body.website || '').trim();
+    const lat = Number(req.body.lat);
+    const lng = Number(req.body.lng);
+    if (!name || !area) {
+      return res.status(400).json({ error: 'name and area required' });
+    }
+    if (!website && KNOWN_WEBSITES[name]) website = KNOWN_WEBSITES[name];
+    const id = uuid();
+    const ts = nowIso();
+    const slugBase = name
+      .toLowerCase()
+      .replace(/['']/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    let slug = slugBase || id.slice(0, 8);
+    if (db.prepare('SELECT 1 AS ok FROM businesses WHERE slug = ?').get(slug)) {
+      slug = `${slug}-${id.slice(0, 6)}`;
+    }
+    const useLat = Number.isFinite(lat) ? lat : 30.324;
+    const useLng = Number.isFinite(lng) ? lng : -81.3965;
+    db.prepare(`
+      INSERT INTO businesses (
+        id, name, slug, area, category, address, phone, website, hours_json,
+        lat, lng, status, claimed_by_user_id, is_directory_only, featured_until, osm_ref, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, '', ?, '{}', ?, ?, 'participating', ?, 0, NULL, NULL, ?, ?)
+    `).run(id, name, slug, area, category, address, website, useLat, useLng, req.user.id, ts, ts);
+    db.prepare(`
+      INSERT INTO business_members (id, business_id, user_id, member_role, created_at)
+      VALUES (?, ?, ?, 'owner', ?)
+    `).run(uuid(), id, req.user.id, ts);
+    assignProTrial(db, id, { now: ts });
+
+    let logo = { logo_url: null, logo_source: 'missing', status: 'missing' };
+    if (req.body.logo_url && req.body.logo_source) {
+      db.prepare(
+        `UPDATE businesses SET logo_url = ?, logo_source = ?, logo_updated_at = ?, updated_at = ? WHERE id = ?`
+      ).run(req.body.logo_url, req.body.logo_source, ts, ts, id);
+      logo = { logo_url: req.body.logo_url, logo_source: req.body.logo_source, status: 'found' };
+    } else {
+      const biz = db.prepare('SELECT * FROM businesses WHERE id = ?').get(id);
+      logo = await resolveLogoForBusiness(db, biz, { force: true });
+    }
+
+    if (req.body.image_base64) {
+      const dataUrl = String(req.body.image_base64);
+      const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+      if (match) {
+        logo = await saveUploadedLogo(db, id, {
+          buffer: Buffer.from(match[2], 'base64'),
+          contentType: match[1],
+        });
+      }
+    }
+
+    touch();
+    const business = db.prepare('SELECT * FROM businesses WHERE id = ?').get(id);
+    const sub = db.prepare(
+      'SELECT * FROM subscriptions WHERE business_id = ? ORDER BY created_at DESC LIMIT 1'
+    ).get(id);
+    res.status(201).json({
+      business: {
+        ...business,
+        logo_status: logo.status,
+        subscription: formatSubscription(sub),
+      },
+      notice: `Venue added with Pro · Free trial (${PRO_TRIAL_DAYS} days).`,
     });
   });
 

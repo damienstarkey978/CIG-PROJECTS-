@@ -178,8 +178,11 @@
       const offerLine = live
         ? `<br><strong style="color:#1aff5a">LIVE:</strong> ${escapeHtml(b.live_offer.title)}`
         : '<br><em>Directory</em>';
+      const logo = b.logo_url
+        ? `<img src="${escapeHtml(b.logo_url)}" alt="" width="36" height="36" style="border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:6px" referrerpolicy="no-referrer" />`
+        : '';
       marker.bindPopup(
-        `<strong>${escapeHtml(b.name)}</strong><br>${escapeHtml(b.area)} · ${escapeHtml(b.category)}${offerLine}`
+        `<div style="display:flex;gap:8px;align-items:flex-start">${logo}<div><strong>${escapeHtml(b.name)}</strong><br>${escapeHtml(b.area)} · ${escapeHtml(b.category)}${offerLine}</div></div>`
       );
       return marker;
     });
@@ -272,9 +275,17 @@
           : `<div class="listing-actions">
               <button type="button" class="btn ghost" data-fav="${b.id}" data-on="${b.is_favorite ? '1' : '0'}">${favLabel}</button>
             </div>`;
+        const logo = b.logo_url
+          ? `<img class="listing-logo" src="${escapeHtml(b.logo_url)}" alt="" width="48" height="48" loading="lazy" referrerpolicy="no-referrer" />`
+          : `<div class="listing-logo placeholder" aria-hidden="true">${escapeHtml((b.name || '?').slice(0, 1))}</div>`;
         return `<article class="listing" data-id="${b.id}">
-          <h3>${escapeHtml(b.name)}</h3>
-          <p class="meta">${escapeHtml(b.area)} · ${escapeHtml(b.category)}</p>
+          <div class="listing-head">
+            ${logo}
+            <div class="listing-copy">
+              <h3>${escapeHtml(b.name)}</h3>
+              <p class="meta">${escapeHtml(b.area)} · ${escapeHtml(b.category)}</p>
+            </div>
+          </div>
           ${b.address ? `<p class="meta">${escapeHtml(b.address)}</p>` : ''}
           ${dist}
           ${badges}
@@ -444,18 +455,23 @@
       const subs = await api('/api/subscriptions');
       $('#biz-plans').innerHTML = `
         ${(subs.subscriptions || [])
-          .map(
-            (s) =>
-              `<div class="listing"><strong>${escapeHtml(s.business_name)}</strong><p class="meta">Current: ${escapeHtml(s.plan)} (${escapeHtml(s.status)})</p></div>`
-          )
+          .map((s) => {
+            const label = s.label || s.plan;
+            const ends = s.ends_at ? ` · ends ${new Date(s.ends_at).toLocaleDateString()}` : '';
+            const badge = s.entitled_pro
+              ? '<span class="badge featured">Pro unlocked</span>'
+              : '';
+            return `<div class="listing">
+              <strong>${escapeHtml(s.business_name)}</strong>
+              ${badge}
+              <p class="meta">${escapeHtml(label)}${ends}</p>
+            </div>`;
+          })
           .join('')}
-        ${(subs.plans || [])
-          .map(
-            (p) =>
-              `<div class="listing"><strong>${escapeHtml(p.label)}</strong><p class="meta">$${(p.price_monthly_cents / 100).toFixed(0)}/mo · ${escapeHtml((p.perks || []).join(' · '))}</p></div>`
-          )
-          .join('')}
-        <p class="meta">${escapeHtml(subs.notice || '')}</p>`;
+        <p class="meta">${escapeHtml(subs.notice || '')}</p>
+        <p class="meta">Catalog (after trial): ${(subs.plans || [])
+          .map((p) => `${p.label} $${(p.price_monthly_cents / 100).toFixed(0)}/mo`)
+          .join(' · ')}</p>`;
 
       const ads = await api('/api/ads/inventory');
       $('#bid-slot').innerHTML = ads.inventory
@@ -464,8 +480,76 @@
             `<option value="${s.id}">${escapeHtml(s.slot_label)} · min $${(s.min_bid_cents / 100).toFixed(0)}</option>`
         )
         .join('');
+      // Prefetch logos for owned venues + show preview for current selection
+      const ownedIds = state.businessesOwned.map((b) => b.id).filter(Boolean);
+      if (ownedIds.length) {
+        api('/api/logos/resolve', {
+          method: 'POST',
+          body: JSON.stringify({ business_ids: ownedIds }),
+        }).catch(() => {});
+      }
+      await refreshAdPreview();
     } catch (err) {
       $('#biz-offers').innerHTML = `<p class="meta">${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  function renderAdCreative(creative) {
+    const panel = $('#ad-preview');
+    const creatives = $('#ad-creatives');
+    const empty = $('#ad-logo-empty');
+    const meta = $('#ad-preview-meta');
+    if (!panel || !creative) return;
+    panel.hidden = false;
+    const missing = creative.logo_status === 'missing' || !creative.logo_url;
+    empty.hidden = !missing;
+    meta.textContent = [
+      creative.business_name,
+      creative.slot_label,
+      creative.logo_source ? `logo: ${creative.logo_source}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+    const logoHtml = missing
+      ? '<div class="ad-unit-logo placeholder" aria-hidden="true">NO LOGO</div>'
+      : `<img class="ad-unit-logo" src="${escapeHtml(creative.logo_url)}" alt="" width="48" height="48" loading="lazy" referrerpolicy="no-referrer" />`;
+
+    creatives.innerHTML = (creative.placements || [])
+      .map(
+        (p) => `
+        <div class="ad-unit-wrap">
+          <div class="ad-unit-label">${escapeHtml(p.label)} · ${p.width}×${p.height}</div>
+          <div class="ad-unit ${escapeHtml(p.id)}" role="img" aria-label="${escapeHtml(p.label)} preview">
+            ${logoHtml}
+            <div class="ad-unit-copy">
+              <strong>${escapeHtml(creative.business_name)}</strong>
+              <span>${escapeHtml(creative.slot_label || 'Featured slot')} · ${escapeHtml(creative.area || '')}</span>
+            </div>
+            <div class="ad-unit-mark">
+              <span class="badge featured">Featured</span>
+              <span class="ad-unit-brand">ON GO</span>
+            </div>
+          </div>
+        </div>`
+      )
+      .join('');
+  }
+
+  async function refreshAdPreview() {
+    const businessId = $('#bid-business')?.value;
+    const inventoryId = $('#bid-slot')?.value;
+    if (!businessId) {
+      if ($('#ad-preview')) $('#ad-preview').hidden = true;
+      return;
+    }
+    try {
+      const q = new URLSearchParams({ business_id: businessId });
+      if (inventoryId) q.set('inventory_id', inventoryId);
+      const data = await api(`/api/ads/preview?${q}`);
+      renderAdCreative(data.creative);
+    } catch (err) {
+      if ($('#bid-result')) $('#bid-result').textContent = err.message;
     }
   }
 
@@ -680,6 +764,13 @@
       }
     });
 
+    $('#bid-slot')?.addEventListener('change', () => {
+      refreshAdPreview();
+    });
+    $('#bid-business')?.addEventListener('change', () => {
+      refreshAdPreview();
+    });
+
     $('#bid-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       try {
@@ -693,9 +784,131 @@
           }),
         });
         $('#bid-result').textContent = `${data.notice}`;
+        if (data.creative) renderAdCreative(data.creative);
         await loadDirectory();
       } catch (err) {
         $('#bid-result').textContent = err.message;
+      }
+    });
+
+    let addBizLogo = { logo_url: null, logo_source: null, image_base64: null };
+
+    const showAddBizLogo = (result) => {
+      const preview = $('#add-biz-logo-preview');
+      const empty = $('#add-biz-logo-empty');
+      const img = $('#add-biz-logo-img');
+      const meta = $('#add-biz-logo-meta');
+      if (!preview) return;
+      if (result?.logo_url || addBizLogo.image_base64) {
+        preview.hidden = false;
+        empty.hidden = true;
+        img.src = addBizLogo.image_base64 || result.logo_url;
+        meta.textContent = addBizLogo.image_base64
+          ? 'Uploaded logo (will save with venue)'
+          : `Found via ${result.logo_source || 'web'}`;
+      } else {
+        preview.hidden = true;
+        empty.hidden = false;
+      }
+    };
+
+    const lookupAddBizLogo = async () => {
+      const name = $('#add-biz-name')?.value?.trim();
+      const website = $('#add-biz-website')?.value?.trim();
+      if (!name && !website) return;
+      $('#add-biz-result').textContent = 'Searching for logo…';
+      try {
+        const data = await api('/api/logos/lookup', {
+          method: 'POST',
+          body: JSON.stringify({ name, website }),
+        });
+        addBizLogo = {
+          logo_url: data.logo_url,
+          logo_source: data.logo_source,
+          image_base64: addBizLogo.image_base64,
+        };
+        showAddBizLogo(data);
+        $('#add-biz-result').textContent =
+          data.status === 'found' ? 'Logo found — save venue or replace with upload.' : data.hint || 'No logo found.';
+      } catch (err) {
+        $('#add-biz-result').textContent = err.message;
+      }
+    };
+
+    let lookupTimer = null;
+    const scheduleLogoLookup = () => {
+      clearTimeout(lookupTimer);
+      lookupTimer = setTimeout(lookupAddBizLogo, 500);
+    };
+    $('#add-biz-name')?.addEventListener('input', scheduleLogoLookup);
+    $('#add-biz-website')?.addEventListener('input', scheduleLogoLookup);
+    $('#add-biz-address')?.addEventListener('change', scheduleLogoLookup);
+    $('#add-biz-lookup')?.addEventListener('click', lookupAddBizLogo);
+
+    $('#add-biz-logo-file')?.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Could not read file'));
+        reader.readAsDataURL(file);
+      });
+      addBizLogo.image_base64 = dataUrl;
+      showAddBizLogo({ logo_url: dataUrl, logo_source: 'upload' });
+      e.target.value = '';
+    });
+
+    $('#add-business-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const body = {
+          name: $('#add-biz-name').value.trim(),
+          website: $('#add-biz-website').value.trim(),
+          address: $('#add-biz-address').value.trim(),
+          area: $('#add-biz-area').value,
+          category: $('#add-biz-category').value,
+        };
+        if (addBizLogo.logo_url && !addBizLogo.image_base64) {
+          body.logo_url = addBizLogo.logo_url;
+          body.logo_source = addBizLogo.logo_source;
+        }
+        if (addBizLogo.image_base64) body.image_base64 = addBizLogo.image_base64;
+        const data = await api('/api/businesses', { method: 'POST', body: JSON.stringify(body) });
+        $('#add-biz-result').textContent = data.notice || 'Venue saved.';
+        e.target.reset();
+        addBizLogo = { logo_url: null, logo_source: null, image_base64: null };
+        $('#add-biz-logo-preview').hidden = true;
+        $('#add-biz-logo-empty').hidden = true;
+        await refreshMe();
+        await refreshBusiness();
+        await loadDirectory();
+      } catch (err) {
+        $('#add-biz-result').textContent = err.message;
+      }
+    });
+
+    $('#ad-logo-upload')?.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      const businessId = $('#bid-business')?.value;
+      if (!file || !businessId) return;
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('Could not read file'));
+          reader.readAsDataURL(file);
+        });
+        await api(`/api/businesses/${encodeURIComponent(businessId)}/logo`, {
+          method: 'POST',
+          body: JSON.stringify({ image_base64: dataUrl }),
+        });
+        $('#bid-result').textContent = 'Logo uploaded — refreshing ad preview.';
+        await refreshAdPreview();
+      } catch (err) {
+        $('#bid-result').textContent = err.message;
+      } finally {
+        e.target.value = '';
       }
     });
 

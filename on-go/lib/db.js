@@ -447,24 +447,35 @@ function seedIfEmpty(db) {
       VALUES (?, ?, ?, ?, ?, 0, ?, ?)
     `).run(businessUserId, 'business@ongo.demo', hash, "Pete's Bar Manager", 'business', ts, ts);
 
-    const petes = businessIds.find((b) => b.name === "Pete's Bar");
-    if (petes) {
+    const escUserId = uuid();
+    db.prepare(`
+      INSERT INTO users (id, email, password_hash, display_name, role, points_balance, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+    `).run(escUserId, 'european@ongo.demo', hash, 'European Street Cafe', 'business', ts, ts);
+
+    const { assignProTrial } = require('./subscriptions');
+    const { KNOWN_WEBSITES } = require('./logos');
+
+    const claimVenue = (name, userId) => {
+      const venue = businessIds.find((b) => b.name === name);
+      if (!venue) return;
+      const site = KNOWN_WEBSITES[name] || '';
       db.prepare(`
         UPDATE businesses
-        SET status = 'participating', claimed_by_user_id = ?, is_directory_only = 0, updated_at = ?
+        SET status = 'participating', claimed_by_user_id = ?, is_directory_only = 0,
+            website = CASE WHEN website IS NULL OR website = '' THEN ? ELSE website END,
+            updated_at = ?
         WHERE id = ?
-      `).run(businessUserId, ts, petes.id);
-
+      `).run(userId, site, ts, venue.id);
       db.prepare(`
         INSERT INTO business_members (id, business_id, user_id, member_role, created_at)
         VALUES (?, ?, ?, 'owner', ?)
-      `).run(uuid(), petes.id, businessUserId, ts);
+      `).run(uuid(), venue.id, userId, ts);
+      assignProTrial(db, venue.id, { now: ts });
+    };
 
-      db.prepare(`
-        INSERT INTO subscriptions (id, business_id, plan, status, starts_at, ends_at, created_at)
-        VALUES (?, ?, 'starter', 'active', ?, NULL, ?)
-      `).run(uuid(), petes.id, ts, ts);
-    }
+    claimVenue("Pete's Bar", businessUserId);
+    claimVenue('European Street Cafe', escUserId);
 
     for (const slot of AD_SLOTS) {
       const start = new Date(Date.now() + slot.hoursAheadStart * 3600 * 1000);
@@ -487,6 +498,66 @@ function seedIfEmpty(db) {
 
   insertMany();
   return { seeded: true, businesses: businessIds.length };
+}
+
+/**
+ * Idempotent migrate for DBs that seeded before ESC demo + Pro trials existed.
+ */
+function migrateDemoClaims(db) {
+  const bcrypt = require('bcryptjs');
+  const { assignProTrial, ensureProTrialsForClaimed } = require('./subscriptions');
+  const { KNOWN_WEBSITES } = require('./logos');
+  const ts = nowIso();
+  const hash = bcrypt.hashSync('demo1234', 10);
+
+  const ensureBizUser = (email, displayName) => {
+    let user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    if (!user) {
+      const id = uuid();
+      db.prepare(`
+        INSERT INTO users (id, email, password_hash, display_name, role, points_balance, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'business', 0, ?, ?)
+      `).run(id, email, hash, displayName, ts, ts);
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+      db.dirty = true;
+    }
+    return user;
+  };
+
+  const claimIfNeeded = (venueName, email, displayName) => {
+    const biz = db.prepare('SELECT * FROM businesses WHERE name = ?').get(venueName);
+    if (!biz) return;
+    const user = ensureBizUser(email, displayName);
+    const site = KNOWN_WEBSITES[venueName] || biz.website || '';
+    if (biz.status === 'unclaimed' || biz.is_directory_only) {
+      db.prepare(`
+        UPDATE businesses
+        SET status = 'participating', claimed_by_user_id = ?, is_directory_only = 0,
+            website = CASE WHEN website IS NULL OR website = '' THEN ? ELSE website END,
+            updated_at = ?
+        WHERE id = ?
+      `).run(user.id, site, ts, biz.id);
+      db.dirty = true;
+    } else if (!biz.website && site) {
+      db.prepare('UPDATE businesses SET website = ?, updated_at = ? WHERE id = ?').run(site, ts, biz.id);
+      db.dirty = true;
+    }
+    const member = db.prepare(
+      'SELECT 1 AS ok FROM business_members WHERE business_id = ? AND user_id = ?'
+    ).get(biz.id, user.id);
+    if (!member) {
+      db.prepare(`
+        INSERT INTO business_members (id, business_id, user_id, member_role, created_at)
+        VALUES (?, ?, ?, 'owner', ?)
+      `).run(uuid(), biz.id, user.id, ts);
+      db.dirty = true;
+    }
+    assignProTrial(db, biz.id, { now: ts });
+  };
+
+  claimIfNeeded("Pete's Bar", 'business@ongo.demo', "Pete's Bar Manager");
+  claimIfNeeded('European Street Cafe', 'european@ongo.demo', 'European Street Cafe');
+  ensureProTrialsForClaimed(db);
 }
 
 function expireOffers(db) {
@@ -579,10 +650,28 @@ async function openDb() {
   const raw = bytes ? new SQL.Database(bytes) : new SQL.Database();
   const db = wrapDb(raw);
   ensureSchema(db);
+  const {
+    ensureLogoColumns,
+    backfillWebsites,
+    resolveLogosBatch,
+  } = require('./logos');
+  const { ensureProTrialsForClaimed } = require('./subscriptions');
+  ensureLogoColumns(db);
+  backfillWebsites(db);
   const seedResult = seedIfEmpty(db);
+  migrateDemoClaims(db);
+  ensureProTrialsForClaimed(db);
   expireOffers(db);
   db.dirty = true;
   await persistNow(db);
+
+  // Fill logos in background so serverless cold starts stay fast
+  setTimeout(() => {
+    const allBiz = db.prepare('SELECT * FROM businesses ORDER BY name ASC').all();
+    resolveLogosBatch(db, allBiz, { limit: allBiz.length || 24, concurrency: 4 })
+      .then(() => persistNow(db))
+      .catch((err) => console.warn('boot logo resolve skipped', err.message));
+  }, 0);
 
   const persist = () => persistNow(db);
   return {

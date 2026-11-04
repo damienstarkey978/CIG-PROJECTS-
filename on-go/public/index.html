@@ -3,9 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0A0F0C" />
+  <meta name="theme-color" content="#1aff5a" />
   <meta name="description" content="ON GO — When it's ON, you GO. Live Beaches food & drink offers." />
+  <meta name="application-name" content="ON GO" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="ON GO" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <title>ON GO — When it's ON, you GO</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icons/icon-180.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
@@ -96,8 +104,10 @@
         <p class="lede">Turn a BOGO ON for the Beaches. Verify QR codes when customers arrive.</p>
       </header>
 
-      <div id="biz-gate" class="sheet">
-        <p>Business accounts run the power switch. Demo: <code>business@ongo.demo</code> / <code>demo1234</code></p>
+        <div id="biz-gate" class="sheet">
+        <p>Business accounts run the power switch.</p>
+        <p class="meta">Pete's Bar: <code>business@ongo.demo</code> / <code>demo1234</code></p>
+        <p class="meta">European Street Cafe: <code>european@ongo.demo</code> / <code>demo1234</code></p>
         <button type="button" class="btn primary" data-goto="account">Sign in</button>
       </div>
 
@@ -140,13 +150,55 @@
         </div>
 
         <div class="sheet">
-          <h3 class="label">Plans (scaffold)</h3>
+          <h3 class="label">Plan</h3>
           <div id="biz-plans" class="feed"></div>
         </div>
 
         <div class="sheet">
+          <h3 class="label">Add venue</h3>
+          <p class="meta">We’ll search the web for a logo from the website. Replace it if it’s wrong.</p>
+          <form id="add-business-form" class="stack">
+            <label>Name <input id="add-biz-name" type="text" required maxlength="120" placeholder="Venue name" /></label>
+            <label>Website <input id="add-biz-website" type="url" placeholder="https://…" /></label>
+            <label>Address <input id="add-biz-address" type="text" maxlength="200" placeholder="Street, city" /></label>
+            <div class="split">
+              <label>Area
+                <select id="add-biz-area" required>
+                  <option value="Atlantic Beach">Atlantic Beach</option>
+                  <option value="Neptune Beach">Neptune Beach</option>
+                  <option value="Jacksonville Beach" selected>Jacksonville Beach</option>
+                  <option value="Ponte Vedra Beach">Ponte Vedra Beach</option>
+                </select>
+              </label>
+              <label>Category
+                <select id="add-biz-category">
+                  <option>Coffee</option>
+                  <option>Breakfast</option>
+                  <option>Lunch</option>
+                  <option>Bar</option>
+                  <option selected>Dinner</option>
+                </select>
+              </label>
+            </div>
+            <div id="add-biz-logo-preview" class="add-biz-logo-preview" hidden>
+              <img id="add-biz-logo-img" alt="Logo preview" width="64" height="64" />
+              <p id="add-biz-logo-meta" class="meta"></p>
+            </div>
+            <div id="add-biz-logo-empty" class="ad-logo-empty" hidden>
+              <p>No logo found yet — upload one or save and we’ll keep trying.</p>
+              <label class="btn ghost ad-upload-btn">Upload logo
+                <input id="add-biz-logo-file" type="file" accept="image/*" hidden />
+              </label>
+            </div>
+            <button type="button" id="add-biz-lookup" class="btn ghost">Find logo</button>
+            <button type="submit" class="btn primary">Save venue</button>
+          </form>
+          <p id="add-biz-result" class="meta" aria-live="polite"></p>
+        </div>
+
+        <div class="sheet">
           <h3 class="label">Featured placement sim</h3>
-          <p class="warn">Simulation only — no charge.</p>
+          <p class="warn">Simulation only — no charge. Preview the ad space ON GO would sell.</p>
           <form id="bid-form" class="stack">
             <label>Slot <select id="bid-slot" required></select></label>
             <label>Venue <select id="bid-business" required></select></label>
@@ -154,6 +206,18 @@
             <button type="submit" class="btn ghost">Simulate bid</button>
           </form>
           <p id="bid-result" class="meta" aria-live="polite"></p>
+
+          <div id="ad-preview" class="ad-preview" hidden>
+            <h4 class="ad-preview-title">Ad creative preview</h4>
+            <p id="ad-preview-meta" class="meta"></p>
+            <div id="ad-creatives" class="ad-creatives"></div>
+            <div id="ad-logo-empty" class="ad-logo-empty" hidden>
+              <p>No logo found for this venue. Upload one to fill the ad.</p>
+              <label class="btn ghost ad-upload-btn">Upload logo
+                <input id="ad-logo-upload" type="file" accept="image/*" hidden />
+              </label>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -209,5 +273,12 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>
