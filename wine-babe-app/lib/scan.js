@@ -809,7 +809,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v23";
+const ENGINE_VERSION = "v24";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1007,6 +1007,18 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       const urls2 = (retry?.pdf_urls || []).filter((u) => /^https?:\/\//.test(u) && !searchSeen.includes(u)).slice(0, 5);
       diag.push({ name: "sheet-search-2-urls", outcome: JSON.stringify(urls2).slice(0, 400) });
       if (urls2.length) sheet = await download(rankPdfs(urls2.map((url) => ({ url, text: "" })), wine, site), urls2.filter((u) => /\.pdf(\?|$)/i.test(u)));
+    }
+    // The winery page the tasting lookup found often links the tech sheet PDF
+    // (e.g. terracottawines.com/our-wines/pinot-grigio -> DOWNLOAD PDF).
+    if (!sheet) {
+      const t = cleanTasting(await tastingLookup);
+      if (t?.source_url) {
+        const tp = await findPageLinks(t.source_url).catch(() => ({ error: "failed" }));
+        const links = tp.error ? [] : tp.links || [];
+        const ranked2 = rankPdfs(links, wine, t.source_url);
+        diag.push({ name: "sheet-tasting-page", outcome: `${links.length} links, ${ranked2.length} ranked: ${t.source_url}`.slice(0, 300) });
+        if (ranked2.length) sheet = await download(ranked2, []);
+      }
     }
     if (!sheet) {
       // No PDF: read the winery's (or importer's) own spec page instead.
