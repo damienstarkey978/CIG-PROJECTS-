@@ -1,4 +1,4 @@
-/* ON GO product client — no secrets */
+/* ON GO — Signal Night client */
 (() => {
   const state = {
     user: null,
@@ -64,7 +64,7 @@
     $$('.view').forEach((el) => {
       el.hidden = el.id !== `view-${name}`;
     });
-    $$('.rail-btn').forEach((btn) => {
+    $$('.sw').forEach((btn) => {
       const on = btn.dataset.view === name;
       btn.classList.toggle('active', on);
       if (on) btn.setAttribute('aria-current', 'page');
@@ -81,7 +81,9 @@
       $('#map').textContent = 'Map unavailable. Browse listings below.';
       return;
     }
-    state.map = L.map('map', { scrollWheelZoom: false }).setView([30.287, -81.397], 11);
+    state.map = L.map('map', { scrollWheelZoom: false, zoomControl: false }).setView([30.287, -81.397], 11);
+    L.control.zoom({ position: 'topright' }).addTo(state.map);
+    // Free OSM tiles + CSS night filter (no third-party map API keys)
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors',
       maxZoom: 18,
@@ -94,20 +96,48 @@
     state.markers = businesses.map((b) => {
       const live = Boolean(b.live_offer);
       const marker = L.circleMarker([b.lat, b.lng], {
-        radius: live ? 9 : 7,
-        color: live ? '#087d32' : '#4a6352',
+        radius: live ? 10 : 6,
+        color: live ? '#1aff5a' : '#5a7a64',
         weight: 2,
-        fillColor: live ? '#14a845' : '#fff',
+        fillColor: live ? '#1aff5a' : '#162019',
         fillOpacity: live ? 0.95 : 0.85,
       }).addTo(state.map);
       const offerLine = live
-        ? `<br><strong>LIVE:</strong> ${escapeHtml(b.live_offer.title)}`
-        : '<br><em>Directory listing</em>';
+        ? `<br><strong style="color:#1aff5a">LIVE:</strong> ${escapeHtml(b.live_offer.title)}`
+        : '<br><em>Directory</em>';
       marker.bindPopup(
         `<strong>${escapeHtml(b.name)}</strong><br>${escapeHtml(b.area)} · ${escapeHtml(b.category)}${offerLine}`
       );
       return marker;
     });
+  }
+
+  function renderTicker(businesses) {
+    const live = businesses.filter((b) => b.live_offer);
+    const root = $('#signal-ticker');
+    $('#live-hud-text').textContent = live.length
+      ? `${live.length} live signal${live.length === 1 ? '' : 's'} on the Beaches`
+      : 'No live offers — browse the directory';
+
+    if (!live.length) {
+      root.innerHTML = '';
+      return;
+    }
+
+    root.innerHTML = live
+      .map((b, i) => {
+        const o = b.live_offer;
+        return `<article class="tick" style="animation-delay:${i * 0.08}s">
+          <span class="badge live">Live</span>
+          <h3>${escapeHtml(o.title)}</h3>
+          <p class="meta">${escapeHtml(b.name)} · ${escapeHtml(b.area)} · ${minutesLeft(o.ends_at)}</p>
+          <div class="actions">
+            <button type="button" class="btn primary" data-claim="${o.id}" ${state.user?.role === 'customer' ? '' : 'disabled'}>Claim QR</button>
+            <button type="button" class="btn ghost" data-next="${b.id}">Next Stop</button>
+          </div>
+        </article>`;
+      })
+      .join('');
   }
 
   async function loadDirectory() {
@@ -125,15 +155,15 @@
       params.set('lat', String(state.geo.lat));
       params.set('lng', String(state.geo.lng));
     } else {
-      // Beaches Town Center default for radius sorting
       params.set('lat', '30.324');
       params.set('lng', '-81.3965');
     }
     if (radius) params.set('radius_mi', radius);
 
     const data = await api(`/api/businesses?${params}`);
-    $('#listing-count').textContent = `${data.count} listings · ${data.live_count} live offers`;
+    $('#listing-count').textContent = `${data.count} listings · ${data.live_count} live`;
     updateMarkers(data.businesses);
+    renderTicker(data.businesses);
     renderList(data.businesses);
     return data.businesses;
   }
@@ -141,29 +171,28 @@
   function renderList(businesses) {
     const root = $('#business-list');
     if (!businesses.length) {
-      root.innerHTML = '<p class="meta-line">No listings match these filters.</p>';
+      root.innerHTML = '<p class="meta">No listings match these filters.</p>';
       return;
     }
     root.innerHTML = businesses
       .map((b) => {
         const live = b.live_offer;
         const badges = [
-          live ? '<span class="badge live">Live offer</span>' : `<span class="badge">${escapeHtml(b.status_label)}</span>`,
-          b.is_featured ? '<span class="badge featured">Featured (sim)</span>' : '',
+          live ? '<span class="badge live">Live</span>' : `<span class="badge">${escapeHtml(b.status_label)}</span>`,
+          b.is_featured ? '<span class="badge featured">Featured</span>' : '',
         ].join(' ');
         const note =
           b.endorsement_note && !live
-            ? `<p class="meta-line">${escapeHtml(b.endorsement_note)}</p>`
+            ? `<p class="meta">${escapeHtml(b.endorsement_note)}</p>`
             : '';
-        const dist =
-          b.distance_mi != null ? `<p class="meta-line">${b.distance_mi} mi</p>` : '';
+        const dist = b.distance_mi != null ? `<p class="meta">${b.distance_mi} mi</p>` : '';
         const favLabel = b.is_favorite ? '★ Favorited' : '☆ Favorite';
         const offer = live
           ? `<div class="offer-block">
               <strong>${escapeHtml(live.title)}</strong>
-              <p class="meta-line">${escapeHtml(live.product_label || '')} · ${minutesLeft(live.ends_at)} · ends ${formatEnds(live.ends_at)}</p>
+              <p class="meta">${escapeHtml(live.product_label || '')} · ${minutesLeft(live.ends_at)}</p>
               <div class="listing-actions">
-                <button type="button" class="btn primary" data-claim="${live.id}" ${state.user?.role === 'customer' ? '' : 'disabled'}>Claim &amp; get QR</button>
+                <button type="button" class="btn primary" data-claim="${live.id}" ${state.user?.role === 'customer' ? '' : 'disabled'}>Claim QR</button>
                 <button type="button" class="btn ghost" data-next="${b.id}">Next Stop</button>
               </div>
             </div>`
@@ -172,8 +201,8 @@
             </div>`;
         return `<article class="listing" data-id="${b.id}">
           <h3>${escapeHtml(b.name)}</h3>
-          <p class="meta-line">${escapeHtml(b.area)} · ${escapeHtml(b.category)}</p>
-          ${b.address ? `<p class="meta-line">${escapeHtml(b.address)}</p>` : ''}
+          <p class="meta">${escapeHtml(b.area)} · ${escapeHtml(b.category)}</p>
+          ${b.address ? `<p class="meta">${escapeHtml(b.address)}</p>` : ''}
           ${dist}
           ${badges}
           ${note}
@@ -206,17 +235,17 @@
     const strip = $('#next-stop-strip');
     if (!data.next_stops.length) {
       strip.hidden = false;
-      strip.innerHTML = '<h3>Next Stop</h3><p class="meta-line">No other live offers nearby right now.</p>';
+      strip.innerHTML = '<h3>Next Stop</h3><p class="meta">No other live offers nearby right now.</p>';
       return;
     }
     strip.hidden = false;
     strip.innerHTML = `<h3>Next Stop</h3>
-      <p class="meta-line">Nearby live offers after this stop.</p>
+      <p class="meta">Nearby live offers after this stop.</p>
       ${data.next_stops
         .map(
           (n) => `<div class="listing">
             <strong>${escapeHtml(n.name)}</strong>
-            <p class="meta-line">${escapeHtml(n.title)} · ${n.distance_mi} mi · ${minutesLeft(n.ends_at)}</p>
+            <p class="meta">${escapeHtml(n.title)} · ${n.distance_mi} mi · ${minutesLeft(n.ends_at)}</p>
           </div>`
         )
         .join('')}`;
@@ -245,7 +274,7 @@
   async function refreshRewards() {
     if (!state.user) {
       $('#loyalty-history').innerHTML =
-        '<p class="meta-line">Sign in as a customer. Demo: customer@ongo.demo / demo1234</p>';
+        '<p class="meta">Sign in as a customer. Demo: customer@ongo.demo / demo1234</p>';
       $('#favorites-list').innerHTML = '';
       $('#active-claim').hidden = true;
       return;
@@ -258,11 +287,11 @@
             .map(
               (h) => `<div class="listing">
                 <strong>${h.delta > 0 ? '+' : ''}${h.delta} pts</strong>
-                <p class="meta-line">${escapeHtml(h.reason)}${h.business_name ? ' · ' + escapeHtml(h.business_name) : ''} · ${formatEnds(h.created_at)}</p>
+                <p class="meta">${escapeHtml(h.reason)}${h.business_name ? ' · ' + escapeHtml(h.business_name) : ''} · ${formatEnds(h.created_at)}</p>
               </div>`
             )
             .join('')
-        : '<p class="meta-line">No verified redemptions yet.</p>';
+        : '<p class="meta">No verified redemptions yet.</p>';
 
       const favs = await api('/api/favorites');
       $('#favorites-list').innerHTML = favs.favorites.length
@@ -270,11 +299,11 @@
             .map(
               (b) => `<div class="listing">
                 <strong>${escapeHtml(b.name)}</strong>
-                <p class="meta-line">${escapeHtml(b.area)} · ${escapeHtml(b.category)}</p>
+                <p class="meta">${escapeHtml(b.area)} · ${escapeHtml(b.category)}</p>
               </div>`
             )
             .join('')
-        : '<p class="meta-line">No favorites yet — tap ☆ on Explore.</p>';
+        : '<p class="meta">No favorites yet.</p>';
 
       if (state.user.role === 'customer') {
         const claims = await api('/api/customer/claims');
@@ -282,7 +311,7 @@
         if (open) {
           $('#active-claim').hidden = false;
           $('#active-claim').innerHTML = `
-            <h3 class="section-label">Open claim</h3>
+            <h3 class="label">Open claim</h3>
             <p><strong>${escapeHtml(open.offer_title)}</strong> at ${escapeHtml(open.business_name)}</p>
             <p class="mono">ongo:${escapeHtml(open.token)}</p>`;
         } else {
@@ -290,7 +319,7 @@
         }
       }
     } catch (err) {
-      $('#loyalty-history').innerHTML = `<p class="meta-line">${escapeHtml(err.message)}</p>`;
+      $('#loyalty-history').innerHTML = `<p class="meta">${escapeHtml(err.message)}</p>`;
     }
   }
 
@@ -322,38 +351,38 @@
               const active = o.status === 'live' || o.status === 'scheduled';
               return `<div class="listing">
                 <strong>${escapeHtml(o.title)}</strong>
-                <p class="meta-line">${escapeHtml(o.business_name)} · ${escapeHtml(o.status)} · ${minutesLeft(o.ends_at)} · ${o.redemption_count}${o.redemption_limit != null ? '/' + o.redemption_limit : ''} redeemed</p>
+                <p class="meta">${escapeHtml(o.business_name)} · ${escapeHtml(o.status)} · ${minutesLeft(o.ends_at)} · ${o.redemption_count}${o.redemption_limit != null ? '/' + o.redemption_limit : ''} redeemed</p>
                 ${active ? `<button type="button" class="btn ghost" data-deactivate="${o.id}">Deactivate</button>` : ''}
               </div>`;
             })
             .join('')
-        : '<p class="meta-line">No offers yet.</p>';
+        : '<p class="meta">No offers yet — tap the power switch.</p>';
 
       const analytics = await api('/api/business/analytics');
       $('#biz-analytics').innerHTML = analytics.analytics
         .map(
           (a) => `<div class="listing">
             <strong>${escapeHtml(a.name)}</strong>
-            <p class="meta-line">${a.claims} claims · ${a.redeemed} redeemed · ${a.conversion_pct}% · ${a.live_offers} live</p>
+            <p class="meta">${a.claims} claims · ${a.redeemed} redeemed · ${a.conversion_pct}% · ${a.live_offers} live</p>
           </div>`
         )
-        .join('') || '<p class="meta-line">No venues yet.</p>';
+        .join('') || '<p class="meta">No venues yet.</p>';
 
       const subs = await api('/api/subscriptions');
       $('#biz-plans').innerHTML = `
         ${(subs.subscriptions || [])
           .map(
             (s) =>
-              `<div class="listing"><strong>${escapeHtml(s.business_name)}</strong><p class="meta-line">Current: ${escapeHtml(s.plan)} (${escapeHtml(s.status)})</p></div>`
+              `<div class="listing"><strong>${escapeHtml(s.business_name)}</strong><p class="meta">Current: ${escapeHtml(s.plan)} (${escapeHtml(s.status)})</p></div>`
           )
           .join('')}
         ${(subs.plans || [])
           .map(
             (p) =>
-              `<div class="listing"><strong>${escapeHtml(p.label)}</strong><p class="meta-line">$${(p.price_monthly_cents / 100).toFixed(0)}/mo · ${escapeHtml((p.perks || []).join(' · '))}</p></div>`
+              `<div class="listing"><strong>${escapeHtml(p.label)}</strong><p class="meta">$${(p.price_monthly_cents / 100).toFixed(0)}/mo · ${escapeHtml((p.perks || []).join(' · '))}</p></div>`
           )
           .join('')}
-        <p class="meta-line">${escapeHtml(subs.notice || '')}</p>`;
+        <p class="meta">${escapeHtml(subs.notice || '')}</p>`;
 
       const ads = await api('/api/ads/inventory');
       $('#bid-slot').innerHTML = ads.inventory
@@ -363,7 +392,7 @@
         )
         .join('');
     } catch (err) {
-      $('#biz-offers').innerHTML = `<p class="meta-line">${escapeHtml(err.message)}</p>`;
+      $('#biz-offers').innerHTML = `<p class="meta">${escapeHtml(err.message)}</p>`;
     }
   }
 
@@ -419,7 +448,7 @@
   }
 
   function bindEvents() {
-    $$('.rail-btn').forEach((btn) => {
+    $$('.sw').forEach((btn) => {
       btn.addEventListener('click', () => showView(btn.dataset.view));
     });
 
@@ -427,6 +456,15 @@
       const goto = e.target.closest('[data-goto]');
       if (goto) showView(goto.dataset.goto);
     });
+
+    const power = $('#power-btn');
+    if (power) {
+      power.addEventListener('click', () => {
+        power.classList.toggle('armed');
+        $('#offer-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        $('#offer-title').focus();
+      });
+    }
 
     ['filter-area', 'filter-category', 'filter-live', 'filter-radius'].forEach((id) => {
       $(`#${id}`).addEventListener('change', () => loadDirectory().catch(console.error));
@@ -437,14 +475,16 @@
       qTimer = setTimeout(() => loadDirectory().catch(console.error), 250);
     });
 
-    $('#business-list').addEventListener('click', (e) => {
+    const claimHandler = (e) => {
       const claim = e.target.closest('[data-claim]');
       if (claim) return claimOffer(claim.dataset.claim);
       const next = e.target.closest('[data-next]');
       if (next) return loadNextStop(next.dataset.next).catch((err) => alert(err.message));
       const fav = e.target.closest('[data-fav]');
       if (fav) return toggleFavorite(fav.dataset.fav, fav.dataset.on === '1').catch((err) => alert(err.message));
-    });
+    };
+    $('#business-list').addEventListener('click', claimHandler);
+    $('#signal-ticker').addEventListener('click', claimHandler);
 
     $('#biz-offers').addEventListener('click', async (e) => {
       const btn = e.target.closest('[data-deactivate]');
@@ -471,7 +511,8 @@
             redemption_limit: $('#offer-limit').value || null,
           }),
         });
-        alert('Offer activated — visible on Explore until it expires.');
+        $('#power-btn')?.classList.add('armed');
+        alert('Signal ON — visible on Explore until it expires.');
         await refreshBusiness();
         await loadDirectory();
         showView('explore');
@@ -492,7 +533,7 @@
         $('#verify-next').innerHTML = (data.next_stops || [])
           .map(
             (n) =>
-              `<div class="listing"><strong>Next: ${escapeHtml(n.name)}</strong><p class="meta-line">${escapeHtml(n.title)} · ${n.distance_mi} mi</p></div>`
+              `<div class="listing"><strong>Next: ${escapeHtml(n.name)}</strong><p class="meta">${escapeHtml(n.title)} · ${n.distance_mi} mi</p></div>`
           )
           .join('');
         await refreshBusiness();
@@ -584,6 +625,7 @@
       await loadDirectory();
     } catch (err) {
       $('#listing-count').textContent = `Could not load directory: ${err.message}`;
+      $('#live-hud-text').textContent = 'Directory offline';
     }
   }
 
