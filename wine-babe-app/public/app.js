@@ -213,6 +213,20 @@
   }
 
   function renderResult(data, isNew) {
+    // Not identified: no score or checklist, just what happened and what to try.
+    if (!data.identified) {
+      screens.result.innerHTML = `
+        <div class="wine-head"><h1>We couldn't pin down this wine</h1></div>
+        <div class="card summary"><p>${esc(data.summary || "We couldn't identify this wine.")}</p>
+          <p style="margin-top:.6rem">Try again with the winery name first, for example <b>Le Contesse Pinot Noir Rosé</b>, or snap the front label.</p></div>
+        <div class="actions">
+          <label class="btn" for="photo">Scan a label</label>
+          <button class="btn ghost" id="backHome">Search again</button>
+        </div>`;
+      $("#backHome").onclick = goHome;
+      show("result");
+      return;
+    }
     const r = enrich(data);
     const w = data.wine || {};
     const n = r.n;

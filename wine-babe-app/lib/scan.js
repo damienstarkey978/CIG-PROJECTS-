@@ -152,7 +152,9 @@ const wineLine = (w) =>
 const IDENTIFY_SYSTEM = `You identify wines for the Wine Babe app, fast.
 From the label photo or text, identify producer, wine name, vintage, region, country, grapes and style (for sparkling, the dosage term on the label: Brut Nature, Pas Dosé, Dosaggio Zero, Extra Brut, Brut, Extra Dry...).
 Then find the winery's official website and this wine's product page on it, with at most one web search. Be quick. Prefer the winery's own domain over shops.
-A name without a vintage is fine: identify the wine and leave vintage "" (non vintage or latest). Never ask for a photo or more details. Only set identified false when the input is clearly not a wine or is unreadable, and explain in note. Unknown text fields are "".`;
+A name without a vintage is fine: identify the wine and leave vintage "" (non vintage or latest).
+No producer given (e.g. "Pinot Noir Rosé Single Fermentation"): use your web search on the exact name to find which winery makes it. If the results clearly point to one producer's wine, identify it with that producer. Only when several producers fit equally, set identified false and name the likely producers in note.
+Never ask for a photo or more details. Otherwise only set identified false when the input is clearly not a wine or is unreadable, and explain in note. Unknown text fields are "".`;
 
 const PDF_URLS_SCHEMA = {
   type: "object",
@@ -795,7 +797,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v19";
+const ENGINE_VERSION = "v20";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
