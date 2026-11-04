@@ -155,6 +155,37 @@ const PDF_URLS_SCHEMA = {
   properties: { pdf_urls: { type: "array", items: { type: "string" } } },
 };
 
+// "<wine> nutrition facts" search: finds the winery's own spec / nutrition
+// page and any figures it states. Figures only count when the source is the
+// winery or its importer.
+const NUTRITION_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["pages", "calories_5oz", "carbs_5oz", "sugar_g_5oz", "residual_sugar_g_l", "abv", "source_url", "source_kind"],
+  properties: {
+    pages: {
+      type: "array",
+      items: {
+        type: "object", additionalProperties: false, required: ["url", "kind"],
+        properties: { url: { type: "string" }, kind: { type: "string", enum: ["winery", "importer", "retailer", "other"] } },
+      },
+    },
+    calories_5oz: { type: ["number", "null"] },
+    carbs_5oz: { type: ["number", "null"] },
+    sugar_g_5oz: { type: ["number", "null"] },
+    residual_sugar_g_l: { type: ["number", "null"] },
+    abv: { type: ["number", "null"] },
+    source_url: { type: "string" },
+    source_kind: { type: "string", enum: ["winery", "importer", "retailer", "other", "none"] },
+  },
+};
+const NUTRITION_SEARCH_SYSTEM = `You look up a wine's published nutrition facts and specs for the Wine Babe app, fast.
+Run exactly one web search: <producer> <wine> nutrition facts.
+Return:
+- pages: up to 4 result pages, the winery's own product / specs / nutrition page first, each tagged winery, importer, retailer or other.
+- The figures stated for THIS wine on the best source: calories, carbohydrates and sugar per 5 oz (148 ml) serving (convert other serving sizes), residual sugar in g/L if stated, ABV. Use null for anything not stated. Never use generic or category averages ("a typical Pinot Grigio").
+- source_url and source_kind of the page the figures came from ("none" if no figures).`;
+
 const SHEET_SEARCH_SYSTEM = `You find a wine's official technical sheet PDF for the Wine Babe app, fast.
 Run exactly one web search, such as: <producer> <wine> tech sheet pdf. Wineries also call it a fact sheet, technical data, wine notes or tasting notes, and in their own language scheda tecnica, fiche technique, ficha técnica, Datenblatt. Prefer the winery's or importer's own site.
 Return up to 5 direct PDF URLs from the results, best match for this exact wine first. Return an empty list if none.`;
@@ -404,6 +435,25 @@ function wineTerms(wine) {
 
 // Pull the text out of a PDF (base64). Sending Claude plain text is far faster
 // than sending the PDF itself, which is processed page by page as images.
+// Visible text of a web page (for winery spec pages that are not PDFs).
+async function pageText(url, ms = 7000) {
+  let u;
+  try { u = new URL(url); } catch { return ""; }
+  if (!/^https?:$/.test(u.protocol) || !isPublicHost(u)) return "";
+  try {
+    const res = await fetch(u, { signal: AbortSignal.timeout(ms), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
+    if (!res.ok) return "";
+    const html = (await res.text()).slice(0, 2_000_000);
+    return html
+      .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<nav[\s\S]*?<\/nav>|<footer[\s\S]*?<\/footer>/gi, " ")
+      .replace(/<br\s*\/?>|<\/(p|div|li|tr|h\d)>/gi, "\n")
+      .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&[a-z#0-9]+;/gi, " ")
+      .replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim().slice(0, 12000);
+  } catch {
+    return "";
+  }
+}
+
 async function pdfText(base64) {
   try {
     const { extractText, getDocumentProxy } = await import("unpdf");
@@ -636,7 +686,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v7";
+const ENGINE_VERSION = "v8";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -705,6 +755,13 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
   // the WordPress media search) need no AI; a one search lookup for the PDF
   // runs alongside in case the fast routes find nothing.
   let producerOrigin = "";
+  // Started up front so it runs alongside everything else.
+  const nutritionSearch = runAgent({ diag,
+    name: "nutrition-search", system: NUTRITION_SEARCH_SYSTEM, schema: NUTRITION_SCHEMA, send, deadline: deadline - 4000,
+    content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}.`),
+    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
+  });
+
   const techLookup = async () => {
     const searched = runAgent({ diag,
       name: "sheet-search", system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline,
@@ -813,7 +870,22 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
       diag.push({ name: "sheet-search-2-urls", outcome: JSON.stringify(urls2).slice(0, 400) });
       if (urls2.length) sheet = await download(rankPdfs(urls2.map((url) => ({ url, text: "" })), wine, site), urls2.filter((u) => /\.pdf(\?|$)/i.test(u)));
     }
-    if (!sheet) return null;
+    if (!sheet) {
+      // No PDF: read the winery's (or importer's) own spec page instead.
+      const ns = await nutritionSearch;
+      const specPage = (ns?.pages || []).find((p) => p.kind === "winery") || (ns?.pages || []).find((p) => p.kind === "importer");
+      if (!specPage) return null;
+      send({ type: "fetch", text: specPage.url });
+      const text = await pageText(specPage.url);
+      diag.push({ name: "spec-page", outcome: `${text.length} chars (${specPage.kind}): ${specPage.url}`.slice(0, 300) });
+      if (text.length < 300) return null;
+      send({ type: "status", text: "Reading the winery's spec page" });
+      return runAgent({ diag,
+        name: "tech-page", system: sheetPrompt(wine), schema: agentSchema(SHEET_IDS, true), send,
+        model: READ_MODEL, deadline: Math.max(deadline, Date.now() + 9000),
+        content: [{ type: "text", text: `Text of the ${specPage.kind}'s page for this wine at ${specPage.url} (not a lab sheet: use evidence "winery" for stated figures, not "lab"). Only use figures that are clearly for this wine.\n\n<page>\n${text}\n</page>\n\nFill the items. tech_sheet_url is "" unless the page is a technical sheet.` }],
+      });
+    }
     send({ type: "status", text: "Reading the tech sheet" });
     const text = await pdfText(sheet.data);
     diag.push({ name: "sheet-text", outcome: `${text.length} chars` });
@@ -908,6 +980,32 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
     }
   }
   // Sugar per glass is computed here, not left to the model's wording.
+  // Fill gaps from the nutrition search, only when the figures come from the
+  // winery or its importer.
+  const ns = await nutritionSearch;
+  if (ns && (ns.source_kind === "winery" || ns.source_kind === "importer") && ns.source_url) {
+    if (!tech) tech = { checks: [], sources: [], nutrition: { ...EMPTY_NUTRITION }, tech_sheet_url: "", tech_sheet_vintage: "" };
+    tech.nutrition = tech.nutrition || { ...EMPTY_NUTRITION };
+    const n = tech.nutrition;
+    const filled = [];
+    if (n.calories_5oz == null && ns.calories_5oz != null) { n.calories_5oz = ns.calories_5oz; filled.push("calories"); }
+    if (n.carbs_5oz == null && ns.carbs_5oz != null) { n.carbs_5oz = ns.carbs_5oz; filled.push("carbs"); }
+    if (n.abv == null && ns.abv != null) n.abv = ns.abv;
+    if (n.residual_sugar_g_l == null) {
+      const rsl = ns.residual_sugar_g_l ?? (ns.sugar_g_5oz != null ? Math.round((ns.sugar_g_5oz / 0.148) * 10) / 10 : null);
+      if (rsl != null) { n.residual_sugar_g_l = rsl; if (n.source === "none") n.source = "winery"; filled.push("sugar"); }
+    }
+    const via = ns.source_kind === "importer" ? " (importer)" : "";
+    const add = (id, detail) => {
+      const c = { id, status: "pass", evidence: "winery", scope: "this_wine", as_of: "", detail, source_url: ns.source_url };
+      best[id] = better(best[id], c);
+    };
+    if (filled.includes("calories")) add("calories", `${ns.calories_5oz} calories per 5 oz, stated by the ${ns.source_kind}${via ? "" : ""}.`);
+    if (filled.includes("carbs")) add("carbs", `${ns.carbs_5oz} g carbs per 5 oz, stated by the ${ns.source_kind}.`);
+    diag.push({ name: "nutrition-facts", outcome: `${ns.source_kind}: ${filled.join(", ") || "nothing new"} from ${ns.source_url}`.slice(0, 300) });
+  } else if (ns) {
+    diag.push({ name: "nutrition-facts", outcome: `not used (${ns.source_kind}${ns.source_url ? ": " + ns.source_url : ""})`.slice(0, 300) });
+  }
   const rs = (tech?.nutrition || {}).residual_sugar_g_l;
   if (rs != null) {
     const perGlass = (rs * 0.148).toFixed(1);
