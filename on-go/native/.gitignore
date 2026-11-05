@@ -1,0 +1,27 @@
+node_modules/
+.DS_Store
+*.log
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+*.cer
+google-services.json
+GoogleService-Info.plist
+local.properties
+*.ipa
+*.apk
+*.aab
+.idea/
+*.iml
+
+# CocoaPods (regenerate on Mac with pod install)
+ios/App/Pods/
+ios/App/Podfile.lock
+
+# Android build output
+android/.gradle/
+android/app/build/
+android/build/
+android/captures/
+android/local.properties

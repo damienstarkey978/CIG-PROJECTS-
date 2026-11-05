@@ -1,0 +1,42 @@
+{
+  "appId": "com.ongoapp.app",
+  "appName": "ON GO",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "backgroundColor": "#0A0F0C",
+  "server": {
+    "url": "https://ongo-app.com",
+    "cleartext": false,
+    "allowNavigation": [
+      "https://ongo-app.com",
+      "https://*.ongo-app.com",
+      "https://accounts.google.com",
+      "https://*.stripe.com"
+    ]
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "launchAutoHide": true,
+      "backgroundColor": "#0A0F0C",
+      "showSpinner": false,
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP"
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#0A0F0C"
+    }
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "allowsLinkPreview": false,
+    "scrollEnabled": true,
+    "preferredContentMode": "mobile"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#0A0F0C",
+    "webContentsDebuggingEnabled": false
+  }
+}
