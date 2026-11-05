@@ -62,9 +62,49 @@ body {
   pointer-events: none;
 }
 
-/* —— Brand mast: full wide logo, never cropped square —— */
+/* —— Launch splash: icon left → center, then Explore —— */
+.launch-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 40%, rgba(26, 255, 90, 0.18), transparent 60%),
+    #0a0f0c;
+  transition: opacity 0.45s var(--ease), visibility 0.45s;
+}
+.launch-splash.is-done {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.splash-icon {
+  width: clamp(5.5rem, 28vw, 8rem);
+  height: auto;
+  border-radius: 22%;
+  transform: translateX(-42vw);
+  animation: splash-enter 0.9s var(--ease) forwards;
+  box-shadow: 0 0 40px rgba(26, 255, 90, 0.25);
+}
+@keyframes splash-enter {
+  0% { transform: translateX(-42vw); opacity: 0.4; }
+  70% { transform: translateX(0); opacity: 1; }
+  100% { transform: translateX(0) scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash-icon {
+    transform: none;
+    animation: none;
+    opacity: 1;
+  }
+  .launch-splash { transition: opacity 0.15s linear; }
+  .brand-mark { animation: none !important; }
+}
+
+/* —— Brand mast: power mark + upright ON GO lettering —— */
 .signal-mast {
-  padding: 0;
+  padding: 0.65rem 0.9rem 0.35rem;
   background: #000;
   border-bottom: 1px solid rgba(26, 255, 90, 0.35);
   position: relative;
@@ -72,6 +112,49 @@ body {
   overflow: visible;
 }
 
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0.35rem 0 0.15rem;
+}
+
+.brand-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 22%;
+  flex-shrink: 0;
+  animation: power-glow 2.8s ease-in-out infinite;
+}
+
+.brand-word {
+  display: grid;
+  gap: 0.05rem;
+  text-align: left;
+}
+
+.brand-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(1.55rem, 6vw, 2rem);
+  letter-spacing: 0.08em;
+  line-height: 1;
+  color: #fff;
+  text-transform: uppercase;
+}
+
+.brand-tag {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--signal);
+  letter-spacing: 0.02em;
+}
+
+/* Legacy wide logo class kept for any remaining references */
 .brand-logo {
   display: block;
   width: min(92vw, 640px);
@@ -83,7 +166,6 @@ body {
   padding: 0.75rem 0.85rem 0.25rem;
   border-radius: 0;
   background: transparent;
-  animation: power-glow 2.8s ease-in-out infinite;
 }
 
 .mast-meta {
@@ -1209,4 +1291,56 @@ a.venue-hh-menu-link:focus-visible {
 .boost-copy strong {
   color: #f3f4f6;
   font-size: 0.98rem;
+}
+
+.points-disclaimer {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.quick-durations {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.offer-preview {
+  margin-top: 0.5rem;
+  border: 1px dashed rgba(26, 255, 90, 0.4);
+}
+
+.venue-qr-panel {
+  margin-top: 0.75rem;
+  text-align: center;
+}
+
+.venue-qr-panel img {
+  background: #fff;
+  border-radius: 12px;
+  padding: 0.5rem;
+}
+
+.legacy-sim {
+  opacity: 0.85;
+  border-style: dashed;
+}
+
+.countdown-live {
+  font-variant-numeric: tabular-nums;
+  color: var(--signal);
+  font-weight: 700;
+}
+
+.empty-live {
+  padding: 1rem;
+  border-radius: 12px;
+  background: rgba(255, 179, 71, 0.08);
+  border: 1px solid rgba(255, 179, 71, 0.25);
+  color: var(--muted);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  word-break: break-all;
 }

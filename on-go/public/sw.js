@@ -1,14 +1,15 @@
 /* ON GO — offline shell for installability */
-const CACHE = 'ongo-shell-v24';
+const CACHE = 'ongo-shell-v25-beta';
 const SHELL = [
   '/',
   '/index.html',
   '/styles.css',
   '/app.js',
   '/manifest.webmanifest',
-  '/assets/on-go-logo.jpg',
+  '/assets/on-go-power-icon.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
+  '/icons/icon-512-maskable.png',
 ];
 
 self.addEventListener('install', (event) => {

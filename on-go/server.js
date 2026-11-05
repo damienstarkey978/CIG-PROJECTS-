@@ -59,6 +59,7 @@ const {
   enrichAllBusinesses,
   publicEnrichment,
 } = require('./lib/enrich');
+const beta = require('./lib/beta');
 
 const PORT = Number(process.env.PORT) || 3847;
 
@@ -87,7 +88,15 @@ async function syncDbFromStore() {
 }
 
 function liveOfferClause() {
-  return `o.status IN ('live', 'scheduled') AND o.starts_at <= ? AND o.ends_at > ?`;
+  return `o.status IN ('live', 'scheduled') AND o.paused_at IS NULL AND o.starts_at <= ? AND o.ends_at > ?`;
+}
+
+function escapeHtmlLite(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function statusLabel(status) {
@@ -98,8 +107,8 @@ function statusLabel(status) {
 
 function attachLiveOffer(businessRow, now) {
   const offer = db.prepare(`
-    SELECT id, title, description, product_label, starts_at, ends_at,
-           redemption_limit, redemption_count, points_reward, status
+    SELECT id, title, description, product_label, terms, photo_url, starts_at, ends_at,
+           redemption_limit, redemption_count, points_reward, status, visits_count
     FROM offers o
     WHERE o.business_id = ? AND ${liveOfferClause()}
     ORDER BY o.starts_at ASC
@@ -136,6 +145,7 @@ function createApp() {
       syncingDb = syncingDb.then(() => syncDbFromStore()).catch(() => {});
       await syncingDb;
       expireOffers(db);
+      beta.expireCampaignsAndLimits(db);
       const resolved = resolveUser(db, {
         sessionId: req.cookies[COOKIE_NAME],
         signedUserId: req.signedCookies && req.signedCookies[UID_COOKIE],
@@ -799,11 +809,14 @@ function createApp() {
       title,
       description,
       product_label,
+      terms,
+      photo_url,
       duration_minutes,
       starts_at,
       ends_at,
       redemption_limit,
       points_reward,
+      preview_only,
     } = req.body || {};
 
     if (!business_id || !title) {
@@ -811,6 +824,16 @@ function createApp() {
     }
     if (!userCanManageBusiness(db, req.user.id, business_id) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You do not manage this business' });
+    }
+
+    const biz = db.prepare('SELECT * FROM businesses WHERE id = ?').get(business_id);
+    if (!biz) return res.status(404).json({ error: 'Business not found' });
+    if (biz.suspended_at) return res.status(403).json({ error: 'Venue suspended' });
+    if (!biz.verified_at && req.user.role !== 'admin') {
+      return res.status(403).json({
+        error: 'Venue must be verified before publishing campaigns. Ask an admin to approve.',
+        code: 'unverified',
+      });
     }
 
     const start = starts_at ? new Date(starts_at) : new Date();
@@ -824,39 +847,77 @@ function createApp() {
       return res.status(400).json({ error: 'Invalid start/end times' });
     }
 
+    const points = Number(points_reward);
+    const pointsFinal = Number.isFinite(points) && points > 0 ? points : beta.DEFAULT_POINTS_PER_VISIT;
+    const limitRaw = redemption_limit != null && redemption_limit !== ''
+      ? Number(redemption_limit)
+      : beta.DEFAULT_VISIT_LIMIT;
+    const limitFinal = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : beta.DEFAULT_VISIT_LIMIT;
+
+    const preview = {
+      business_id,
+      business_name: biz.name,
+      title: String(title).slice(0, 120),
+      description: description ? String(description).slice(0, 500) : '',
+      product_label: product_label ? String(product_label).slice(0, 120) : '',
+      terms: terms ? String(terms).slice(0, 800) : '',
+      photo_url: photo_url ? String(photo_url).slice(0, 500) : '',
+      starts_at: start.toISOString(),
+      ends_at: end.toISOString(),
+      redemption_limit: limitFinal,
+      points_reward: pointsFinal,
+      notice: 'Customer preview — points are promotional rewards, not cash.',
+    };
+    if (preview_only) {
+      return res.json({ preview });
+    }
+
     const ts = nowIso();
     const id = uuid();
     const status = start <= new Date() ? 'live' : 'scheduled';
 
     db.prepare(`
       UPDATE offers SET status = 'deactivated', updated_at = ?
-      WHERE business_id = ? AND status IN ('live', 'scheduled')
+      WHERE business_id = ? AND status IN ('live', 'scheduled', 'paused')
     `).run(ts, business_id);
 
     db.prepare(`
       INSERT INTO offers (
         id, business_id, title, description, product_label, status,
         starts_at, ends_at, redemption_limit, redemption_count, points_reward,
-        created_by_user_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+        created_by_user_id, created_at, updated_at, terms, photo_url,
+        visits_count, points_awarded_total, views_count
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 0, 0, 0)
     `).run(
       id,
       business_id,
-      String(title).slice(0, 120),
-      description ? String(description).slice(0, 500) : '',
-      product_label ? String(product_label).slice(0, 120) : '',
+      preview.title,
+      preview.description,
+      preview.product_label,
       status,
-      start.toISOString(),
-      end.toISOString(),
-      redemption_limit != null && redemption_limit !== '' ? Number(redemption_limit) : null,
-      Number(points_reward) || 25,
+      preview.starts_at,
+      preview.ends_at,
+      limitFinal,
+      pointsFinal,
       req.user.id,
       ts,
-      ts
+      ts,
+      preview.terms,
+      preview.photo_url
     );
+    beta.writeAudit(db, {
+      actorUserId: req.user.id,
+      action: 'campaign_created',
+      entityType: 'offer',
+      entityId: id,
+      meta: { status, points: pointsFinal, limit: limitFinal },
+    });
     touch();
 
-    res.status(201).json({ offer: db.prepare('SELECT * FROM offers WHERE id = ?').get(id) });
+    res.status(201).json({
+      offer: db.prepare('SELECT * FROM offers WHERE id = ?').get(id),
+      preview,
+    });
   });
 
   app.post('/api/offers/:id/deactivate', (req, res) => {
@@ -866,9 +927,74 @@ function createApp() {
     if (!userCanManageBusiness(db, req.user.id, offer.business_id) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You do not manage this business' });
     }
-    db.prepare(`UPDATE offers SET status = 'deactivated', updated_at = ? WHERE id = ?`).run(nowIso(), offer.id);
+    db.prepare(`UPDATE offers SET status = 'deactivated', paused_at = NULL, updated_at = ? WHERE id = ?`).run(nowIso(), offer.id);
+    beta.writeAudit(db, {
+      actorUserId: req.user.id,
+      action: 'campaign_ended',
+      entityType: 'offer',
+      entityId: offer.id,
+    });
     touch();
     res.json({ offer: db.prepare('SELECT * FROM offers WHERE id = ?').get(offer.id) });
+  });
+
+  app.post('/api/offers/:id/pause', (req, res) => {
+    if (!requireRole(req, res, ['business', 'admin'])) return;
+    const offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(req.params.id);
+    if (!offer) return res.status(404).json({ error: 'Offer not found' });
+    if (!userCanManageBusiness(db, req.user.id, offer.business_id) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You do not manage this business' });
+    }
+    const ts = nowIso();
+    db.prepare(`
+      UPDATE offers SET status = 'paused', paused_at = ?, updated_at = ? WHERE id = ?
+    `).run(ts, ts, offer.id);
+    beta.writeAudit(db, {
+      actorUserId: req.user.id,
+      action: 'campaign_paused',
+      entityType: 'offer',
+      entityId: offer.id,
+    });
+    touch();
+    res.json({ offer: db.prepare('SELECT * FROM offers WHERE id = ?').get(offer.id) });
+  });
+
+  app.post('/api/offers/:id/resume', (req, res) => {
+    if (!requireRole(req, res, ['business', 'admin'])) return;
+    const offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(req.params.id);
+    if (!offer) return res.status(404).json({ error: 'Offer not found' });
+    if (!userCanManageBusiness(db, req.user.id, offer.business_id) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You do not manage this business' });
+    }
+    const ts = nowIso();
+    if (offer.ends_at <= ts) {
+      return res.status(400).json({ error: 'Campaign already ended' });
+    }
+    const status = offer.starts_at <= ts ? 'live' : 'scheduled';
+    db.prepare(`
+      UPDATE offers SET status = ?, paused_at = NULL, updated_at = ? WHERE id = ?
+    `).run(status, ts, offer.id);
+    beta.writeAudit(db, {
+      actorUserId: req.user.id,
+      action: 'campaign_resumed',
+      entityType: 'offer',
+      entityId: offer.id,
+    });
+    touch();
+    res.json({ offer: db.prepare('SELECT * FROM offers WHERE id = ?').get(offer.id) });
+  });
+
+  app.post('/api/offers/:id/view', (req, res) => {
+    const offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(req.params.id);
+    if (!offer) return res.status(404).json({ error: 'Offer not found' });
+    const ts = nowIso();
+    db.prepare('UPDATE offers SET views_count = COALESCE(views_count, 0) + 1 WHERE id = ?').run(offer.id);
+    db.prepare(`
+      INSERT INTO campaign_views (id, offer_id, business_id, viewer_user_id, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(uuid(), offer.id, offer.business_id, req.user?.id || null, ts);
+    touch();
+    res.json({ ok: true });
   });
 
   app.get('/api/offers/live', (_req, res) => {
@@ -903,31 +1029,43 @@ function createApp() {
     if (!requireRole(req, res, ['business', 'admin'])) return;
     const ids = businessIdsForUser(db, req.user.id);
     if (!ids.length) return res.json({ analytics: [] });
-    const placeholders = ids.map(() => '?').join(',');
     const analytics = ids.map((business_id) => {
       const b = db.prepare('SELECT id, name FROM businesses WHERE id = ?').get(business_id);
-      const claims = db.prepare(`
-        SELECT COUNT(*) AS n FROM redemptions WHERE business_id = ?
+      const views = db.prepare(`
+        SELECT COALESCE(SUM(views_count), 0) AS n FROM offers WHERE business_id = ?
       `).get(business_id).n;
-      const redeemed = db.prepare(`
-        SELECT COUNT(*) AS n FROM redemptions WHERE business_id = ? AND status = 'redeemed'
+      const visits = db.prepare(`
+        SELECT COUNT(*) AS n FROM qualifying_visits WHERE business_id = ?
+      `).get(business_id).n;
+      const points = db.prepare(`
+        SELECT COALESCE(SUM(points_awarded), 0) AS n FROM qualifying_visits WHERE business_id = ?
+      `).get(business_id).n;
+      const rewards_redeemed = db.prepare(`
+        SELECT COUNT(*) AS n FROM reward_redemptions
+        WHERE business_id = ? AND status = 'fulfilled'
       `).get(business_id).n;
       const live = db.prepare(`
         SELECT COUNT(*) AS n FROM offers o
         WHERE o.business_id = ? AND ${liveOfferClause()}
       `).get(business_id, nowIso(), nowIso()).n;
+      // Legacy claim→staff path kept for reference only (simulated / outside live beta)
+      const legacy_claims = db.prepare(`
+        SELECT COUNT(*) AS n FROM redemptions WHERE business_id = ?
+      `).get(business_id).n;
       return {
         business_id,
         name: b.name,
-        claims,
-        redeemed,
-        conversion_pct: claims ? Math.round((redeemed / claims) * 100) : 0,
+        views,
+        qualifying_visits: visits,
+        points_awarded: points,
+        rewards_redeemed,
         live_offers: live,
+        legacy_claims_simulated: legacy_claims,
       };
     });
     res.json({
       analytics,
-      notice: 'Phase 2 scaffold — free analytics preview; paid packages later.',
+      notice: 'Qualifying visits and rewards — not sales or revenue. Legacy claim counts are simulated / outside live beta.',
     });
   });
 
@@ -1097,16 +1235,28 @@ function createApp() {
   app.get('/api/loyalty/history', (req, res) => {
     if (!requireAuth(req, res)) return;
     const rows = db.prepare(`
-      SELECT l.*, r.offer_id, o.title AS offer_title, b.name AS business_name
+      SELECT l.*,
+        COALESCE(l.offer_id, r.offer_id, v.offer_id) AS offer_id,
+        COALESCE(o.title, o2.title, o3.title) AS offer_title,
+        COALESCE(b.name, b2.name, b3.name) AS business_name
       FROM loyalty_ledger l
       LEFT JOIN redemptions r ON r.id = l.redemption_id
       LEFT JOIN offers o ON o.id = r.offer_id
       LEFT JOIN businesses b ON b.id = r.business_id
+      LEFT JOIN qualifying_visits v ON v.id = l.visit_id
+      LEFT JOIN offers o2 ON o2.id = v.offer_id
+      LEFT JOIN businesses b2 ON b2.id = v.business_id
+      LEFT JOIN offers o3 ON o3.id = l.offer_id
+      LEFT JOIN businesses b3 ON b3.id = o3.business_id
       WHERE l.user_id = ?
       ORDER BY l.created_at DESC
       LIMIT 100
     `).all(req.user.id);
-    res.json({ points_balance: req.user.points_balance, history: rows });
+    res.json({
+      points_balance: req.user.points_balance,
+      history: rows,
+      notice: 'Points are promotional rewards, not cash payouts.',
+    });
   });
 
   app.get('/api/customer/claims', (req, res) => {
@@ -1365,8 +1515,421 @@ function createApp() {
       areas: ['Atlantic Beach', 'Neptune Beach', 'Jacksonville Beach', 'Ponte Vedra Beach'],
       categories: ['Coffee', 'Breakfast', 'Lunch', 'Bar', 'Dinner'],
       radius_options_mi: [1, 2, 5, 10],
+      beta: beta.betaDefaults(),
     });
   });
+
+  app.get('/api/beta/defaults', (_req, res) => {
+    res.json(beta.betaDefaults());
+  });
+
+  /** Member in-app venue QR check-in — GPS required; QR alone never awards. */
+  app.post('/api/visits/check-in', (req, res) => {
+    if (!requireRole(req, res, ['customer'])) return;
+    if (!requireVerified(req, res)) return;
+    beta.expireCampaignsAndLimits(db);
+
+    const { venue_token, qr, lat, lng, accuracy_m, offer_id } = req.body || {};
+    const token = beta.parseVenueQr(venue_token || qr || '');
+    if (!token) {
+      return res.status(400).json({ error: 'Scan the venue QR inside ON GO' });
+    }
+
+    const business = db.prepare('SELECT * FROM businesses WHERE qr_token = ?').get(token);
+    if (!business) return res.status(404).json({ error: 'Unknown venue QR' });
+
+    let offer = null;
+    if (offer_id) {
+      offer = db.prepare('SELECT * FROM offers WHERE id = ? AND business_id = ?').get(offer_id, business.id);
+    } else {
+      offer = beta.activeCampaignForBusiness(db, business.id);
+    }
+    if (!offer) {
+      return res.status(400).json({
+        error: 'No live campaign at this venue right now',
+        business: { id: business.id, name: business.name },
+      });
+    }
+
+    const result = beta.awardQualifyingVisit(db, {
+      user: req.user,
+      business,
+      offer,
+      lat,
+      lng,
+      accuracyM: accuracy_m,
+      actorUserId: req.user.id,
+    });
+    touch();
+    if (!result.ok) return res.status(result.status || 400).json(result);
+    res.status(201).json(result);
+  });
+
+  app.get('/api/businesses/:id/venue-qr', async (req, res) => {
+    if (!requireRole(req, res, ['business', 'admin'])) return;
+    const b = db.prepare('SELECT * FROM businesses WHERE id = ?').get(req.params.id);
+    if (!b) return res.status(404).json({ error: 'Not found' });
+    if (!userCanManageBusiness(db, req.user.id, b.id) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You do not manage this business' });
+    }
+    if (!b.qr_token) {
+      const token = require('crypto').randomBytes(16).toString('hex');
+      db.prepare('UPDATE businesses SET qr_token = ? WHERE id = ?').run(token, b.id);
+      b.qr_token = token;
+      touch();
+    }
+    const payload = beta.venueQrPayload(b.qr_token);
+    const base = process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const deepLink = `${base.replace(/\/$/, '')}/?scan=${encodeURIComponent(b.qr_token)}`;
+    const qr_data_url = await QRCode.toDataURL(payload, {
+      margin: 1,
+      width: 512,
+      color: { dark: '#0a0f0c', light: '#ffffff' },
+    });
+    res.json({
+      business_id: b.id,
+      name: b.name,
+      qr_token: b.qr_token,
+      payload,
+      deep_link: deepLink,
+      qr_data_url,
+      print_hint: 'Redeem in app. Scan for points.',
+    });
+  });
+
+  app.get('/api/businesses/:id/print', async (req, res) => {
+    if (!requireRole(req, res, ['business', 'admin'])) return;
+    const b = db.prepare('SELECT * FROM businesses WHERE id = ?').get(req.params.id);
+    if (!b) return res.status(404).json({ error: 'Not found' });
+    if (!userCanManageBusiness(db, req.user.id, b.id) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You do not manage this business' });
+    }
+    if (!b.qr_token) {
+      return res.status(400).json({ error: 'Venue QR not ready — open venue QR first' });
+    }
+    const payload = beta.venueQrPayload(b.qr_token);
+    const qr_data_url = await QRCode.toDataURL(payload, {
+      margin: 1,
+      width: 640,
+      color: { dark: '#0a0f0c', light: '#ffffff' },
+    });
+    const layout = String(req.query.layout || 'cling');
+    const title = layout === 'counter' ? 'Counter sign' : 'Window cling';
+    const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><title>ON GO · ${escapeHtmlLite(b.name)} · ${title}</title>
+<style>
+  @page { margin: 0.4in; }
+  body { font-family: Outfit, Arial, sans-serif; background: #fff; color: #0a0f0c; margin: 0; }
+  .sheet { border: 3px solid #1aff5a; border-radius: 18px; padding: 1.25rem; max-width: 5.5in; margin: 0.5in auto; text-align: center; }
+  .counter { max-width: 3.5in; }
+  .brand { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .brand img { width: 48px; height: 48px; }
+  h1 { font-family: Syne, Arial Black, sans-serif; font-size: 1.35rem; margin: 0.2rem 0; letter-spacing: 0.04em; }
+  .venue { font-size: 1.1rem; font-weight: 700; margin: 0.4rem 0 0.8rem; }
+  img.qr { width: 2.6in; height: 2.6in; }
+  .counter img.qr { width: 1.8in; height: 1.8in; }
+  .hint { font-size: 1rem; font-weight: 700; margin-top: 0.75rem; color: #087d32; }
+  .sub { font-size: 0.8rem; color: #445; margin-top: 0.35rem; }
+  @media print { .noprint { display: none; } body { background: #fff; } }
+</style></head><body>
+  <p class="noprint" style="text-align:center"><button onclick="window.print()">Print</button></p>
+  <div class="sheet ${layout === 'counter' ? 'counter' : ''}">
+    <div class="brand">
+      <img src="/assets/on-go-power-icon.png" alt="ON GO"/>
+      <h1>ON GO</h1>
+    </div>
+    <p class="venue">${escapeHtmlLite(b.name)}</p>
+    <img class="qr" src="${qr_data_url}" alt="Venue QR"/>
+    <p class="hint">Redeem in app. Scan for points.</p>
+    <p class="sub">Members open ON GO → Scan. Location required. Points are rewards, not cash.</p>
+  </div>
+</body></html>`;
+    res.type('html').send(html);
+  });
+
+  app.get('/api/rewards', (req, res) => {
+    const businessId = req.query.business_id;
+    let rows;
+    if (businessId) {
+      rows = db.prepare(`
+        SELECT r.*, b.name AS business_name
+        FROM rewards r JOIN businesses b ON b.id = r.business_id
+        WHERE r.business_id = ? AND r.status = 'active'
+        ORDER BY r.points_cost ASC
+      `).all(businessId);
+    } else {
+      rows = db.prepare(`
+        SELECT r.*, b.name AS business_name, b.area
+        FROM rewards r JOIN businesses b ON b.id = r.business_id
+        WHERE r.status = 'active'
+          AND (r.expires_at IS NULL OR r.expires_at > ?)
+          AND r.quantity_remaining > 0
+        ORDER BY r.created_at DESC
+        LIMIT 100
+      `).all(nowIso());
+    }
+    res.json({
+      rewards: rows,
+      notice: 'Vendor-funded rewards. Points are promotional — not cash.',
+    });
+  });
+
+  app.post('/api/rewards', (req, res) => {
+    if (!requireRole(req, res, ['business', 'admin'])) return;
+    const {
+      business_id, title, description, terms, points_cost, quantity, expires_at,
+    } = req.body || {};
+    if (!business_id || !title || !points_cost || !quantity) {
+      return res.status(400).json({ error: 'business_id, title, points_cost, quantity required' });
+    }
+    if (!userCanManageBusiness(db, req.user.id, business_id) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You do not manage this business' });
+    }
+    const biz = db.prepare('SELECT * FROM businesses WHERE id = ?').get(business_id);
+    if (!biz?.verified_at && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Venue must be verified before listing rewards' });
+    }
+    const ts = nowIso();
+    const id = uuid();
+    const qty = Math.max(1, Number(quantity) || 1);
+    const cost = Math.max(1, Number(points_cost) || 1);
+    db.prepare(`
+      INSERT INTO rewards (
+        id, business_id, title, description, terms, points_cost,
+        quantity_total, quantity_remaining, expires_at, status,
+        created_by_user_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+    `).run(
+      id,
+      business_id,
+      String(title).slice(0, 120),
+      description ? String(description).slice(0, 500) : '',
+      terms ? String(terms).slice(0, 800) : '',
+      cost,
+      qty,
+      qty,
+      expires_at || null,
+      req.user.id,
+      ts,
+      ts
+    );
+    beta.writeAudit(db, {
+      actorUserId: req.user.id,
+      action: 'reward_created',
+      entityType: 'reward',
+      entityId: id,
+    });
+    touch();
+    res.status(201).json({ reward: db.prepare('SELECT * FROM rewards WHERE id = ?').get(id) });
+  });
+
+  app.post('/api/rewards/:id/claim', (req, res) => {
+    if (!requireRole(req, res, ['customer'])) return;
+    if (!requireVerified(req, res)) return;
+    const reward = db.prepare('SELECT * FROM rewards WHERE id = ?').get(req.params.id);
+    const freshUser = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    const result = beta.claimReward(db, { user: freshUser, reward });
+    touch();
+    if (!result.ok) return res.status(result.status || 400).json(result);
+    res.status(201).json(result);
+  });
+
+  app.post('/api/rewards/fulfill', (req, res) => {
+    if (!requireRole(req, res, ['business', 'admin'])) return;
+    const ids = businessIdsForUser(db, req.user.id);
+    const result = beta.fulfillRewardCode(db, {
+      user: req.user,
+      code: req.body?.code,
+      businessIds: ids,
+    });
+    touch();
+    if (!result.ok) return res.status(result.status || 400).json(result);
+    res.json(result);
+  });
+
+  app.post('/api/rewards/redemptions/:id/cancel', (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const ids = businessIdsForUser(db, req.user.id);
+    const result = beta.cancelRewardRedemption(db, {
+      user: req.user,
+      redemptionId: req.params.id,
+      businessIds: ids,
+    });
+    touch();
+    if (!result.ok) return res.status(result.status || 400).json(result);
+    res.json(result);
+  });
+
+  app.get('/api/customer/reward-redemptions', (req, res) => {
+    if (!requireRole(req, res, ['customer'])) return;
+    const rows = db.prepare(`
+      SELECT rr.*, rw.title AS reward_title, b.name AS business_name
+      FROM reward_redemptions rr
+      JOIN rewards rw ON rw.id = rr.reward_id
+      JOIN businesses b ON b.id = rr.business_id
+      WHERE rr.user_id = ?
+      ORDER BY rr.claimed_at DESC
+      LIMIT 50
+    `).all(req.user.id);
+    res.json({ redemptions: rows });
+  });
+
+  app.get('/api/business/results', (req, res) => {
+    if (!requireRole(req, res, ['business', 'admin'])) return;
+    const ids = businessIdsForUser(db, req.user.id);
+    if (!ids.length && req.user.role !== 'admin') {
+      return res.json({ results: [], notice: 'Qualifying visits — not sales or revenue.' });
+    }
+    const clause = req.user.role === 'admin' ? '1=1' : `o.business_id IN (${ids.map(() => '?').join(',')})`;
+    const params = req.user.role === 'admin' ? [] : ids;
+    const rows = db.prepare(`
+      SELECT o.id, o.title, o.status, o.starts_at, o.ends_at,
+        o.views_count, o.visits_count, o.points_awarded_total, o.redemption_limit,
+        b.name AS business_name,
+        (SELECT COUNT(*) FROM reward_redemptions rr
+          WHERE rr.business_id = o.business_id AND rr.status = 'fulfilled'
+            AND rr.fulfilled_at >= o.starts_at AND rr.fulfilled_at <= COALESCE(o.ends_at, rr.fulfilled_at)
+        ) AS rewards_redeemed
+      FROM offers o
+      JOIN businesses b ON b.id = o.business_id
+      WHERE ${clause}
+      ORDER BY o.created_at DESC
+      LIMIT 50
+    `).all(...params);
+    res.json({
+      results: rows,
+      notice: 'Views, qualifying visits, points awarded, rewards redeemed — never sales or revenue.',
+    });
+  });
+
+  // —— Admin (minimal but real) ——
+  app.get('/api/admin/overview', (req, res) => {
+    if (!requireRole(req, res, ['admin'])) return;
+    const pending = db.prepare(`
+      SELECT id, name, area, status, claimed_by_user_id, verified_at, suspended_at, created_at
+      FROM businesses
+      WHERE status IN ('claimed', 'participating') AND verified_at IS NULL
+      ORDER BY created_at DESC LIMIT 50
+    `).all();
+    const campaigns = db.prepare(`
+      SELECT o.id, o.title, o.status, o.starts_at, o.ends_at, b.name AS business_name
+      FROM offers o JOIN businesses b ON b.id = o.business_id
+      ORDER BY o.created_at DESC LIMIT 40
+    `).all();
+    const rewards = db.prepare(`
+      SELECT r.*, b.name AS business_name FROM rewards r
+      JOIN businesses b ON b.id = r.business_id
+      ORDER BY r.created_at DESC LIMIT 40
+    `).all();
+    const audit = db.prepare(`
+      SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 60
+    `).all();
+    res.json({ pending_venues: pending, campaigns, rewards, audit, beta: beta.betaDefaults() });
+  });
+
+  app.post('/api/admin/venues/:id/approve', (req, res) => {
+    if (!requireRole(req, res, ['admin'])) return;
+    const b = db.prepare('SELECT * FROM businesses WHERE id = ?').get(req.params.id);
+    if (!b) return res.status(404).json({ error: 'Not found' });
+    const ts = nowIso();
+    db.prepare(`
+      UPDATE businesses SET verified_at = ?, status = CASE WHEN status = 'unclaimed' THEN status ELSE 'participating' END, updated_at = ?
+      WHERE id = ?
+    `).run(ts, ts, b.id);
+    beta.writeAudit(db, {
+      actorUserId: req.user.id,
+      action: 'venue_approved',
+      entityType: 'business',
+      entityId: b.id,
+    });
+    touch();
+    res.json({ business: db.prepare('SELECT * FROM businesses WHERE id = ?').get(b.id) });
+  });
+
+  app.post('/api/admin/venues/:id/suspend', (req, res) => {
+    if (!requireRole(req, res, ['admin'])) return;
+    const reason = String(req.body?.reason || '').trim();
+    if (reason.length < 3) return res.status(400).json({ error: 'Reason required' });
+    const b = db.prepare('SELECT * FROM businesses WHERE id = ?').get(req.params.id);
+    if (!b) return res.status(404).json({ error: 'Not found' });
+    const ts = nowIso();
+    db.prepare(`
+      UPDATE businesses SET suspended_at = ?, suspend_reason = ?, updated_at = ? WHERE id = ?
+    `).run(ts, reason, ts, b.id);
+    db.prepare(`
+      UPDATE offers SET status = 'deactivated', updated_at = ?
+      WHERE business_id = ? AND status IN ('live', 'scheduled', 'paused')
+    `).run(ts, b.id);
+    beta.writeAudit(db, {
+      actorUserId: req.user.id,
+      action: 'venue_suspended',
+      entityType: 'business',
+      entityId: b.id,
+      reason,
+    });
+    touch();
+    res.json({ business: db.prepare('SELECT * FROM businesses WHERE id = ?').get(b.id) });
+  });
+
+  app.post('/api/admin/users/:id/suspend', (req, res) => {
+    if (!requireRole(req, res, ['admin'])) return;
+    const reason = String(req.body?.reason || '').trim();
+    if (reason.length < 3) return res.status(400).json({ error: 'Reason required' });
+    const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+    if (!u) return res.status(404).json({ error: 'Not found' });
+    const ts = nowIso();
+    db.prepare('UPDATE users SET suspended_at = ?, updated_at = ? WHERE id = ?').run(ts, ts, u.id);
+    beta.writeAudit(db, {
+      actorUserId: req.user.id,
+      action: 'user_suspended',
+      entityType: 'user',
+      entityId: u.id,
+      reason,
+    });
+    touch();
+    res.json({ ok: true });
+  });
+
+  app.post('/api/admin/points/adjust', (req, res) => {
+    if (!requireRole(req, res, ['admin'])) return;
+    const { user_id, delta, reason } = req.body || {};
+    const result = beta.adjustPoints(db, {
+      adminUser: req.user,
+      targetUserId: user_id,
+      delta,
+      reason,
+    });
+    touch();
+    if (!result.ok) return res.status(result.status || 400).json(result);
+    res.json(result);
+  });
+
+  app.patch('/api/me', (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const { display_name, password, current_password } = req.body || {};
+    const ts = nowIso();
+    const row = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    if (!row) return res.status(401).json({ error: 'Not signed in' });
+    if (display_name != null) {
+      const name = String(display_name).trim().slice(0, 80);
+      if (name.length < 1) return res.status(400).json({ error: 'display_name required' });
+      db.prepare('UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?').run(name, ts, row.id);
+    }
+    if (password) {
+      if (!current_password || !verifyPassword(current_password, row.password_hash)) {
+        return res.status(400).json({ error: 'Current password incorrect' });
+      }
+      if (String(password).length < 8) {
+        return res.status(400).json({ error: 'New password must be at least 8 characters' });
+      }
+      db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
+        .run(hashPassword(password), ts, row.id);
+    }
+    touch();
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(row.id);
+    res.json({ user: publicUser(user) });
+  });
+
 
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api/')) return next();

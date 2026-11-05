@@ -895,7 +895,7 @@ function expireOffers(db) {
   db.prepare(`
     UPDATE offers
     SET status = 'expired', updated_at = ?
-    WHERE status IN ('live', 'scheduled')
+    WHERE status IN ('live', 'scheduled', 'paused')
       AND ends_at <= ?
   `).run(ts, ts);
 
@@ -903,6 +903,7 @@ function expireOffers(db) {
     UPDATE offers
     SET status = 'live', updated_at = ?
     WHERE status = 'scheduled'
+      AND paused_at IS NULL
       AND starts_at <= ?
       AND ends_at > ?
   `).run(ts, ts, ts);
@@ -1087,8 +1088,10 @@ function applyMigrations(db) {
   } = require('./logos');
   const { ensureProTrialsForClaimed } = require('./subscriptions');
   const { ensureEnrichColumns, applyEnrichmentCache } = require('./enrich');
+  const { ensureBetaSchema, expireCampaignsAndLimits } = require('./beta');
   ensureLogoColumns(db);
   ensureEnrichColumns(db);
+  ensureBetaSchema(db);
   backfillWebsites(db);
   const seedResult = seedIfEmpty(db);
   ensureSeedVenues(db);
@@ -1098,7 +1101,10 @@ function applyMigrations(db) {
   recoverOwnerAccounts(db);
   applyEnrichmentCache(db);
   applyOfficialLogos(db);
+  // Re-run beta after seed so new venues get qr_token + verified_at
+  ensureBetaSchema(db);
   expireOffers(db);
+  expireCampaignsAndLimits(db);
   return seedResult;
 }
 

@@ -14,6 +14,8 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/icons/icon-180.png" />
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
+  <link rel="apple-touch-startup-image" href="/icons/apple-splash-1170x2532.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
@@ -21,17 +23,26 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <div id="launch-splash" class="launch-splash" role="img" aria-label="ON GO">
+    <img class="splash-icon" src="/assets/on-go-power-icon.png" width="128" height="128" alt="" />
+  </div>
   <div class="night" aria-hidden="true"></div>
 
   <!-- First viewport: brand + map as one composition -->
   <header class="signal-mast">
-    <img
-      class="brand-logo"
-      src="/assets/on-go-logo.jpg"
-      width="1443"
-      height="503"
-      alt="ON GO — When it's ON, you GO. Power-button brand mark."
-    />
+    <div class="brand-lockup">
+      <img
+        class="brand-mark"
+        src="/assets/on-go-power-icon.png"
+        width="44"
+        height="44"
+        alt=""
+      />
+      <div class="brand-word">
+        <p class="brand-name">ON GO</p>
+        <p class="brand-tag">When it’s ON, you GO.</p>
+      </div>
+    </div>
     <div class="mast-meta">
       <p class="support-line">Every hour. Every appetite. Something's ON.</p>
       <button type="button" id="session-chip" class="chip" aria-label="Open account — sign in or create account">Not signed in</button>
@@ -51,6 +62,7 @@
 
   <nav class="signal-switch" aria-label="App mode">
     <button type="button" class="sw active" data-view="explore" aria-current="page">Explore</button>
+    <button type="button" class="sw" data-view="scan">Scan</button>
     <button type="button" class="sw" data-view="rewards">Rewards</button>
     <button type="button" class="sw" data-view="business">Business</button>
     <button type="button" class="sw" data-view="account">Account</button>
@@ -89,26 +101,55 @@
       </div>
     </section>
 
+    <section id="view-scan" class="view" hidden>
+      <header class="panel-head">
+        <h2>Scan for points</h2>
+        <p class="lede">Scan the venue’s ON GO code in-app. Location must confirm you’re there. Scanning alone never awards points.</p>
+      </header>
+      <div class="sheet stack">
+        <p class="meta points-disclaimer">Points are promotional rewards — not cash.</p>
+        <label>Venue QR payload
+          <input id="scan-payload" type="text" placeholder="ongo:venue:… or paste from QR" autocomplete="off" />
+        </label>
+        <p id="scan-geo-status" class="meta" aria-live="polite">Location required to earn.</p>
+        <div class="split">
+          <button type="button" id="scan-geo-btn" class="btn ghost">Refresh location</button>
+          <button type="button" id="scan-submit" class="btn primary">Check in</button>
+        </div>
+        <p id="scan-result" class="meta" aria-live="polite"></p>
+        <p class="meta">Tip: print the venue window cling / counter sign from Business → Venue QR.</p>
+      </div>
+    </section>
+
     <section id="view-rewards" class="view" hidden>
       <header class="panel-head">
         <h2>Your signal score</h2>
-        <p class="lede">Points fire only after a venue verifies your QR — not when you open a deal.</p>
+        <p class="lede">Earn points with a qualifying visit at a live campaign. Redeem vendor rewards — points are not cash.</p>
       </header>
       <div class="score-ring">
         <p id="points-value" class="score-num">0</p>
         <p class="score-label">points</p>
       </div>
+      <p class="meta points-disclaimer">Rewards, not cash payouts. Vendor-funded catalog below.</p>
       <div id="active-claim" class="sheet" hidden></div>
-      <h3 class="label">History</h3>
+      <h3 class="label">Reward catalog</h3>
+      <div id="rewards-catalog" class="feed"></div>
+      <h3 class="label">Your reward codes</h3>
+      <div id="reward-codes" class="feed"></div>
+      <h3 class="label">Activity ledger</h3>
       <div id="loyalty-history" class="feed"></div>
       <h3 class="label">Favorites</h3>
       <div id="favorites-list" class="feed"></div>
+      <details class="sheet legacy-sim">
+        <summary>Legacy claim→staff verify (simulated / outside live beta)</summary>
+        <p class="meta">Kept for reference. Live beta awards points via Scan + GPS, not staff purchase verify.</p>
+      </details>
     </section>
 
     <section id="view-business" class="view" hidden>
       <header class="panel-head">
         <h2>Flip the switch</h2>
-        <p class="lede">Turn a BOGO ON for the Beaches. Verify QR codes when customers arrive.</p>
+        <p class="lede">Launch a timed campaign. Members scan your venue QR in ON GO for qualifying visits — not purchase scans.</p>
       </header>
 
         <div id="biz-gate" class="sheet">
@@ -137,33 +178,86 @@
           </div>
           <form id="offer-form" class="stack power-form">
             <label>Venue <select id="offer-business" required></select></label>
-            <label>Offer title <input id="offer-title" type="text" value="BOGO draft beer" required maxlength="120" /></label>
+            <label>Offer title <input id="offer-title" type="text" value="Happy hour special" required maxlength="120" /></label>
+            <label>Description <textarea id="offer-description" rows="2" maxlength="500" placeholder="What’s ON"></textarea></label>
+            <label>Terms <textarea id="offer-terms" rows="2" maxlength="800" placeholder="While supplies last · dine-in only…"></textarea></label>
+            <label>Photo URL <input id="offer-photo" type="url" placeholder="https://…" maxlength="500" /></label>
             <label>Product <input id="offer-product" type="text" value="Any draft beer" maxlength="120" /></label>
+            <div class="quick-durations" role="group" aria-label="Quick duration">
+              <button type="button" class="btn ghost" data-duration="60">1 hour</button>
+              <button type="button" class="btn ghost" data-duration="120">2 hours</button>
+            </div>
             <div class="split">
               <label>Minutes <input id="offer-duration" type="number" min="5" max="1440" value="60" /></label>
-              <label>Limit <input id="offer-limit" type="number" min="1" placeholder="∞" /></label>
+              <label>Visit limit <input id="offer-limit" type="number" min="1" value="100" /></label>
             </div>
-            <button type="submit" class="btn primary">Confirm — go live</button>
+            <label>Points per visit <input id="offer-points" type="number" min="1" value="50" /></label>
+            <div class="split">
+              <button type="button" id="offer-preview-btn" class="btn ghost">Customer preview</button>
+              <button type="submit" class="btn primary">GO LIVE</button>
+            </div>
+            <div id="offer-preview" class="offer-preview sheet" hidden></div>
           </form>
         </div>
 
         <div class="sheet">
-          <h3 class="label">Verify QR</h3>
+          <h3 class="label">Venue QR &amp; print</h3>
+          <p class="meta">Members scan this code in ON GO. “Redeem in app. Scan for points.”</p>
+          <label>Venue <select id="venue-qr-business"></select></label>
+          <div class="split">
+            <button type="button" id="venue-qr-btn" class="btn primary">Show QR</button>
+            <button type="button" id="venue-print-cling" class="btn ghost">Window cling</button>
+            <button type="button" id="venue-print-counter" class="btn ghost">Counter sign</button>
+          </div>
+          <div id="venue-qr-panel" class="venue-qr-panel" hidden>
+            <img id="venue-qr-img" alt="Venue QR" width="240" height="240" />
+            <p id="venue-qr-payload" class="mono"></p>
+            <a id="venue-qr-download" class="btn ghost" download="ongo-venue-qr.png">Download PNG</a>
+          </div>
+        </div>
+
+        <div class="sheet">
+          <h3 class="label">Vendor rewards</h3>
+          <p class="meta">Vendor-funded. Members spend points; you confirm a single-use code.</p>
+          <form id="reward-create-form" class="stack">
+            <label>Venue <select id="reward-business" required></select></label>
+            <label>Title <input id="reward-title" type="text" required maxlength="120" placeholder="Free appetizer" /></label>
+            <label>Terms <input id="reward-terms" type="text" maxlength="800" /></label>
+            <div class="split">
+              <label>Points cost <input id="reward-cost" type="number" min="1" value="100" required /></label>
+              <label>Quantity <input id="reward-qty" type="number" min="1" value="20" required /></label>
+            </div>
+            <label>Expires <input id="reward-expires" type="datetime-local" /></label>
+            <button type="submit" class="btn primary">List reward</button>
+          </form>
+          <form id="reward-fulfill-form" class="stack" style="margin-top:0.75rem">
+            <h4 class="label">Confirm redemption</h4>
+            <label>Code <input id="reward-fulfill-code" type="text" placeholder="ABCD2345" autocomplete="off" /></label>
+            <button type="submit" class="btn primary">Fulfill once</button>
+            <p id="reward-fulfill-result" class="meta" aria-live="polite"></p>
+          </form>
+        </div>
+
+        <div class="sheet legacy-sim">
+          <h3 class="label">Legacy staff verify (simulated)</h3>
+          <p class="warn">Outside live beta — purchase claim tokens only. Live path is Scan + GPS.</p>
           <form id="verify-form" class="stack">
             <label>Token <input id="verify-token" type="text" placeholder="ongo:… or paste token" autocomplete="off" /></label>
-            <button type="submit" class="btn primary">Verify &amp; award</button>
+            <button type="submit" class="btn ghost">Verify (sim)</button>
           </form>
           <p id="verify-result" class="meta" aria-live="polite"></p>
           <div id="verify-next" class="feed"></div>
         </div>
 
         <div class="sheet">
-          <h3 class="label">Analytics preview</h3>
+          <h3 class="label">Campaign results</h3>
+          <p class="meta">Views · qualifying visits · points awarded · rewards redeemed — never sales/revenue.</p>
           <div id="biz-analytics" class="feed"></div>
+          <div id="biz-results" class="feed"></div>
         </div>
 
         <div class="sheet">
-          <h3 class="label">Your offers</h3>
+          <h3 class="label">Your campaigns</h3>
           <div id="biz-offers" class="feed"></div>
         </div>
 
@@ -250,6 +344,26 @@
         <p id="account-summary"></p>
         <p id="account-verify-banner" class="meta" hidden></p>
         <button type="button" id="resend-verify-btn" class="btn ghost" hidden>Resend verification email</button>
+        <form id="account-settings-form" class="stack">
+          <h3 class="label">Account settings</h3>
+          <label>Display name <input id="settings-name" type="text" maxlength="80" required /></label>
+          <label>Current password <input id="settings-current" type="password" autocomplete="current-password" /></label>
+          <label>New password <input id="settings-password" type="password" autocomplete="new-password" minlength="8" /></label>
+          <button type="submit" class="btn primary">Save settings</button>
+          <p id="settings-result" class="meta" aria-live="polite"></p>
+        </form>
+        <div id="admin-panel" class="sheet" hidden>
+          <h3 class="label">Admin</h3>
+          <p class="meta">Approve venues, review campaigns/rewards, adjust points, suspend.</p>
+          <div id="admin-content" class="feed"></div>
+          <form id="admin-adjust-form" class="stack">
+            <label>User id <input id="admin-user-id" type="text" required /></label>
+            <label>Delta <input id="admin-delta" type="number" required /></label>
+            <label>Reason <input id="admin-reason" type="text" required minlength="3" /></label>
+            <button type="submit" class="btn ghost">Adjust points</button>
+            <p id="admin-adjust-result" class="meta" aria-live="polite"></p>
+          </form>
+        </div>
         <button type="button" id="logout-btn" class="btn ghost">Sign out</button>
       </div>
 

@@ -85,6 +85,23 @@
     return m < 60 ? `${m} min left` : `${Math.floor(m / 60)}h ${m % 60}m left`;
   }
 
+  function countdownHtml(iso) {
+    const label = minutesLeft(iso);
+    return `<span class="countdown-live" data-ends="${escapeHtml(iso)}">${escapeHtml(label)}</span>`;
+  }
+
+  function runLaunchSplash() {
+    const splash = $('#launch-splash');
+    if (!splash) return;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const hold = reduced ? 350 : 1100;
+    const fade = reduced ? 150 : 450;
+    setTimeout(() => {
+      splash.classList.add('is-done');
+      setTimeout(() => splash.remove(), fade + 50);
+    }, hold);
+  }
+
   function setSessionChip() {
     const chip = $('#session-chip');
     if (!state.user) {
@@ -110,6 +127,7 @@
     if ((name === 'explore' || name === 'venue') && state.map) {
       setTimeout(() => state.map.invalidateSize(), 80);
     }
+    if (name === 'scan') refreshScan();
     if (name === 'rewards') refreshRewards();
     if (name === 'business') refreshBusiness();
     if (name === 'account') refreshAccount();
@@ -157,17 +175,16 @@
             (o) => `<div class="venue-offer">
               <span class="badge live">Live</span>
               <strong>${escapeHtml(o.title)}</strong>
-              <p class="meta">${escapeHtml(o.product_label || '')} · ${minutesLeft(o.ends_at)} · ${o.points_reward || 25} pts</p>
+              <p class="meta">${escapeHtml(o.product_label || '')} · ${countdownHtml(o.ends_at)} · ${o.points_reward || 50} pts/visit</p>
+              ${o.terms ? `<p class="meta">${escapeHtml(o.terms)}</p>` : ''}
               <div class="listing-actions">
-                <button type="button" class="btn primary" data-claim="${o.id}" ${
-                  state.user?.role === 'customer' ? '' : 'disabled'
-                }>Claim QR</button>
+                <button type="button" class="btn primary" data-goto="scan">Scan at venue</button>
                 <button type="button" class="btn ghost" data-next="${b.id}">Next Stop</button>
               </div>
             </div>`
           )
           .join('')
-      : `<p class="empty">No active BOGOs or happy-hour boosts right now.</p>`;
+      : `<p class="empty-live">No live campaigns right now. When it’s ON, Scan at the venue for points.</p>`;
 
     const phone = e.phone
       ? `<a href="tel:${escapeHtml(e.phone.replace(/[^\d+]/g, ''))}">${escapeHtml(e.phone)}</a>`
@@ -406,7 +423,11 @@
       : 'No live offers — browse the directory';
 
     if (!live.length) {
-      root.innerHTML = '';
+      const geoNote =
+        state.geoStatus === 'denied' || state.geoStatus === 'unsupported'
+          ? ' Location unavailable — distances use Beaches center.'
+          : '';
+      root.innerHTML = `<p class="empty-live">No offers are live right now. Check back soon or browse the directory.${geoNote}</p>`;
       return;
     }
 
@@ -418,7 +439,7 @@
           <h3>${escapeHtml(o.title)}</h3>
           <p class="meta">${escapeHtml(b.name)} · ${escapeHtml(b.area)} · ${minutesLeft(o.ends_at)}</p>
           <div class="actions">
-            <button type="button" class="btn primary" data-claim="${o.id}" ${state.user?.role === 'customer' ? '' : 'disabled'}>Claim QR</button>
+            <button type="button" class="btn primary" data-goto="scan">Scan at venue</button>
             <button type="button" class="btn ghost" data-next="${b.id}">Next Stop</button>
           </div>
         </article>`;
@@ -474,7 +495,7 @@
               <strong>${escapeHtml(live.title)}</strong>
               <p class="meta">${escapeHtml(live.product_label || '')} · ${minutesLeft(live.ends_at)}</p>
               <div class="listing-actions">
-                <button type="button" class="btn primary" data-claim="${live.id}" ${state.user?.role === 'customer' ? '' : 'disabled'}>Claim QR</button>
+                <button type="button" class="btn primary" data-goto="scan">Scan at venue</button>
                 <button type="button" class="btn ghost" data-next="${b.id}">Next Stop</button>
               </div>
             </div>`
@@ -562,12 +583,60 @@
     $('#points-value').textContent = String(data.user?.points_balance ?? 0);
   }
 
+  async function refreshScan() {
+    const status = $('#scan-geo-status');
+    if (!status) return;
+    if (!state.user) {
+      status.textContent = 'Sign in as a member to earn visit points. Browse Explore free anytime.';
+      return;
+    }
+    if (state.user.role !== 'customer') {
+      status.textContent = 'Visit points are for member accounts. Businesses confirm reward codes instead.';
+      return;
+    }
+    if (state.geoStatus === 'ready' && state.geo) {
+      const acc = state.geo.accuracy != null ? ` · ±${Math.round(state.geo.accuracy)}m` : '';
+      status.textContent = `Location ready${acc}. Scan the venue QR, then Check in.`;
+    } else if (state.geoStatus === 'denied') {
+      status.textContent = 'Location denied — enable it and retry. Points cannot award without GPS.';
+    } else {
+      status.textContent = 'Waiting for a fresh GPS reading…';
+    }
+  }
+
   async function refreshRewards() {
+    const catalog = $('#rewards-catalog');
+    const codes = $('#reward-codes');
+    try {
+      const catalogData = await api('/api/rewards');
+      if (catalog) {
+        catalog.innerHTML = (catalogData.rewards || []).length
+          ? catalogData.rewards
+              .map(
+                (r) => `<div class="listing">
+                  <strong>${escapeHtml(r.title)}</strong>
+                  <p class="meta">${escapeHtml(r.business_name)} · ${r.points_cost} pts · ${r.quantity_remaining} left${
+                    r.expires_at ? ' · exp ' + formatEnds(r.expires_at) : ''
+                  }</p>
+                  ${r.terms ? `<p class="meta">${escapeHtml(r.terms)}</p>` : ''}
+                  <button type="button" class="btn primary" data-claim-reward="${r.id}" ${
+                    state.user?.role === 'customer' ? '' : 'disabled'
+                  }>${state.user ? 'Claim with points' : 'Sign in to redeem'}</button>
+                </div>`
+              )
+              .join('')
+          : '<p class="meta">No vendor rewards listed yet.</p>';
+      }
+    } catch (err) {
+      if (catalog) catalog.innerHTML = `<p class="meta">${escapeHtml(err.message)}</p>`;
+    }
+
     if (!state.user) {
       $('#loyalty-history').innerHTML =
-        '<p class="meta">Sign in as a customer. Demo: customer@ongo.demo / demo1234</p>';
+        '<p class="meta">Sign in as a customer to earn &amp; redeem. Demo: customer@ongo.demo / demo1234</p>';
       $('#favorites-list').innerHTML = '';
       $('#active-claim').hidden = true;
+      if (codes) codes.innerHTML = '';
       return;
     }
     try {
@@ -582,7 +651,7 @@
               </div>`
             )
             .join('')
-        : '<p class="meta">No verified redemptions yet.</p>';
+        : '<p class="meta">No ledger activity yet — scan at a live venue to earn.</p>';
 
       const favs = await api('/api/favorites');
       $('#favorites-list').innerHTML = favs.favorites.length
@@ -596,18 +665,20 @@
             .join('')
         : '<p class="meta">No favorites yet.</p>';
 
-      if (state.user.role === 'customer') {
-        const claims = await api('/api/customer/claims');
-        const open = (claims.claims || []).find((c) => c.status === 'claimed');
-        if (open) {
-          $('#active-claim').hidden = false;
-          $('#active-claim').innerHTML = `
-            <h3 class="label">Open claim</h3>
-            <p><strong>${escapeHtml(open.offer_title)}</strong> at ${escapeHtml(open.business_name)}</p>
-            <p class="mono">ongo:${escapeHtml(open.token)}</p>`;
-        } else {
-          $('#active-claim').hidden = true;
-        }
+      if (state.user.role === 'customer' && codes) {
+        const rr = await api('/api/customer/reward-redemptions');
+        codes.innerHTML = (rr.redemptions || []).length
+          ? rr.redemptions
+              .map(
+                (r) => `<div class="listing">
+                  <strong>${escapeHtml(r.reward_title)}</strong>
+                  <p class="meta">${escapeHtml(r.business_name)} · ${escapeHtml(r.status)}</p>
+                  <p class="mono">${escapeHtml(r.code)}</p>
+                </div>`
+              )
+              .join('')
+          : '<p class="meta">No reward codes yet.</p>';
+        $('#active-claim').hidden = true;
       }
     } catch (err) {
       $('#loyalty-history').innerHTML = `<p class="meta">${escapeHtml(err.message)}</p>`;
@@ -620,6 +691,10 @@
       .join('');
     $('#offer-business').innerHTML = opts;
     $('#bid-business').innerHTML = opts;
+    const qrSel = $('#venue-qr-business');
+    const rewardSel = $('#reward-business');
+    if (qrSel) qrSel.innerHTML = opts;
+    if (rewardSel) rewardSel.innerHTML = opts;
   }
 
   async function syncBoostToggle() {
@@ -657,25 +732,49 @@
       $('#biz-offers').innerHTML = offers.offers.length
         ? offers.offers
             .map((o) => {
-              const active = o.status === 'live' || o.status === 'scheduled';
+              const active = o.status === 'live' || o.status === 'scheduled' || o.status === 'paused';
+              const visits = o.visits_count != null ? o.visits_count : o.redemption_count;
               return `<div class="listing">
                 <strong>${escapeHtml(o.title)}</strong>
-                <p class="meta">${escapeHtml(o.business_name)} · ${escapeHtml(o.status)} · ${minutesLeft(o.ends_at)} · ${o.redemption_count}${o.redemption_limit != null ? '/' + o.redemption_limit : ''} redeemed</p>
-                ${active ? `<button type="button" class="btn ghost" data-deactivate="${o.id}">Deactivate</button>` : ''}
+                <p class="meta">${escapeHtml(o.business_name)} · ${escapeHtml(o.status)} · ${countdownHtml(o.ends_at)} · ${visits}${o.redemption_limit != null ? '/' + o.redemption_limit : ''} visits · ${o.points_reward || 50} pts</p>
+                <div class="listing-actions">
+                  ${o.status === 'live' || o.status === 'scheduled' ? `<button type="button" class="btn ghost" data-pause="${o.id}">Pause</button>` : ''}
+                  ${o.status === 'paused' ? `<button type="button" class="btn ghost" data-resume="${o.id}">Resume</button>` : ''}
+                  ${active ? `<button type="button" class="btn ghost" data-deactivate="${o.id}">End</button>` : ''}
+                </div>
               </div>`;
             })
             .join('')
-        : '<p class="meta">No offers yet — tap the power switch.</p>';
+        : '<p class="meta">No campaigns yet — tap the power switch.</p>';
 
       const analytics = await api('/api/business/analytics');
       $('#biz-analytics').innerHTML = analytics.analytics
         .map(
           (a) => `<div class="listing">
             <strong>${escapeHtml(a.name)}</strong>
-            <p class="meta">${a.claims} claims · ${a.redeemed} redeemed · ${a.conversion_pct}% · ${a.live_offers} live</p>
+            <p class="meta">${a.views || 0} views · ${a.qualifying_visits || 0} visits · ${a.points_awarded || 0} pts awarded · ${a.rewards_redeemed || 0} rewards · ${a.live_offers} live</p>
           </div>`
         )
         .join('') || '<p class="meta">No venues yet.</p>';
+      if (analytics.notice) {
+        $('#biz-analytics').innerHTML += `<p class="meta">${escapeHtml(analytics.notice)}</p>`;
+      }
+      try {
+        const results = await api('/api/business/results');
+        const box = $('#biz-results');
+        if (box) {
+          box.innerHTML = (results.results || [])
+            .map(
+              (r) => `<div class="listing">
+                <strong>${escapeHtml(r.title)}</strong>
+                <p class="meta">${escapeHtml(r.business_name)} · ${escapeHtml(r.status)} · views ${r.views_count || 0} · visits ${r.visits_count || 0} · pts ${r.points_awarded_total || 0} · rewards ${r.rewards_redeemed || 0}</p>
+              </div>`
+            )
+            .join('') || '<p class="meta">No campaign history yet.</p>';
+        }
+      } catch {
+        /* optional */
+      }
 
       const subs = await api('/api/subscriptions');
       $('#biz-plans').innerHTML = `
@@ -790,26 +889,60 @@
     el.textContent = msg;
   }
 
-  function refreshAccount() {
+  async function refreshAccount() {
     const signed = $('#account-signed-in');
     const forms = $('#account-forms');
     const banner = $('#account-verify-banner');
     const resend = $('#resend-verify-btn');
+    const adminPanel = $('#admin-panel');
     if (state.user) {
       signed.hidden = false;
       forms.hidden = true;
       const verified = state.user.email_verified;
       $('#account-summary').textContent = `${state.user.display_name} (${state.user.email}) — ${state.user.role}${
         verified ? '' : ' · email not verified'
-      }`;
+      } · ${state.user.points_balance} pts`;
+      if ($('#settings-name')) $('#settings-name').value = state.user.display_name || '';
       if (banner && resend) {
         if (!verified) {
           banner.hidden = false;
-          banner.textContent = 'Verify your email to claim offers. Check your inbox or resend the link.';
+          banner.textContent = 'Verify your email to earn visit points. Check your inbox or resend the link.';
           resend.hidden = false;
         } else {
           banner.hidden = true;
           resend.hidden = true;
+        }
+      }
+      if (adminPanel) {
+        if (state.user.role === 'admin') {
+          adminPanel.hidden = false;
+          try {
+            const data = await api('/api/admin/overview');
+            const pending = (data.pending_venues || [])
+              .map(
+                (v) => `<div class="listing">
+                  <strong>${escapeHtml(v.name)}</strong>
+                  <p class="meta">${escapeHtml(v.area)} · ${escapeHtml(v.status)}</p>
+                  <button type="button" class="btn primary" data-approve-venue="${v.id}">Approve</button>
+                  <button type="button" class="btn ghost" data-suspend-venue="${v.id}">Suspend</button>
+                </div>`
+              )
+              .join('') || '<p class="meta">No pending venue approvals.</p>';
+            const audit = (data.audit || [])
+              .slice(0, 12)
+              .map(
+                (a) => `<div class="listing"><p class="meta">${escapeHtml(a.action)} · ${escapeHtml(a.entity_type)} · ${formatEnds(a.created_at)}${a.reason ? ' · ' + escapeHtml(a.reason) : ''}</p></div>`
+              )
+              .join('');
+            $('#admin-content').innerHTML = `
+              <h4 class="label">Pending venues</h4>${pending}
+              <h4 class="label">Recent audit</h4>${audit || '<p class="meta">No audit yet.</p>'}
+              <p class="meta">Defaults: ${data.beta?.points_per_visit || 50} pts/visit · ${data.beta?.visit_radius_meters || 150}m radius</p>`;
+          } catch (err) {
+            $('#admin-content').innerHTML = `<p class="meta">${escapeHtml(err.message)}</p>`;
+          }
+        } else {
+          adminPanel.hidden = true;
         }
       }
     } else {
@@ -817,6 +950,7 @@
       forms.hidden = false;
       if (banner) banner.hidden = true;
       if (resend) resend.hidden = true;
+      if (adminPanel) adminPanel.hidden = true;
     }
   }
 
@@ -1069,14 +1203,65 @@
     $('#offer-business')?.addEventListener('change', () => syncBoostToggle());
 
     $('#biz-offers').addEventListener('click', async (e) => {
-      const btn = e.target.closest('[data-deactivate]');
-      if (!btn) return;
+      const endBtn = e.target.closest('[data-deactivate]');
+      const pauseBtn = e.target.closest('[data-pause]');
+      const resumeBtn = e.target.closest('[data-resume]');
       try {
-        await api(`/api/offers/${btn.dataset.deactivate}/deactivate`, { method: 'POST', body: '{}' });
+        if (endBtn) {
+          await api(`/api/offers/${endBtn.dataset.deactivate}/deactivate`, { method: 'POST', body: '{}' });
+        } else if (pauseBtn) {
+          await api(`/api/offers/${pauseBtn.dataset.pause}/pause`, { method: 'POST', body: '{}' });
+        } else if (resumeBtn) {
+          await api(`/api/offers/${resumeBtn.dataset.resume}/resume`, { method: 'POST', body: '{}' });
+        } else return;
         await refreshBusiness();
         await loadDirectory();
       } catch (err) {
         alert(err.message);
+      }
+    });
+
+    $$('[data-duration]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const mins = Number(btn.dataset.duration);
+        if ($('#offer-duration')) $('#offer-duration').value = String(mins);
+      });
+    });
+
+    function offerPayload(extra = {}) {
+      return {
+        business_id: $('#offer-business').value,
+        title: $('#offer-title').value,
+        description: $('#offer-description')?.value || '',
+        terms: $('#offer-terms')?.value || '',
+        photo_url: $('#offer-photo')?.value || '',
+        product_label: $('#offer-product').value,
+        duration_minutes: Number($('#offer-duration').value) || 60,
+        redemption_limit: $('#offer-limit').value || 100,
+        points_reward: Number($('#offer-points')?.value) || 50,
+        ...extra,
+      };
+    }
+
+    $('#offer-preview-btn')?.addEventListener('click', async () => {
+      const panel = $('#offer-preview');
+      try {
+        const data = await api('/api/offers', {
+          method: 'POST',
+          body: JSON.stringify(offerPayload({ preview_only: true })),
+        });
+        const p = data.preview;
+        panel.hidden = false;
+        panel.innerHTML = `
+          <h4 class="label">Customer preview</h4>
+          <strong>${escapeHtml(p.title)}</strong>
+          <p class="meta">${escapeHtml(p.business_name)} · ${countdownHtml(p.ends_at)} · ${p.points_reward} pts/visit · limit ${p.redemption_limit}</p>
+          ${p.description ? `<p>${escapeHtml(p.description)}</p>` : ''}
+          ${p.terms ? `<p class="meta">Terms: ${escapeHtml(p.terms)}</p>` : ''}
+          <p class="meta">${escapeHtml(p.notice)}</p>`;
+      } catch (err) {
+        panel.hidden = false;
+        panel.innerHTML = `<p class="meta">${escapeHtml(err.message)}</p>`;
       }
     });
 
@@ -1085,16 +1270,10 @@
       try {
         await api('/api/offers', {
           method: 'POST',
-          body: JSON.stringify({
-            business_id: $('#offer-business').value,
-            title: $('#offer-title').value,
-            product_label: $('#offer-product').value,
-            duration_minutes: Number($('#offer-duration').value) || 60,
-            redemption_limit: $('#offer-limit').value || null,
-          }),
+          body: JSON.stringify(offerPayload()),
         });
         $('#power-btn')?.classList.add('armed');
-        alert('Signal ON — visible on Explore until it expires.');
+        alert('Campaign live — members scan your venue QR in ON GO for qualifying visits.');
         await refreshBusiness();
         await loadDirectory();
         showView('explore');
@@ -1103,14 +1282,14 @@
       }
     });
 
-    $('#verify-form').addEventListener('submit', async (e) => {
+    $('#verify-form')?.addEventListener('submit', async (e) => {
       e.preventDefault();
       try {
         const data = await api('/api/redemptions/verify', {
           method: 'POST',
           body: JSON.stringify({ token: $('#verify-token').value }),
         });
-        $('#verify-result').textContent = `Verified. Awarded ${data.points_awarded} pts to ${data.customer.display_name} (balance ${data.customer.points_balance}).`;
+        $('#verify-result').textContent = `Simulated verify. Awarded ${data.points_awarded} pts to ${data.customer.display_name} (balance ${data.customer.points_balance}). Outside live beta.`;
         $('#verify-token').value = '';
         $('#verify-next').innerHTML = (data.next_stops || [])
           .map(
@@ -1121,6 +1300,185 @@
         await refreshBusiness();
       } catch (err) {
         $('#verify-result').textContent = err.message;
+      }
+    });
+
+    async function showVenueQr() {
+      const id = $('#venue-qr-business')?.value;
+      if (!id) return alert('Select a venue');
+      const data = await api(`/api/businesses/${encodeURIComponent(id)}/venue-qr`);
+      const panel = $('#venue-qr-panel');
+      panel.hidden = false;
+      $('#venue-qr-img').src = data.qr_data_url;
+      $('#venue-qr-payload').textContent = data.payload;
+      const dl = $('#venue-qr-download');
+      dl.href = data.qr_data_url;
+      dl.download = `ongo-${(data.name || 'venue').replace(/\s+/g, '-').toLowerCase()}-qr.png`;
+    }
+
+    $('#venue-qr-btn')?.addEventListener('click', () => {
+      showVenueQr().catch((err) => alert(err.message));
+    });
+    $('#venue-print-cling')?.addEventListener('click', () => {
+      const id = $('#venue-qr-business')?.value;
+      if (!id) return alert('Select a venue');
+      window.open(`/api/businesses/${encodeURIComponent(id)}/print?layout=cling`, '_blank');
+    });
+    $('#venue-print-counter')?.addEventListener('click', () => {
+      const id = $('#venue-qr-business')?.value;
+      if (!id) return alert('Select a venue');
+      window.open(`/api/businesses/${encodeURIComponent(id)}/print?layout=counter`, '_blank');
+    });
+
+    $('#reward-create-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const expires = $('#reward-expires')?.value;
+        await api('/api/rewards', {
+          method: 'POST',
+          body: JSON.stringify({
+            business_id: $('#reward-business').value,
+            title: $('#reward-title').value,
+            terms: $('#reward-terms').value,
+            points_cost: Number($('#reward-cost').value),
+            quantity: Number($('#reward-qty').value),
+            expires_at: expires ? new Date(expires).toISOString() : null,
+          }),
+        });
+        alert('Reward listed. Points spent are promotional — not cash.');
+        e.target.reset();
+        await refreshRewards();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+
+    $('#reward-fulfill-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const data = await api('/api/rewards/fulfill', {
+          method: 'POST',
+          body: JSON.stringify({ code: $('#reward-fulfill-code').value }),
+        });
+        $('#reward-fulfill-result').textContent = data.message || 'Fulfilled';
+        $('#reward-fulfill-code').value = '';
+      } catch (err) {
+        $('#reward-fulfill-result').textContent = err.message;
+      }
+    });
+
+    $('#rewards-catalog')?.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-claim-reward]');
+      if (!btn) return;
+      if (!state.user || state.user.role !== 'customer') {
+        alert('Sign in as a member to redeem rewards.');
+        return showView('account');
+      }
+      try {
+        const data = await api(`/api/rewards/${btn.dataset.claimReward}/claim`, {
+          method: 'POST',
+          body: '{}',
+        });
+        alert(`${data.message}\nCode: ${data.code}`);
+        await refreshMe();
+        await refreshRewards();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+
+    $('#scan-geo-btn')?.addEventListener('click', () => {
+      requestGeo({ userGesture: true });
+      setTimeout(() => refreshScan(), 400);
+    });
+
+    $('#scan-submit')?.addEventListener('click', async () => {
+      const result = $('#scan-result');
+      if (!state.user || state.user.role !== 'customer') {
+        result.textContent = 'Sign in as a member to earn visit points.';
+        return showView('account');
+      }
+      if (!state.geo || state.geo.lat == null) {
+        result.textContent = 'Location required — tap Refresh location and allow GPS.';
+        return;
+      }
+      try {
+        const data = await api('/api/visits/check-in', {
+          method: 'POST',
+          body: JSON.stringify({
+            qr: $('#scan-payload').value,
+            lat: state.geo.lat,
+            lng: state.geo.lng,
+            accuracy_m: state.geo.accuracy,
+          }),
+        });
+        result.textContent = `${data.message} +${data.points_awarded} pts (balance ${data.points_balance}). ${data.distance_m}m from venue.`;
+        await refreshMe();
+        showView('rewards');
+      } catch (err) {
+        result.textContent = err.message;
+      }
+    });
+
+    $('#account-settings-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const out = $('#settings-result');
+      try {
+        const body = { display_name: $('#settings-name').value };
+        const pw = $('#settings-password').value;
+        if (pw) {
+          body.password = pw;
+          body.current_password = $('#settings-current').value;
+        }
+        const data = await api('/api/me', { method: 'PATCH', body: JSON.stringify(body) });
+        state.user = data.user;
+        setSessionChip();
+        out.textContent = 'Saved.';
+        $('#settings-password').value = '';
+        $('#settings-current').value = '';
+      } catch (err) {
+        out.textContent = err.message;
+      }
+    });
+
+    $('#admin-adjust-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const out = $('#admin-adjust-result');
+      try {
+        const data = await api('/api/admin/points/adjust', {
+          method: 'POST',
+          body: JSON.stringify({
+            user_id: $('#admin-user-id').value,
+            delta: Number($('#admin-delta').value),
+            reason: $('#admin-reason').value,
+          }),
+        });
+        out.textContent = `Adjusted. New balance: ${data.points_balance}`;
+      } catch (err) {
+        out.textContent = err.message;
+      }
+    });
+
+    $('#admin-content')?.addEventListener('click', async (e) => {
+      const approve = e.target.closest('[data-approve-venue]');
+      const suspend = e.target.closest('[data-suspend-venue]');
+      try {
+        if (approve) {
+          await api(`/api/admin/venues/${approve.dataset.approveVenue}/approve`, {
+            method: 'POST',
+            body: '{}',
+          });
+        } else if (suspend) {
+          const reason = prompt('Suspend reason?');
+          if (!reason) return;
+          await api(`/api/admin/venues/${suspend.dataset.suspendVenue}/suspend`, {
+            method: 'POST',
+            body: JSON.stringify({ reason }),
+          });
+        } else return;
+        await refreshAccount();
+      } catch (err) {
+        alert(err.message);
       }
     });
 
@@ -1430,7 +1788,20 @@
     return false;
   }
 
+  function consumeScanQuery() {
+    const params = new URLSearchParams(location.search);
+    const scan = params.get('scan');
+    if (!scan) return;
+    const input = $('#scan-payload');
+    if (input) input.value = scan.startsWith('ongo:') ? scan : `ongo:venue:${scan}`;
+    params.delete('scan');
+    const next = `${location.pathname}${params.toString() ? '?' + params : ''}${location.hash}`;
+    history.replaceState({}, '', next);
+    showView('scan');
+  }
+
   async function boot() {
+    runLaunchSplash();
     bindEvents();
     initMap();
     bootstrapGeo();
@@ -1441,12 +1812,18 @@
         showView('explore');
       }
     });
+    setInterval(() => {
+      $$('[data-ends]').forEach((el) => {
+        el.textContent = minutesLeft(el.dataset.ends);
+      });
+    }, 30000);
     try {
       await refreshMe();
       await handleAuthQueryParams();
       await loadMetaAndClaimOptions();
       await loadDirectory();
       routeFromHash();
+      consumeScanQuery();
     } catch (err) {
       $('#listing-count').textContent = `Could not load directory: ${err.message}`;
       $('#live-hud-text').textContent = 'Directory offline';
