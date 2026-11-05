@@ -99,8 +99,6 @@ async function main() {
   if (fs.existsSync(path.dirname(iosAppIcon))) {
     await ensureDir(iosAppIcon);
     const iosSizes = [
-      ['wendy@2x', 40],
-      ['wendy@3x', 60],
       ['icon-20@2x', 40],
       ['icon-20@3x', 60],
       ['icon-29@2x', 58],
