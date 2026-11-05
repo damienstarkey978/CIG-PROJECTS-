@@ -1,0 +1,29 @@
+{
+  "name": "on-go-native",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ON GO Capacitor shell for App Store and Google Play",
+  "scripts": {
+    "assets": "node scripts/generate-store-assets.mjs",
+    "sync": "npx cap sync",
+    "open:ios": "npx cap open ios",
+    "open:android": "npx cap open android",
+    "build:ios": "npx cap sync ios && echo 'Open Xcode: npm run open:ios — then Product → Archive'",
+    "build:android": "npx cap sync android && cd android && ./gradlew assembleRelease bundleRelease",
+    "add:ios": "npx cap add ios",
+    "add:android": "npx cap add android"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.4",
+    "@capacitor/app": "^7.1.0",
+    "@capacitor/cli": "^7.4.4",
+    "@capacitor/core": "^7.4.4",
+    "@capacitor/ios": "^7.4.4",
+    "@capacitor/splash-screen": "^7.0.3",
+    "@capacitor/status-bar": "^7.0.3",
+    "sharp": "^0.34.4"
+  }
+}

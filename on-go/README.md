@@ -59,3 +59,19 @@ Config: `netlify.toml` publishes `public/`, routes `/api/*` to `netlify/function
 | `npm start` | Local server |
 | `npm run dev` | `--watch` |
 | `npm run seed` | Reset DB file and re-seed |
+
+## App Store / Google Play (Capacitor)
+
+Native shell lives in [`native/`](./native/). Bundle ID: `com.ongoapp.app`. Store builds load `https://ongo-app.com` so the beta stays current.
+
+```bash
+cd native
+npm install
+npm run assets
+npx cap sync
+npm run open:ios      # Mac + Xcode
+npm run open:android  # Android Studio
+```
+
+Privacy policy (required for store listings): [`/privacy.html`](./public/privacy.html) → https://ongo-app.com/privacy.html  
+Launch runbook: Project store `docs/app-store-launch.md`.

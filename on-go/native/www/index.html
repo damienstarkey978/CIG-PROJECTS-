@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0A0F0C" />
+  <title>ON GO</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #0A0F0C;
+      color: #F4F7F5;
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      display: grid;
+      place-items: center;
+      text-align: center;
+    }
+    .wrap { padding: 2rem; max-width: 22rem; }
+    img { width: 96px; height: 96px; margin-bottom: 1rem; }
+    h1 { font-size: 1.25rem; margin: 0 0 0.5rem; letter-spacing: 0.04em; }
+    p { margin: 0; opacity: 0.75; line-height: 1.45; font-size: 0.95rem; }
+    a { color: #1AFF5A; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <img src="./icon.png" width="96" height="96" alt="ON GO" />
+    <h1>ON GO</h1>
+    <p>When it’s ON, you GO.</p>
+    <p style="margin-top:1rem">Loading the live app… If this stays blank, open <a href="https://ongo-app.com">ongo-app.com</a>.</p>
+  </div>
+  <script>
+    // Store builds load https://ongo-app.com via capacitor.config server.url.
+    // This local shell is the Capacitor sync target / offline fallback only.
+    if (!window.Capacitor) {
+      window.location.replace('https://ongo-app.com');
+    }
+  </script>
+</body>
+</html>

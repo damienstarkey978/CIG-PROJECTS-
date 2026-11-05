@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ON GO</string>
+    <string name="title_activity_main">ON GO</string>
+    <string name="package_name">com.ongoapp.app</string>
+    <string name="custom_url_scheme">com.ongoapp.app</string>
+</resources>

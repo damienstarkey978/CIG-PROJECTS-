@@ -6,3 +6,13 @@ data/*.db-*
 *.log
 
 .netlify/
+
+# Native signing (never commit)
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+*.ipa
+*.apk
+*.aab
+
