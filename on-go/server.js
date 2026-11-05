@@ -409,36 +409,35 @@ function createApp() {
       });
     }
 
-    const title = String(req.body.title || 'BOGO — ON GO boost').slice(0, 120);
+    const title = String(req.body.title || 'ON GO live campaign').slice(0, 120);
     const product_label = String(req.body.product_label || 'Ask your server').slice(0, 120);
-    const mins = Math.min(Math.max(Number(req.body.duration_minutes) || 120, 5), 24 * 60);
+    const mins = beta.normalizeCampaignDurationMinutes(req.body.duration_minutes) || 120;
     const start = new Date();
     const end = new Date(start.getTime() + mins * 60 * 1000);
     const id = uuid();
+    const visitLimit = beta.clampVisitLimit(req.body.redemption_limit);
 
     db.prepare(`
       UPDATE offers SET status = 'deactivated', updated_at = ?
-      WHERE business_id = ? AND status IN ('live', 'scheduled')
+      WHERE business_id = ? AND status IN ('live', 'scheduled', 'paused')
     `).run(ts, b.id);
 
     db.prepare(`
       INSERT INTO offers (
         id, business_id, title, description, product_label, status,
         starts_at, ends_at, redemption_limit, redemption_count, points_reward,
-        created_by_user_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'live', ?, ?, ?, 0, ?, ?, ?, ?)
+        created_by_user_id, created_at, updated_at, visits_count, points_awarded_total, views_count
+      ) VALUES (?, ?, ?, ?, ?, 'live', ?, ?, ?, 0, ?, ?, ?, ?, 0, 0, 0)
     `).run(
       id,
       b.id,
       title,
-      String(req.body.description || 'Live boost from the venue — flip anytime.').slice(0, 500),
+      String(req.body.description || 'Live campaign — members scan venue QR for qualifying visits.').slice(0, 500),
       product_label,
       start.toISOString(),
       end.toISOString(),
-      req.body.redemption_limit != null && req.body.redemption_limit !== ''
-        ? Number(req.body.redemption_limit)
-        : null,
-      Number(req.body.points_reward) || 25,
+      visitLimit,
+      beta.POINTS_PER_VISIT,
       req.user.id,
       ts,
       ts
@@ -838,21 +837,32 @@ function createApp() {
 
     const start = starts_at ? new Date(starts_at) : new Date();
     let end;
-    if (ends_at) end = new Date(ends_at);
-    else {
-      const mins = Math.min(Math.max(Number(duration_minutes) || 60, 5), 24 * 60);
+    if (ends_at) {
+      end = new Date(ends_at);
+      const spanMin = Math.round((end - start) / 60000);
+      if (!beta.CAMPAIGN_DURATION_MINUTES.includes(spanMin)) {
+        return res.status(400).json({
+          error: 'Beta campaigns must run exactly 1 or 2 hours',
+          allowed_duration_minutes: beta.CAMPAIGN_DURATION_MINUTES,
+        });
+      }
+    } else {
+      const mins = beta.normalizeCampaignDurationMinutes(duration_minutes);
+      if (!mins) {
+        return res.status(400).json({
+          error: 'Beta campaigns must be 1 hour or 2 hours only',
+          allowed_duration_minutes: beta.CAMPAIGN_DURATION_MINUTES,
+        });
+      }
       end = new Date(start.getTime() + mins * 60 * 1000);
     }
     if (!(start instanceof Date) || Number.isNaN(+start) || Number.isNaN(+end) || end <= start) {
       return res.status(400).json({ error: 'Invalid start/end times' });
     }
 
-    const points = Number(points_reward);
-    const pointsFinal = Number.isFinite(points) && points > 0 ? points : beta.DEFAULT_POINTS_PER_VISIT;
-    const limitRaw = redemption_limit != null && redemption_limit !== ''
-      ? Number(redemption_limit)
-      : beta.DEFAULT_VISIT_LIMIT;
-    const limitFinal = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : beta.DEFAULT_VISIT_LIMIT;
+    // Locked: 50 pts/visit; max 100 qualifying visits; one active campaign per venue
+    const pointsFinal = beta.POINTS_PER_VISIT;
+    const limitFinal = beta.clampVisitLimit(redemption_limit);
 
     const preview = {
       business_id,
@@ -866,7 +876,7 @@ function createApp() {
       ends_at: end.toISOString(),
       redemption_limit: limitFinal,
       points_reward: pointsFinal,
-      notice: 'Customer preview — points are promotional rewards, not cash.',
+      notice: 'Customer preview — 50 pts per qualifying visit. Points are not cash. Vendors fund rewards.',
     };
     if (preview_only) {
       return res.json({ preview });
@@ -1670,7 +1680,8 @@ function createApp() {
     }
     res.json({
       rewards: rows,
-      notice: 'Vendor-funded rewards. Points are promotional — not cash.',
+      redeem_window_days: beta.REWARD_REDEEM_DAYS,
+      notice: 'Vendor-funded rewards (vendors fulfill). ON GO manages points ledger only. Points ≠ cash and do not expire in beta. Claimed codes: 30-day redemption window.',
     });
   });
 
@@ -1679,8 +1690,10 @@ function createApp() {
     const {
       business_id, title, description, terms, points_cost, quantity, expires_at,
     } = req.body || {};
-    if (!business_id || !title || !points_cost || !quantity) {
-      return res.status(400).json({ error: 'business_id, title, points_cost, quantity required' });
+    if (!business_id || !title || !points_cost || !quantity || !expires_at) {
+      return res.status(400).json({
+        error: 'business_id, title, points_cost, quantity, and listing end date (expires_at) required',
+      });
     }
     if (!userCanManageBusiness(db, req.user.id, business_id) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You do not manage this business' });
@@ -1688,6 +1701,10 @@ function createApp() {
     const biz = db.prepare('SELECT * FROM businesses WHERE id = ?').get(business_id);
     if (!biz?.verified_at && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Venue must be verified before listing rewards' });
+    }
+    const listingEnd = new Date(expires_at);
+    if (Number.isNaN(+listingEnd) || listingEnd <= new Date()) {
+      return res.status(400).json({ error: 'Listing end date must be a future datetime' });
     }
     const ts = nowIso();
     const id = uuid();
@@ -1708,7 +1725,7 @@ function createApp() {
       cost,
       qty,
       qty,
-      expires_at || null,
+      listingEnd.toISOString(),
       req.user.id,
       ts,
       ts

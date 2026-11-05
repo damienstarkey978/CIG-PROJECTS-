@@ -610,15 +610,15 @@
     try {
       const catalogData = await api('/api/rewards');
       if (catalog) {
+        const windowDays = catalogData.redeem_window_days || 30;
         catalog.innerHTML = (catalogData.rewards || []).length
           ? catalogData.rewards
               .map(
                 (r) => `<div class="listing">
                   <strong>${escapeHtml(r.title)}</strong>
-                  <p class="meta">${escapeHtml(r.business_name)} · ${r.points_cost} pts · ${r.quantity_remaining} left${
-                    r.expires_at ? ' · exp ' + formatEnds(r.expires_at) : ''
-                  }</p>
+                  <p class="meta">${escapeHtml(r.business_name)} · ${r.points_cost} pts · ${r.quantity_remaining} left · listing ends ${formatEnds(r.expires_at)}</p>
                   ${r.terms ? `<p class="meta">${escapeHtml(r.terms)}</p>` : ''}
+                  <p class="meta points-disclaimer">Before you claim: points ≠ cash; points do not expire in beta; after claiming you have ${windowDays} days to redeem at the venue.</p>
                   <button type="button" class="btn primary" data-claim-reward="${r.id}" ${
                     state.user?.role === 'customer' ? '' : 'disabled'
                   }>${state.user ? 'Claim with points' : 'Sign in to redeem'}</button>
@@ -626,6 +626,9 @@
               )
               .join('')
           : '<p class="meta">No vendor rewards listed yet.</p>';
+        if (catalogData.notice) {
+          catalog.innerHTML += `<p class="meta">${escapeHtml(catalogData.notice)}</p>`;
+        }
       }
     } catch (err) {
       if (catalog) catalog.innerHTML = `<p class="meta">${escapeHtml(err.message)}</p>`;
@@ -672,8 +675,11 @@
               .map(
                 (r) => `<div class="listing">
                   <strong>${escapeHtml(r.reward_title)}</strong>
-                  <p class="meta">${escapeHtml(r.business_name)} · ${escapeHtml(r.status)}</p>
+                  <p class="meta">${escapeHtml(r.business_name)} · ${escapeHtml(r.status)}${
+                    r.redeem_by && r.status === 'claimed' ? ' · redeem by ' + formatEnds(r.redeem_by) : ''
+                  }</p>
                   <p class="mono">${escapeHtml(r.code)}</p>
+                  <p class="meta points-disclaimer">Points ≠ cash. 30-day window from claim.</p>
                 </div>`
               )
               .join('')
@@ -1224,7 +1230,7 @@
     $$('[data-duration]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const mins = Number(btn.dataset.duration);
-        if ($('#offer-duration')) $('#offer-duration').value = String(mins);
+        if ($('#offer-duration')) $('#offer-duration').value = String(mins === 120 ? 120 : 60);
       });
     });
 
@@ -1334,6 +1340,10 @@
       e.preventDefault();
       try {
         const expires = $('#reward-expires')?.value;
+        if (!expires) {
+          alert('Listing end date is required.');
+          return;
+        }
         await api('/api/rewards', {
           method: 'POST',
           body: JSON.stringify({
@@ -1342,10 +1352,10 @@
             terms: $('#reward-terms').value,
             points_cost: Number($('#reward-cost').value),
             quantity: Number($('#reward-qty').value),
-            expires_at: expires ? new Date(expires).toISOString() : null,
+            expires_at: new Date(expires).toISOString(),
           }),
         });
-        alert('Reward listed. Points spent are promotional — not cash.');
+        alert('Reward listed. You fund and fulfill. Claimed codes: 30-day window. Points ≠ cash.');
         e.target.reset();
         await refreshRewards();
       } catch (err) {
@@ -1374,12 +1384,16 @@
         alert('Sign in as a member to redeem rewards.');
         return showView('account');
       }
+      const ok = confirm(
+        'Claim this reward?\n\n• Points are not cash\n• Points do not expire during beta\n• After claiming you have 30 days to redeem the code at the venue\n• Single-use code — vendor fulfills'
+      );
+      if (!ok) return;
       try {
         const data = await api(`/api/rewards/${btn.dataset.claimReward}/claim`, {
           method: 'POST',
           body: '{}',
         });
-        alert(`${data.message}\nCode: ${data.code}`);
+        alert(`${data.message}\nCode: ${data.code}\nRedeem by: ${data.redeem_by ? new Date(data.redeem_by).toLocaleString() : '30 days'}`);
         await refreshMe();
         await refreshRewards();
       } catch (err) {

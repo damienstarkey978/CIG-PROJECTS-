@@ -2,21 +2,49 @@
 
 /**
  * Beta checklist foundation: venue QR visits, rewards catalog, audit trail.
- * Provisional defaults — see docs/beta-gap-analysis.md
+ * Confirmed beta settings (Damien 2026-11-04) — see docs/beta-checklist.md
  */
 
 const crypto = require('crypto');
 const { v4: uuid } = require('uuid');
 
+/** Fresh GPS must place member within this radius of the venue (m). Tunable after venue testing. */
 const VISIT_RADIUS_METERS = Number(process.env.ONGO_VISIT_RADIUS_METERS || 150);
 const VISIT_ACCURACY_MAX_M = Number(process.env.ONGO_VISIT_ACCURACY_MAX_M || 100);
-const DEFAULT_POINTS_PER_VISIT = Number(process.env.ONGO_POINTS_PER_VISIT || 50);
-const DEFAULT_VISIT_LIMIT = Number(process.env.ONGO_CAMPAIGN_VISIT_LIMIT || 100);
-/** Stripe billing stays off for beta — all venues Pro. */
+/** Locked: 50 points per qualifying visit, once per member per campaign. Not cash. */
+const POINTS_PER_VISIT = 50;
+const DEFAULT_POINTS_PER_VISIT = POINTS_PER_VISIT;
+/** Locked: max 100 qualifying visits per campaign (also the default). */
+const MAX_VISIT_LIMIT = 100;
+const DEFAULT_VISIT_LIMIT = MAX_VISIT_LIMIT;
+/** Campaigns are 1h or 2h only. */
+const CAMPAIGN_DURATION_MINUTES = Object.freeze([60, 120]);
+/** Claimed reward codes must be fulfilled within this window. Points themselves do not expire in beta. */
+const REWARD_REDEEM_DAYS = 30;
+/** Stripe billing stays off for invited beta venues — all venues Pro; do not gate publish on Stripe. */
 const BILLING_ENABLED = String(process.env.ONGO_BILLING_ENABLED || '').toLowerCase() === 'true';
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function normalizeCampaignDurationMinutes(raw) {
+  const n = Number(raw);
+  if (n === 120) return 120;
+  if (n === 60) return 60;
+  return null;
+}
+
+function clampVisitLimit(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) return MAX_VISIT_LIMIT;
+  return Math.min(Math.floor(n), MAX_VISIT_LIMIT);
+}
+
+function redeemByFromClaim(claimedAtIso) {
+  const d = new Date(claimedAtIso || Date.now());
+  d.setUTCDate(d.getUTCDate() + REWARD_REDEEM_DAYS);
+  return d.toISOString();
 }
 
 function haversineMeters(lat1, lng1, lat2, lng2) {
@@ -113,6 +141,7 @@ function ensureBetaSchema(db) {
       points_spent INTEGER NOT NULL,
       status TEXT NOT NULL,
       claimed_at TEXT NOT NULL,
+      redeem_by TEXT,
       fulfilled_at TEXT,
       fulfilled_by_user_id TEXT,
       cancelled_at TEXT,
@@ -158,6 +187,17 @@ function ensureBetaSchema(db) {
   addColumnIfMissing(db, 'loyalty_ledger', 'visit_id', 'visit_id TEXT');
   addColumnIfMissing(db, 'loyalty_ledger', 'reward_redemption_id', 'reward_redemption_id TEXT');
   addColumnIfMissing(db, 'loyalty_ledger', 'kind', 'kind TEXT');
+  addColumnIfMissing(db, 'reward_redemptions', 'redeem_by', 'redeem_by TEXT');
+
+  // Backfill redeem_by for any claimed rows missing the 30-day window
+  const openClaims = db.prepare(`
+    SELECT id, claimed_at FROM reward_redemptions
+    WHERE status = 'claimed' AND (redeem_by IS NULL OR redeem_by = '')
+  `).all();
+  for (const row of openClaims) {
+    db.prepare('UPDATE reward_redemptions SET redeem_by = ? WHERE id = ?')
+      .run(redeemByFromClaim(row.claimed_at), row.id);
+  }
 
   // Ensure every venue has a stable QR token; auto-verify participating seed venues for beta.
   const businesses = db.prepare('SELECT id, qr_token, status, verified_at FROM businesses').all();
@@ -331,7 +371,8 @@ function awardQualifyingVisit(db, {
     return { ok: false, status: 400, error: 'Campaign visit limit reached' };
   }
 
-  const points = offer.points_reward != null ? offer.points_reward : DEFAULT_POINTS_PER_VISIT;
+  // Locked beta: always 50 pts per qualifying visit (ignore stray offer overrides)
+  const points = POINTS_PER_VISIT;
   const visitId = uuid();
   const ledgerId = uuid();
 
@@ -434,15 +475,23 @@ function claimReward(db, { user, reward }) {
     return { ok: false, status: 400, error: 'Not enough points' };
   }
 
+  if (!reward.expires_at) {
+    return { ok: false, status: 400, error: 'Reward listing has no end date' };
+  }
+
   const id = uuid();
   const code = randomCode(8);
   const ledgerId = uuid();
+  const redeemBy = redeemByFromClaim(now);
 
   try {
     db.transaction(() => {
       const locked = db.prepare('SELECT * FROM rewards WHERE id = ?').get(reward.id);
       if (!locked || locked.quantity_remaining <= 0) {
         throw Object.assign(new Error('Reward sold out'), { status: 400 });
+      }
+      if (!locked.expires_at || locked.expires_at <= now) {
+        throw Object.assign(new Error('Reward listing ended'), { status: 400 });
       }
       const u = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
       if (u.points_balance < locked.points_cost) {
@@ -461,9 +510,9 @@ function claimReward(db, { user, reward }) {
 
       db.prepare(`
         INSERT INTO reward_redemptions (
-          id, reward_id, business_id, user_id, code, points_spent, status, claimed_at, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'claimed', ?, ?)
-      `).run(id, locked.id, locked.business_id, user.id, code, locked.points_cost, now, now);
+          id, reward_id, business_id, user_id, code, points_spent, status, claimed_at, redeem_by, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'claimed', ?, ?, ?)
+      `).run(id, locked.id, locked.business_id, user.id, code, locked.points_cost, now, redeemBy, now);
 
       db.prepare(`
         INSERT INTO loyalty_ledger (id, user_id, delta, reason, redemption_id, created_at, reward_redemption_id, kind)
@@ -486,7 +535,7 @@ function claimReward(db, { user, reward }) {
     action: 'reward_claimed',
     entityType: 'reward_redemption',
     entityId: id,
-    meta: { reward_id: reward.id, points: reward.points_cost },
+    meta: { reward_id: reward.id, points: reward.points_cost, redeem_by: redeemBy },
   });
 
   const redemption = db.prepare('SELECT * FROM reward_redemptions WHERE id = ?').get(id);
@@ -495,8 +544,10 @@ function claimReward(db, { user, reward }) {
     ok: true,
     redemption,
     code,
+    redeem_by: redeemBy,
+    redeem_window_days: REWARD_REDEEM_DAYS,
     points_balance: balance,
-    message: 'Show this code at the venue. Single-use. Points are not cash.',
+    message: `Show this code at the venue within ${REWARD_REDEEM_DAYS} days. Single-use. Points are not cash.`,
   };
 }
 
@@ -513,6 +564,22 @@ function fulfillRewardCode(db, { user, code, businessIds }) {
   }
   if (redemption.status === 'cancelled') {
     return { ok: false, status: 400, error: 'Redemption cancelled' };
+  }
+  if (redemption.status === 'expired') {
+    return { ok: false, status: 400, error: 'Redemption window expired (30 days from claim)' };
+  }
+  const redeemBy = redemption.redeem_by || redeemByFromClaim(redemption.claimed_at);
+  if (redeemBy <= now) {
+    db.prepare(`UPDATE reward_redemptions SET status = 'expired' WHERE id = ? AND status = 'claimed'`)
+      .run(redemption.id);
+    writeAudit(db, {
+      actorUserId: user.id,
+      action: 'reward_expired',
+      entityType: 'reward_redemption',
+      entityId: redemption.id,
+      reason: '30-day redemption window passed',
+    });
+    return { ok: false, status: 400, error: 'Redemption window expired (30 days from claim)' };
   }
   if (user.role !== 'admin' && !(businessIds || []).includes(redemption.business_id)) {
     return { ok: false, status: 403, error: 'This code belongs to another venue' };
@@ -620,23 +687,36 @@ function adjustPoints(db, { adminUser, targetUserId, delta, reason }) {
 
 function betaDefaults() {
   return {
-    points_per_visit: DEFAULT_POINTS_PER_VISIT,
+    points_per_visit: POINTS_PER_VISIT,
     visit_radius_meters: VISIT_RADIUS_METERS,
     visit_accuracy_max_m: VISIT_ACCURACY_MAX_M,
-    campaign_visit_limit: DEFAULT_VISIT_LIMIT,
+    campaign_visit_limit: MAX_VISIT_LIMIT,
+    max_visit_limit: MAX_VISIT_LIMIT,
+    campaign_duration_minutes: [...CAMPAIGN_DURATION_MINUTES],
+    reward_redeem_days: REWARD_REDEEM_DAYS,
+    points_expire: false,
     billing_enabled: BILLING_ENABLED,
     rewards_funding: 'vendor',
     points_are_cash: false,
-    note: 'Provisional beta defaults — Damien can lock finals before launch.',
+    one_active_campaign_per_venue: true,
+    metrics: ['qualifying_visits', 'points_awarded', 'rewards_redeemed'],
+    note: 'Confirmed beta settings (Damien 2026-11-04). Points ≠ cash. Invited venues free.',
   };
 }
 
 module.exports = {
   VISIT_RADIUS_METERS,
   VISIT_ACCURACY_MAX_M,
+  POINTS_PER_VISIT,
   DEFAULT_POINTS_PER_VISIT,
   DEFAULT_VISIT_LIMIT,
+  MAX_VISIT_LIMIT,
+  CAMPAIGN_DURATION_MINUTES,
+  REWARD_REDEEM_DAYS,
   BILLING_ENABLED,
+  normalizeCampaignDurationMinutes,
+  clampVisitLimit,
+  redeemByFromClaim,
   ensureBetaSchema,
   writeAudit,
   activeCampaignForBusiness,

@@ -183,15 +183,21 @@
             <label>Terms <textarea id="offer-terms" rows="2" maxlength="800" placeholder="While supplies last · dine-in only…"></textarea></label>
             <label>Photo URL <input id="offer-photo" type="url" placeholder="https://…" maxlength="500" /></label>
             <label>Product <input id="offer-product" type="text" value="Any draft beer" maxlength="120" /></label>
-            <div class="quick-durations" role="group" aria-label="Quick duration">
+            <div class="quick-durations" role="group" aria-label="Campaign length (1–2 hours only)">
               <button type="button" class="btn ghost" data-duration="60">1 hour</button>
               <button type="button" class="btn ghost" data-duration="120">2 hours</button>
             </div>
             <div class="split">
-              <label>Minutes <input id="offer-duration" type="number" min="5" max="1440" value="60" /></label>
-              <label>Visit limit <input id="offer-limit" type="number" min="1" value="100" /></label>
+              <label>Duration
+                <select id="offer-duration" required>
+                  <option value="60" selected>1 hour</option>
+                  <option value="120">2 hours</option>
+                </select>
+              </label>
+              <label>Visit limit (max 100) <input id="offer-limit" type="number" min="1" max="100" value="100" /></label>
             </div>
-            <label>Points per visit <input id="offer-points" type="number" min="1" value="50" /></label>
+            <p class="meta">50 points per qualifying visit (locked). Points ≠ cash. One active campaign per venue.</p>
+            <input id="offer-points" type="hidden" value="50" />
             <div class="split">
               <button type="button" id="offer-preview-btn" class="btn ghost">Customer preview</button>
               <button type="submit" class="btn primary">GO LIVE</button>
@@ -218,7 +224,7 @@
 
         <div class="sheet">
           <h3 class="label">Vendor rewards</h3>
-          <p class="meta">Vendor-funded. Members spend points; you confirm a single-use code.</p>
+          <p class="meta">You fund and fulfill. ON GO only manages the points ledger. Points ≠ cash and do not expire in beta. Claimed codes: 30-day redemption window.</p>
           <form id="reward-create-form" class="stack">
             <label>Venue <select id="reward-business" required></select></label>
             <label>Title <input id="reward-title" type="text" required maxlength="120" placeholder="Free appetizer" /></label>
@@ -227,7 +233,7 @@
               <label>Points cost <input id="reward-cost" type="number" min="1" value="100" required /></label>
               <label>Quantity <input id="reward-qty" type="number" min="1" value="20" required /></label>
             </div>
-            <label>Expires <input id="reward-expires" type="datetime-local" /></label>
+            <label>Listing end date <input id="reward-expires" type="datetime-local" required /></label>
             <button type="submit" class="btn primary">List reward</button>
           </form>
           <form id="reward-fulfill-form" class="stack" style="margin-top:0.75rem">
