@@ -384,6 +384,17 @@ function typicalIngredients(w) {
   return { ingredients: list, source: "typical", source_url: "", style: t.label };
 }
 
+// Shop pages that don't reflect this bottle: US grocery listings, or a URL
+// naming another vintage.
+function wrongShopPage(url, wine) {
+  let host = "", path = "";
+  try { const u = new URL(url); host = u.hostname.toLowerCase(); path = decodeURIComponent(u.pathname); } catch { return false; }
+  if (/(instacart|randalls|kroger|safeway|walmart|target\.com|albertsons|wegmans|heb\.com|publix|vons|shoprite|meijer|samsclub|costco|foodlion|giantfood|stopandshop|harristeeter|jewelosco|totalwine|drizly|minibar)/.test(host)) return true;
+  const wineYear = String(wine.vintage || "").match(/(19|20)\d{2}/)?.[0];
+  const urlYears = path.match(/\b(19|20)\d{2}\b/g) || [];
+  return Boolean(wineYear && urlYears.length && !urlYears.includes(wineYear));
+}
+
 function cleanIngredients(raw, wine) {
   const all = [...new Set((raw?.ingredients || []).map((x) => String(x).replace(/\s+/g, " ").trim()).filter((x) => x && x.length <= 80))];
   // Tasting words mistaken for ingredients (retail pages mix them up).
@@ -392,7 +403,7 @@ function cleanIngredients(raw, wine) {
   if (all.length && list.length < all.length / 2) return typicalIngredients(wine);
   // Shop listings are often wrong (one "ingredient", another vintage): use
   // them only with at least two items including the sulphites line.
-  if (raw?.source === "retailer" && (list.length < 2 || !list.some((x) => /sulph|sulfi|solfit/i.test(x)))) return typicalIngredients(wine);
+  if (raw?.source === "retailer" && (list.length < 2 || !list.some((x) => /sulph|sulfi|solfit/i.test(x)) || wrongShopPage(raw.source_url, wine))) return typicalIngredients(wine);
   if (raw?.found && list.length && /^https?:\/\//.test(raw.source_url || "") && raw.source !== "none") {
     return { ingredients: list, source: raw.source, source_url: raw.source_url };
   }
@@ -1062,7 +1073,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v41";
+const ENGINE_VERSION = "v42";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1379,6 +1390,9 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     for (const p of [...(found?.pages || [])].sort((a, b) => (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9))) {
       if (/^https?:\/\//.test(p.url) && !pages.some((x) => x.url === p.url)) pages.push(p);
     }
+    const kept = pages.filter((p) => p.kind === "elabel" || p.kind === "winery" || !wrongShopPage(p.url, wine));
+    if (kept.length < pages.length) diag.push({ name: "eu-pages-skipped", outcome: pages.filter((p) => !kept.includes(p)).map((p) => p.url).join(" , ").slice(0, 300) });
+    pages.splice(0, pages.length, ...kept);
     const fetched = await Promise.all(pages.slice(0, 4).map(async (p) => ({ p, t: await pageText(p.url, 7000) })));
     const useful = fetched.filter((x) => x.t && /kcal|\bkj\b|energ|ingredi|zutaten|valori nutrizionali|valeurs nutritionnelles|nutrition/i.test(x.t)).slice(0, 2);
     diag.push({ name: "eu-pages", outcome: `${useful.length}/${pages.length} useful: ${useful.map((x) => x.p.url).join(" , ")}`.slice(0, 400) });
