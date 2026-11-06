@@ -412,3 +412,8 @@ details.cat .checks { padding: 0 1rem 0.4rem; }
 .eu__facts dd { margin: 0; overflow-wrap: anywhere; }
 .eu__none { margin: 0.7rem 0 0; font-size: 0.9rem; }
 .eu__note { margin: 0.6rem 0 0; font-size: 0.76rem; color: var(--muted); }
+
+.eu__src { margin-top: 0.7rem; display: inline-block; padding: 0.25rem 0.7rem; border-radius: 999px; font-size: 0.76rem; font-weight: 600; background: #e8eef6; color: #3d5a80; }
+.eu__src.verified { background: var(--pass-bg); color: var(--pass); }
+.eu__orig { color: var(--muted); font-size: 0.8rem; }
+.eu__qr { margin-top: 0.8rem; font-size: 0.74rem; padding: 0.8rem; }

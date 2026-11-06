@@ -238,20 +238,35 @@
   function euCard(eu) {
     if (!eu || !eu.applicable) return "";
     const done = eu.status === "completed";
+    const src = eu.source;
+    const url = src && safeUrl(src.url);
+    const link = url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(src.host)}</a>` : "";
+    const row = (k, v) => (v ? `<dt>${k}</dt><dd>${v}</dd>` : "");
     const s = eu.sugar;
-    const url = s && safeUrl(s.url);
+    const found = s || eu.calories || eu.carbs || (eu.ingredients || []).length;
+    const qrNote = eu.qr && eu.qr.type !== "nutrition"
+      ? `<p class="eu__note">The bottle's QR code leads to ${eu.qr.type === "environmental" ? "a recycling / environmental page" : eu.qr.type === "marketing" ? "a winery marketing page" : "a page we couldn't read"}, not the nutritional e-label.</p>` : "";
     return `<div class="card eu">
       <div class="eu__head"><span class="lbl">EU Nutrition Search</span><span class="eu__status ${done ? "ok" : "warn"}">${done ? "Completed" : "Additional Verification Required"}</span></div>
-      ${s ? `<dl class="eu__facts">
-          <dt>Sugar per 5 oz</dt><dd>${s.upper_bound ? "Under " : ""}${fmt(s.per_5oz, 2)} g (${esc(s.kind)})</dd>
-          <dt>As reported</dt><dd>${esc(s.original)}</dd>
-          <dt>Source</dt><dd>${esc(s.source_type)}${url ? ` · <a href="${esc(url)}" target="_blank" rel="noopener">${esc(s.host)}</a>` : ""}</dd>
-          <dt>Vintage</dt><dd>${s.vintage_verified ? `${esc(s.vintage || "Matches")} ✓` : esc(s.vintage ? `${s.vintage} (not this bottle's vintage)` : "Not shown on source")}</dd>
+      ${found && src ? `<div class="eu__src ${src.verified_elabel ? "verified" : ""}">${src.verified_elabel ? "✓ Verified European E-Label" : esc(src.type)}</div>` : ""}
+      ${found ? `<dl class="eu__facts">
+          ${s ? row("Sugar per 5 oz", `${s.upper_bound ? "Under " : ""}${fmt(s.per_5oz, 2)} g ${esc(s.kind)} <span class="eu__orig">(${esc(s.original)})</span>`) : row("Sugar", "Not on this source")}
+          ${eu.carbs ? row("Carbs per 5 oz", `${fmt(eu.carbs.per_5oz, 1)} g <span class="eu__orig">(${esc(eu.carbs.original)} / 100 ml)</span>`) : ""}
+          ${eu.calories ? row("Calories per 5 oz", `${fmt(eu.calories.per_5oz, 0)} <span class="eu__orig">(${esc(eu.calories.original)} / 100 ml)</span>`) : ""}
+          ${eu.abv != null ? row("Alcohol", `${fmt(eu.abv, 1)}%`) : ""}
+          ${(eu.ingredients || []).length ? row("Ingredients", esc(eu.ingredients.join(", "))) : ""}
+          ${(eu.additives || []).length ? row("Additives", esc(eu.additives.join(", "))) : ""}
+          ${(eu.allergens || []).length ? row("Allergens", esc(eu.allergens.join(", "))) : ""}
+          ${row("Source", `${esc(src?.type || "")}${link ? ` · ${link}` : ""}`)}
+          ${row("Vintage", src?.vintage_verified ? `${esc(src.vintage || "Matches this bottle")} ✓` : esc(src?.vintage ? `${src.vintage} (not this bottle's vintage)` : "Not shown on source"))}
         </dl>`
-        : `<p class="eu__none">Not yet verified — EU nutritional disclosure search ${done ? "completed" : "needs additional verification"}.</p>`}
-      <p class="eu__note">${esc(eu.note || "")}${eu.checked?.length ? ` Checked: ${esc(eu.checked.slice(0, 6).join(", "))}.` : ""}</p>
+        : `<p class="eu__none">${esc(eu.message || "European nutritional information not located online.")}</p>
+           <label class="btn ghost eu__qr" for="photo">Upload a photo of the bottle's QR code</label>`}
+      ${qrNote}
+      <p class="eu__note">${esc(eu.note || "")}${eu.checked?.length ? ` Checked: ${esc(eu.checked.slice(0, 8).join(", "))}.` : ""}</p>
     </div>`;
   }
+
 
   function renderResult(data, isNew, savedAt) {
     // Not identified: no score or checklist, just what happened and what to try.
