@@ -1259,7 +1259,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v49";
+const ENGINE_VERSION = "v50";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -2159,7 +2159,9 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
     sources,
     seconds: Math.round((Date.now() - t0) / 1000),
     debug: diag,
-    partial: [tech, farm, vegan].some((p) => !p),
+    // Partial: a lookup failed, or any nutrition figure is a typical fill.
+    // Partial results are reused for 1 day only, so they get rechecked soon.
+    partial: [tech, farm, vegan].some((p) => !p) || Boolean(nutrition?.typical?.fields?.length) || !euDisclosure.sugar && euDisclosure.applicable && euDisclosure.status !== "completed",
   };
 
   // Complete results are kept 30 days; partial ones (no tech sheet, or a
