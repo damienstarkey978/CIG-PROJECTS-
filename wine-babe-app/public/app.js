@@ -148,7 +148,7 @@
     // Sugar is only shown when verified (lab sheet, winery or importer).
     // Estimates and typical values are dropped and shown as Unverified.
     const sc = (data.checks || []).find((c) => c.id === "sugar_under_1g");
-    const sugarVerified = sc && (sc.status === "pass" || sc.status === "fail") && ["lab", "winery", "certified"].includes(sc.evidence);
+    const sugarVerified = sc && (sc.status === "pass" || sc.status === "fail") && ["lab", "winery", "certified", "third_party"].includes(sc.evidence);
     if (!sugarVerified) { n.residual_sugar_g_l = null; n.sugar_below_g_l = null; }
     // EU labels round small amounts: "under 0.5 g per 100 ml" is shown as an upper bound.
     if (n.residual_sugar_g_l == null && n.sugar_below_g_l != null) n.sugar_below_5oz = (n.sugar_below_g_l * SERVING_ML) / 1000;
@@ -231,6 +231,26 @@
         <div class="detail">${esc(c.detail)}${c.as_of ? ` <span class="asof">(${esc(c.as_of)})</span>` : ""}${url ? ` <a href="${esc(url)}" target="_blank" rel="noopener">Source</a>` : ""}</div>
       </div>
     </li>`;
+  }
+
+  // EU nutrition disclosure: search status and, when found, the verified
+  // sugar figure with its original value, source and vintage.
+  function euCard(eu) {
+    if (!eu || !eu.applicable) return "";
+    const done = eu.status === "completed";
+    const s = eu.sugar;
+    const url = s && safeUrl(s.url);
+    return `<div class="card eu">
+      <div class="eu__head"><span class="lbl">EU Nutrition Search</span><span class="eu__status ${done ? "ok" : "warn"}">${done ? "Completed" : "Additional Verification Required"}</span></div>
+      ${s ? `<dl class="eu__facts">
+          <dt>Sugar per 5 oz</dt><dd>${s.upper_bound ? "Under " : ""}${fmt(s.per_5oz, 2)} g (${esc(s.kind)})</dd>
+          <dt>As reported</dt><dd>${esc(s.original)}</dd>
+          <dt>Source</dt><dd>${esc(s.source_type)}${url ? ` · <a href="${esc(url)}" target="_blank" rel="noopener">${esc(s.host)}</a>` : ""}</dd>
+          <dt>Vintage</dt><dd>${s.vintage_verified ? `${esc(s.vintage || "Matches")} ✓` : esc(s.vintage ? `${s.vintage} (not this bottle's vintage)` : "Not shown on source")}</dd>
+        </dl>`
+        : `<p class="eu__none">Not yet verified — EU nutritional disclosure search ${done ? "completed" : "needs additional verification"}.</p>`}
+      <p class="eu__note">${esc(eu.note || "")}${eu.checked?.length ? ` Checked: ${esc(eu.checked.slice(0, 6).join(", "))}.` : ""}</p>
+    </div>`;
   }
 
   function renderResult(data, isNew, savedAt) {
@@ -329,12 +349,14 @@
             ${sugar == null && n.sugar_below_5oz != null ? (n.sugar_below_5oz < 1 ? "Under 1 g. Skinny sip approved." : `Under ${fmt(n.sugar_below_5oz, 1)} g per glass`) : sugar == null ? "Unverified" : typ.includes("sugar") ? (sugar < 1 ? "Likely under 1 g per glass" : "Likely over 1 g per glass") : sugar < 1 ? "Under 1 g. Skinny sip approved." : "Over 1 g per glass"}
           </div>
           <div class="detail" style="font-size:.82rem;color:var(--muted)">
-            ${n.residual_sugar_g_l != null ? `${fmt(n.residual_sugar_g_l, 1)} g/L residual sugar` : n.sugar_below_g_l != null ? `Under ${fmt(n.sugar_below_g_l, 1)} g/L residual sugar` : ""}
-            ${sugar == null && n.sugar_below_5oz == null ? "The winery hasn't published a sugar figure we can verify." : sugarCheck ? ` <span class="chip ${sugarCheck.evidence}">${EVIDENCE[sugarCheck.evidence].label}</span>` : ""}
+            ${data.eu_disclosure?.sugar ? `${esc(data.eu_disclosure.sugar.original)} (${esc(data.eu_disclosure.sugar.kind)})` : n.residual_sugar_g_l != null ? `${fmt(n.residual_sugar_g_l, 1)} g/L residual sugar` : n.sugar_below_g_l != null ? `Under ${fmt(n.sugar_below_g_l, 1)} g/L residual sugar` : ""}
+            ${sugar == null && n.sugar_below_5oz == null ? (data.eu_disclosure?.applicable ? esc(sugarCheck?.detail || "Not yet verified — EU nutritional disclosure search completed.") : "The winery hasn't published a sugar figure we can verify.") : sugarCheck ? ` <span class="chip ${sugarCheck.evidence}">${EVIDENCE[sugarCheck.evidence].label}</span>` : ""}
           </div>
           ${sugarTiers}
         </div>
       </div>
+
+      ${euCard(data.eu_disclosure)}
 
       <div class="stats">
         ${stat(n.calories_5oz != null ? fmt(n.calories_5oz, 0) : null, "", "Calories per 5 oz", r.est.calories || byId.calories?.evidence === "estimate" ? "estimate" : null)}
