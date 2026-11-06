@@ -3,15 +3,26 @@
 /**
  * Netlify Function wrapping the Express app.
  * Redirects: /api/* → /.netlify/functions/api/:splat
+ *
+ * Blobs require connectLambda(event) under the Lambda/serverless-http
+ * runtime — without it every request reseeds an empty DB and sessions die.
  */
 process.env.NETLIFY = 'true';
 
+const { connectLambda } = require('@netlify/blobs');
 const serverless = require('serverless-http');
 const server = require('../../server');
 
 const wrapped = serverless(server.app, { binary: ['image/*'] });
 
 exports.handler = async (event, context) => {
+  // Must run before any getStore() / openDb reload from Blobs
+  try {
+    connectLambda(event);
+  } catch (err) {
+    console.warn('connectLambda failed:', err.message);
+  }
+
   await server.ready;
 
   if (event.path && event.path.startsWith('/.netlify/functions/api')) {
@@ -23,11 +34,6 @@ exports.handler = async (event, context) => {
     event.rawPath = '/api' + rest;
   }
 
-  // Express mounted routes expect /api/... — also handle bare splat
-  if (event.path === '/api' && event.rawQuery) {
-    /* keep */
-  }
-
   try {
     const result = await wrapped(event, context);
     if (typeof server.persistNow === 'function') {
@@ -36,6 +42,11 @@ exports.handler = async (event, context) => {
     return result;
   } catch (err) {
     console.error(err);
+    try {
+      if (typeof server.persistNow === 'function') await server.persistNow();
+    } catch {
+      /* ignore */
+    }
     return {
       statusCode: 500,
       headers: { 'content-type': 'application/json' },

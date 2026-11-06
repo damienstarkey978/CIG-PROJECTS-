@@ -6,6 +6,8 @@ const { nowIso, uuid } = require('./db');
 
 const SESSION_DAYS = 14;
 const COOKIE_NAME = 'ongo_sid';
+/** Signed cookie backup — survives Netlify Blobs eventual-consistency lag */
+const UID_COOKIE = 'ongo_uid';
 
 function hashPassword(password) {
   return bcrypt.hashSync(password, 10);
@@ -22,12 +24,20 @@ function createSession(db, userId) {
     INSERT INTO sessions (id, user_id, expires_at, created_at)
     VALUES (?, ?, ?, ?)
   `).run(id, userId, expires, nowIso());
-  return { id, expires };
+  return { id, expires, userId };
 }
 
 function destroySession(db, sessionId) {
   if (!sessionId) return;
   db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+}
+
+function getUserById(db, userId) {
+  if (!userId) return null;
+  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (!row) return null;
+  delete row.password_hash;
+  return row;
 }
 
 function getUserFromSession(db, sessionId) {
@@ -48,6 +58,19 @@ function getUserFromSession(db, sessionId) {
   return row;
 }
 
+/**
+ * Resolve the signed-in user. Prefer the server session row; if Blobs lag
+ * dropped it, fall back to the signed uid cookie and re-create the session.
+ */
+function resolveUser(db, { sessionId, signedUserId } = {}) {
+  let user = getUserFromSession(db, sessionId);
+  if (user) return { user, repairedSession: null };
+  user = getUserById(db, signedUserId);
+  if (!user) return { user: null, repairedSession: null };
+  const repairedSession = createSession(db, user.id);
+  return { user, repairedSession };
+}
+
 function publicUser(user) {
   if (!user) return null;
   return {
@@ -56,7 +79,18 @@ function publicUser(user) {
     display_name: user.display_name,
     role: user.role,
     points_balance: user.points_balance,
+    email_verified: Boolean(user.email_verified_at),
   };
+}
+
+function isEmailVerified(user) {
+  return Boolean(user && user.email_verified_at);
+}
+
+/** Demo / ops accounts that skip the verify gate */
+function isTrustedDemoEmail(email) {
+  const e = String(email || '').toLowerCase();
+  return e.endsWith('@ongo.demo');
 }
 
 function requireAuth(req, res) {
@@ -93,18 +127,59 @@ function randomToken() {
   return crypto.randomBytes(24).toString('base64url');
 }
 
+function signingSecret() {
+  return process.env.SESSION_SECRET || 'on-go-dev-secret';
+}
+
+/** Self-contained verify token (survives Blobs lag — no DB token lookup required). */
+function makeEmailVerifyToken(userId, ttlMs = 48 * 3600 * 1000) {
+  const payload = Buffer.from(
+    JSON.stringify({ uid: userId, exp: Date.now() + ttlMs, p: 'ev' }),
+    'utf8'
+  ).toString('base64url');
+  const sig = crypto.createHmac('sha256', signingSecret()).update(payload).digest('base64url');
+  return `${payload}.${sig}`;
+}
+
+function parseEmailVerifyToken(token) {
+  const raw = String(token || '');
+  const i = raw.lastIndexOf('.');
+  if (i < 1) return null;
+  const payload = raw.slice(0, i);
+  const sig = raw.slice(i + 1);
+  const expect = crypto.createHmac('sha256', signingSecret()).update(payload).digest('base64url');
+  if (sig.length !== expect.length) return null;
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (!data || data.p !== 'ev' || !data.uid || !data.exp) return null;
+    if (Date.now() > Number(data.exp)) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   COOKIE_NAME,
+  UID_COOKIE,
+  SESSION_DAYS,
   hashPassword,
   verifyPassword,
   createSession,
   destroySession,
   getUserFromSession,
+  getUserById,
+  resolveUser,
   publicUser,
+  isEmailVerified,
+  isTrustedDemoEmail,
   requireAuth,
   requireRole,
   businessIdsForUser,
   userCanManageBusiness,
   randomToken,
+  makeEmailVerifyToken,
+  parseEmailVerifyToken,
   uuid,
 };
