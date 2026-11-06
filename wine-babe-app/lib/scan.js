@@ -1148,7 +1148,20 @@ const SUGAR_TERMS = {
   sweetener: /sweeten|dolcific|édulcor|edulcor|süßstoff|sucralose|aspartame|stevia|acesulfame|saccharin/i,
 };
 
-function buildSugarProfile({ wine, list, listSource, zeroDosageLabel, sheetDosage, noAddedCheck }) {
+// EU sparkling sweetness terms (residual sugar, g/L). They describe the
+// finished wine, not how it got there: sweetness can come from dosage or from
+// stopping fermentation early, so a term informs but does not verify dosage.
+const SPARKLING_TERMS = [
+  { re: /brut nature|pas dos[eé]|dosaggio zero|dosage zero|non dos[eé]|brut zero/i, label: "Brut Nature", range: "under 3 g/L" },
+  { re: /extra brut/i, label: "Extra Brut", range: "0 to 6 g/L" },
+  { re: /extra dry|extra sec|extra seco/i, label: "Extra Dry", range: "12 to 17 g/L" },
+  { re: /demi[\s-]?sec|semi[\s-]?secco|semiseco|halbtrocken/i, label: "Demi-Sec", range: "32 to 50 g/L" },
+  { re: /\bbrut\b/i, label: "Brut", range: "under 12 g/L" },
+  { re: /\b(dry|sec|secco|seco|trocken)\b/i, label: "Dry", range: "17 to 32 g/L" },
+  { re: /\b(doux|dolce|dulce|mild)\b/i, label: "Doux", range: "over 50 g/L" },
+];
+
+function buildSugarProfile({ wine, list, listSource, zeroDosageLabel, sheetDosage, noAddedCheck, shopList, shopSource }) {
   const styleText = `${wine.name} ${wine.style}`;
   const sparkling = /sparkl|spumante|champagne|cava|cr[eé]mant|prosecco|franciacorta|sekt|brut|frizzante|mousseux|espumoso/i.test(styleText);
   const items = (list || []).map((x) => ({ raw: x, name: String(x).replace(/^[^:]*:\s*/, "").trim() }));
@@ -1173,6 +1186,16 @@ function buildSugarProfile({ wine, list, listSource, zeroDosageLabel, sheetDosag
     else if (dosageItems.length && !zeroDosageLabel) profile.dosage = { status: "added", detail: `${src.label} lists ${dosageItems.map((x) => x.raw).join(", ")}.`, ...from };
     else if (zeroDosageLabel || (sheetDosage && sheetDosage.value === 0)) profile.dosage = { status: "none", detail: `${zeroDosageLabel ? `Label says "${zeroDosageLabel}"` : "Tech sheet: dosage 0 g/L"}: no sweetening dosage added. This does not mean zero residual sugar.`, origin: zeroDosageLabel ? "Bottle label" : "Winery tech sheet", url: "" };
     else if (plainSugar.length) profile.dosage = nv(`${src.label} lists ${plainSugar.map((x) => x.raw).join(", ")} but doesn't say whether it was used for fermentation (tirage) or dosage.`);
+    else {
+      const term = SPARKLING_TERMS.find((t) => t.re.test(styleText));
+      if (term && term.label !== "Brut Nature") {
+        profile.dosage = { status: "not_verified", detail: `Label says "${term.label}", the EU category for ${term.range} of sugar in the finished wine. That sweetness can come from a dosage or from stopping fermentation early, so added dosage is not verified.`, origin: "Bottle label", url: "" };
+      }
+    }
+  }
+  // A shop's copy of the ingredient list: shown for information, never verified.
+  if (profile.fermentation.status === "not_verified" && sparkling && (shopList || []).some((x) => SUGAR_TERMS.plainSugar.test(String(x).replace(/^[^:]*:\s*/, "").trim()) || SUGAR_TERMS.tirage.test(x))) {
+    profile.fermentation = { status: "reported", detail: `A shop's copy of the ingredient list (${shopSource?.host || "retailer"}) lists sugar; in sparkling wine this is usually sugar for the second fermentation. Not verified by the producer.`, origin: shopSource?.host ? `Other source: ${shopSource.host}` : "", url: shopSource?.url || "" };
   }
 
   // Sweetening (other than dosage).
@@ -1325,7 +1348,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v52";
+const ENGINE_VERSION = "v53";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -2204,12 +2227,20 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
         listSource = { label: "Ingredient list", url: ing.source_url, origin: "" };
       }
     }
+    let shopList = [], shopSource = null;
+    if (listEvidence === "estimate" && list.length) {
+      shopList = list;
+      let host = "";
+      try { host = new URL(listSource?.url || "").hostname.replace(/^www\./, ""); } catch {}
+      shopSource = { host, url: listSource?.url || "" };
+    }
     if (listEvidence === "estimate") list = [];
     const zeroTerm = `${wine.name} ${wine.style}`.match(/brut nature|pas dos[eé]|dosaggio zero|zero dosage|non dos[eé]|brut zero|dosage zero/i)?.[0] || "";
     const built = buildSugarProfile({
       wine, list, listSource, zeroDosageLabel: zeroTerm,
       sheetDosage: sheetNumsSeen?.dosage ? { ...sheetNumsSeen.dosage, url: sheetNumsSeen.url } : null,
       noAddedCheck: best.no_added_sugar,
+      shopList, shopSource,
     });
     sugarProfile = built.profile;
     if (built.check) {
