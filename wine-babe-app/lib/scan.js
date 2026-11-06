@@ -1969,11 +1969,11 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
       if (!stated(best.carbs)) { n.carbs_5oz = null; delete best.carbs; }
       if (n.calories_5oz == null) {
         n.calories_5oz = Math.round(148 * (n.abv / 100) * 0.789 * 7 + (sugarG || 0) * 4);
-        if (!(best.calories?.status === "pass")) best.calories = { id: "calories", status: "pass", evidence: "estimate", scope: "this_wine", as_of: "", detail: `About ${n.calories_5oz} calories per 5 oz, calculated from ${n.abv}% ABV${sugarG != null ? ` and ${n.residual_sugar_g_l} g/L sugar` : ""}.`, source_url: tech.tech_sheet_url || "" };
+        if (!(best.calories?.status === "pass")) best.calories = { id: "calories", status: "pass", evidence: "estimate", scope: "this_wine", as_of: "", detail: `About ${n.calories_5oz} calories per 5 oz, calculated from ${n.abv}% ABV${sugarG != null ? (n.residual_sugar_g_l != null ? ` and ${n.residual_sugar_g_l} g/L sugar` : ` and typical sugar for a ${n.typical?.style || "wine of this type"}`) : ""}.`, source_url: tech.tech_sheet_url || "" };
       }
       if (n.carbs_5oz == null && sugarG != null) {
         n.carbs_5oz = Math.round((sugarG + 0.5) * 10) / 10;
-        if (!(best.carbs?.status === "pass")) best.carbs = { id: "carbs", status: "pass", evidence: "estimate", scope: "this_wine", as_of: "", detail: `About ${n.carbs_5oz} g carbs per 5 oz, calculated from ${n.residual_sugar_g_l} g/L sugar.`, source_url: tech.tech_sheet_url || "" };
+        if (!(best.carbs?.status === "pass")) best.carbs = { id: "carbs", status: "pass", evidence: "estimate", scope: "this_wine", as_of: "", detail: `About ${n.carbs_5oz} g carbs per 5 oz, calculated from ${n.residual_sugar_g_l != null ? `${n.residual_sugar_g_l} g/L sugar` : `typical sugar for a ${n.typical?.style || "wine of this type"}`}.`, source_url: tech.tech_sheet_url || "" };
       }
     }
   }
