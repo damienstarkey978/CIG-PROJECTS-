@@ -166,7 +166,7 @@ const IDENTIFY_SYSTEM = `You identify wines for the Wine Babe app, fast.
 From the label photo or text, identify producer, wine name, vintage, region, country, grapes and style (for sparkling, the dosage term on the label: Brut Nature, Pas Dosé, Dosaggio Zero, Extra Brut, Brut, Extra Dry...).
 Then find the winery's official website and this wine's product page on it, with at most one web search. Be quick. Prefer the winery's own domain over shops.
 A name without a vintage is fine: identify the wine and leave vintage "" (non vintage or latest).
-No producer given (e.g. "Pinot Noir Rosé Single Fermentation"): use your web search on the exact name to find which winery makes it. If the results point to one producer's wine, identify it with that producer. If several fit, pick the most popular one and say so in note.
+No producer given (e.g. "Pinot Noir Rosé Single Fermentation"): use your web search on the exact name to find which winery makes it. If the results point to one producer's wine, identify it with that producer. If several fit, pick the most popular one and say so in note. Watch for different wineries sharing a family name (e.g. Ciccio Zaccagnini in Abruzzo makes the "Zeta" line; Fratelli Zaccagnini in Marche makes Rosso Piceno): match the wine line and appellation to the right producer and its own website, and say in note if the name mixes them.
 From a label photo, also list in label_marks every certification logo, code and claim you can see: EU organic leaf (Euroleaf), AB Agriculture Biologique, Demeter, codes like IT-BIO-006 or FR-BIO-01, and words like Sans OGM, Senza OGM, Privo di OGM, Non OGM, Vino biologico, Uve biologiche, Da agricoltura biologica, Vin biologique. If the barcode is visible, put its printed digits in ean. With text input only, label_marks is [] and ean is "".
 Never ask for a photo or more details. Always give your best guess for anything that looks like a wine (even just a grape or style, e.g. "Pinot Grigio"): fill what you can and leave the rest "". Only set identified false when the input is clearly not a wine at all (a person, a scene, a different product), and explain in note. Unknown text fields are "".`;
 
@@ -869,14 +869,14 @@ const EU_SEARCH_SCHEMA = {
       description: "Sugar figures for this exact wine seen in the search results themselves (titles, snippets).",
       items: {
         type: "object", additionalProperties: false, required: ["url", "kind", "sugars_original", "vintage"],
-        properties: { url: str, kind: { type: "string", enum: ["elabel", "winery", "distributor", "retailer", "other"] }, sugars_original: str, vintage: str },
+        properties: { url: str, kind: { type: "string", enum: ["elabel", "winery", "consortium", "distributor", "retailer", "other"] }, sugars_original: str, vintage: str },
       },
     },
     pages: {
       type: "array",
       items: {
         type: "object", additionalProperties: false, required: ["url", "kind"],
-        properties: { url: str, kind: { type: "string", enum: ["elabel", "winery", "distributor", "retailer", "other"] } },
+        properties: { url: str, kind: { type: "string", enum: ["elabel", "winery", "consortium", "distributor", "retailer", "other"] } },
       },
     },
   },
@@ -935,7 +935,7 @@ Wine: ${wineLine(w)}.
 Run these web searches, exactly as written, one after the other:
 ${queries.map((q, i) => `${i + 1}. ${q}`).join("\n")}
 Also, if a search result's own text already shows a sugar figure for this exact wine (e.g. "Zuccheri 0,4 g", "davon Zucker <0,5 g", "Restzucker 3 g/l"), list it in snippet_sugar exactly as printed, with its url, kind and the vintage shown (or "").
-Return up to 5 result pages or PDFs that show this exact wine (and vintage, when shown) with ingredients or a nutrition declaration: e-label pages first, then the winery, then European distributors and shops. Skip US shops. Tag each elabel, winery, distributor, retailer or other.`;
+Return up to 5 result pages or PDFs that show this exact wine (and vintage, when shown) with ingredients or a nutrition declaration: e-label pages first, then the winery, then European distributors and shops. Skip US shops. Tag each elabel, winery, consortium (the official appellation body, e.g. Consorzio DOC delle Venezie), distributor, retailer or other.`;
 
 const EU_FACTS_SCHEMA = {
   type: "object",
@@ -959,7 +959,7 @@ const EU_FACTS_SCHEMA = {
 const EU_READ_SYSTEM = `You read a wine's EU ingredient and nutrition declaration (an e-label, winery page, tech sheet or a shop page repeating it) for the Wine Babe app.
 Use only the page text given, and only figures for this exact wine. If several pages are given, use the most authoritative one that has a sugar figure (e-label, then winery, then distributor, then shop) and report its url as source_url.
 Sugar terms: Italian "zuccheri", "di cui zuccheri", "zuccheri residui"; French "sucres", "dont sucres", "sucres résiduels"; German "Zucker", "davon Zucker", "Restzucker"; Spanish "azúcares", "de los cuales azúcares"; English "sugars", "of which sugars", "residual sugar". Carbohydrates: carboidrati, glucides, Kohlenhydrate, hidratos de carbono.
-Nutrition panels are per 100 ml. sugars_100ml: the "of which sugars" figure per 100 ml (sugars_kind "total_sugars"); if the page only gives residual sugar in g/L, divide by 10 and use sugars_kind "residual_sugar". "<0.5 g" means 0.4. sugars_original: the value and unit exactly as printed (e.g. "0,4 g / 100 ml", "<0.5 g", "3 g/l zuccheri residui"). Energy in kcal (kJ / 4.184 if only kJ).
+Nutrition panels are per 100 ml (blocks titled e.g. "Allergens & Nutrition", "Nutritional information per 100 ml", "Nährwertangaben", "Valori nutrizionali", "Déclaration nutritionnelle"). sugars_100ml: the "of which sugars" figure per 100 ml (sugars_kind "total_sugars"); if the page only gives residual sugar in g/L, divide by 10 and use sugars_kind "residual_sugar". "<0.5 g" means 0.4. sugars_original: the value and unit exactly as printed (e.g. "0,4 g / 100 ml", "<0.5 g", "3 g/l zuccheri residui"). Energy in kcal (kJ / 4.184 if only kJ).
 Ingredients in the order listed, translated to plain English, keeping the category (e.g. "Grapes", "Rectified concentrated grape must", "Acidity regulator: tartaric acid", "Preservative: sulphites"). Allergens as declared.
 vintage: the vintage shown on the source for this wine, else "".
 Only this exact wine: a page for a different line or classification of the same brand (e.g. a "Collection IGT" when the wine is the DOC, a Riserva, another color) does not count.
@@ -1127,7 +1127,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v44";
+const ENGINE_VERSION = "v45";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1448,14 +1448,14 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       status.steps.push(plans[i].name.replace("eu-search-", "search: "));
       if (!r) status.complete = false;
     });
-    const rank = { elabel: 0, winery: 1, distributor: 2, retailer: 3, other: 4 };
+    const rank = { elabel: 0, winery: 1, consortium: 1, distributor: 2, retailer: 3, other: 4 };
     const pages = qrUrl ? [{ url: qrUrl, kind: "elabel" }] : [];
     for (const p of results.flatMap((r) => r?.pages || []).sort((a, b) => (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9))) {
       if (/^https?:\/\//.test(p.url) && !pages.some((x) => x.url === p.url)) pages.push(p);
     }
     // US grocers and other-vintage pages are dropped for shops only; winery,
     // distributor, e-label and PDF documents (e.g. consortium sheets) stay.
-    const kept = pages.filter((p) => ["elabel", "winery", "distributor"].includes(p.kind) || /\.pdf(\?|$)/i.test(p.url) || !wrongShopPage(p.url, wine));
+    const kept = pages.filter((p) => ["elabel", "winery", "consortium", "distributor"].includes(p.kind) || /\.pdf(\?|$)/i.test(p.url) || !wrongShopPage(p.url, wine));
     if (kept.length < pages.length) diag.push({ name: "eu-pages-skipped", outcome: pages.filter((p) => !kept.includes(p)).map((p) => p.url).join(" , ").slice(0, 300) });
     const readOne = async (p) => {
       if (/\.pdf(\?|$)/i.test(p.url)) {
@@ -1479,7 +1479,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       ? `\n\nSugar figures seen in search results (use only if no page confirms better; the page url is the source):\n${snippets.map((x) => `- ${x.sugars_original} (vintage ${x.vintage || "not shown"}, ${x.kind}) at ${x.url}`).join("\n")}`
       : "";
     const facts = await runAgent({ diag,
-      name: "eu-read", model: SMART_MODEL, system: EU_READ_SYSTEM, schema: EU_FACTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 12000),
+      name: "eu-read", model: SMART_MODEL, system: EU_READ_SYSTEM, schema: EU_FACTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + (unread.length ? 20000 : 10000)),
       content: ask(`Wine: ${wineLine(wine)}.\n\n${useful.map((x) => `Page (${x.p.kind}) ${x.p.url}:\n${x.t.slice(0, 5000)}`).join("\n\n")}${unread.length ? `\n\nThese pages could not be read directly; fetch them with web_fetch if the pages above don't settle it:\n${unread.map((p) => `- (${p.kind}) ${p.url}`).join("\n")}` : ""}${snippetText}`),
       tools: unread.length ? [{ type: "web_fetch_20250910", name: "web_fetch", max_uses: unread.length }] : [],
     });
@@ -1608,8 +1608,8 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
     // Source types: the e-label itself, the winery or its European distributor
     // (winery evidence); a European online shop repeating the label (third
     // party, accepted only for the exact vintage); anything else is an estimate.
-    const evidence = ["elabel", "winery", "distributor"].includes(eu.kind) ? "winery" : eu.kind === "retailer" ? "third_party" : "estimate";
-    const sourceType = eu.kind === "elabel" ? "Official EU e-label" : eu.kind === "winery" ? "Winery" : eu.kind === "distributor" ? "European distributor" : "Third party (European shop)";
+    const evidence = ["elabel", "winery", "consortium", "distributor"].includes(eu.kind) ? "winery" : eu.kind === "retailer" ? "third_party" : "estimate";
+    const sourceType = eu.kind === "elabel" ? "Official EU e-label" : eu.kind === "winery" ? "Winery" : eu.kind === "consortium" ? "Official consortium" : eu.kind === "distributor" ? "European distributor" : "Third party (European shop)";
     let host = "";
     try { host = new URL(eu.source_url).hostname.replace(/^www\./, ""); } catch {}
     const euYear = String(eu.vintage || "").match(/(19|20)\d{2}/)?.[0] || "";
