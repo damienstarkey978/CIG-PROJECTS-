@@ -143,6 +143,28 @@
   });
 
   // ---------- scoring ----------
+  // Sugar in winemaking: what was used during fermentation, added as dosage,
+  // or added to sweeten, kept apart from the sugar left in the bottle.
+  function sugarProfileHtml(p) {
+    if (!p) return "";
+    const LABEL = {
+      used: "Used during fermentation (neutral)", none: "None added", added: "Added", none_stated: "None added (producer statement)",
+      not_verified: "Not verified", not_applicable: "Not applicable",
+    };
+    const line = (name, x) => {
+      if (!x) return "";
+      const url = safeUrl(x.url);
+      return `<li class="sp sp--${x.status}"><span class="sp__name">${name}</span><span class="sp__val">${esc(LABEL[x.status] || x.status)}${x.amount_g_l != null ? ` · ${fmt(x.amount_g_l, 1)} g/L` : ""}</span>
+        ${x.detail && x.status !== "not_applicable" ? `<span class="sp__detail">${esc(x.detail)}${x.origin ? ` · ${esc(x.origin)}` : ""}${url ? ` · <a href="${esc(url)}" target="_blank" rel="noopener">Source</a>` : ""}</span>` : ""}</li>`;
+    };
+    return `<div class="sugar-profile"><div class="sp__title">Sugar in winemaking</div><ul>
+      ${line("Sugar Used During Fermentation", p.fermentation)}
+      ${p.sparkling ? line("Dosage sugar", p.dosage) : ""}
+      ${line("Added sweetening", p.sweetening)}
+      ${p.concentrate ? `<li class="sp sp--note"><span class="sp__name">Concentrated grape must</span><span class="sp__val">Listed, purpose not stated</span><span class="sp__detail">${esc(p.concentrate.detail)}</span></li>` : ""}
+    </ul><p class="sp__foot">Sugar left in the bottle (above) is scored separately. Sugar consumed during fermentation is neutral.</p></div>`;
+  }
+
   // ---------- WINE BABE standards ----------
   // Published thresholds. Weights total 100.
   const CALORIE_MAX = 100; // kcal per 5 oz, the "Under 100 Calories" Wine Babe standard
@@ -151,7 +173,7 @@
     { id: "sugar_under_1g", pts: 20, critical: true, short: "sugar", name: "Less than 1 g sugar per 5 oz",
       rule: "Pass: verified sugar under 1 g per 5 oz (147.87 ml), from a lab sheet, the bottle or EU e-label, the winery, or a European copy of the EU label for the same vintage. Fail: verified 1 g or more." },
     { id: "no_added_sugar", pts: 15, critical: true, short: "no added sugar (ingredients)", name: "No added sugar",
-      rule: "Pass: the producer states no sugar, concentrate or sweetener is added. Fail: the ingredient list or producer shows added sugar or concentrated must." },
+      rule: "Pass: the producer explicitly states no sugar is added. Fail: verified dosage sugar or sugar / sweetener added to sweeten the wine. Neutral: sugar used and consumed during fermentation (tirage) and concentrated must with no stated purpose. Low residual sugar or zero dosage alone never passes." },
     { id: "no_artificial_flavors", pts: 15, critical: true, short: "no artificial flavors (ingredients)", name: "No artificial flavors",
       rule: "Pass: the producer states no flavourings are added. Fail: the ingredient list or producer shows a flavouring." },
     { id: "sulfites", pts: 10, short: "sulfite level", name: "Sulfite transparency",
@@ -418,6 +440,7 @@
             ${sugar == null && n.sugar_below_5oz == null ? (data.eu_disclosure?.applicable ? esc(sugarCheck?.detail || "Not yet verified — EU nutritional disclosure search completed.") : "The winery hasn't published a sugar figure we can verify.") : sugarCheck ? ` <span class="chip ${sugarCheck.evidence}">${EVIDENCE[sugarCheck.evidence].label}</span>` : ""}
           </div>
           ${sugarTiers}
+          ${sugarProfileHtml(data.sugar_profile)}
         </div>
       </div>
 

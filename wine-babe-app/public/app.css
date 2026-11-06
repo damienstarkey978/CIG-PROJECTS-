@@ -440,3 +440,16 @@ button.ring { border: 0; background: none; padding: 0; cursor: pointer; }
 .std__basis { margin-top: 0.2rem; font-size: 0.8rem; overflow-wrap: anywhere; }
 .std__rule { margin-top: 0.25rem; font-size: 0.72rem; color: var(--unk); }
 .std__foot { font-size: 0.78rem; color: var(--muted); }
+
+/* sugar in winemaking */
+.sugar-profile { margin-top: 0.7rem; padding-top: 0.6rem; border-top: 1px solid var(--line); }
+.sp__title { font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.sugar-profile ul { list-style: none; margin: 0.4rem 0 0; padding: 0; display: grid; gap: 0.35rem; }
+.sp { display: grid; grid-template-columns: 1fr auto; gap: 0 0.5rem; font-size: 0.82rem; }
+.sp__name { font-weight: 500; }
+.sp__val { text-align: right; color: var(--muted); }
+.sp--added .sp__val { color: var(--fail); font-weight: 600; }
+.sp--none .sp__val, .sp--none_stated .sp__val { color: var(--pass); font-weight: 600; }
+.sp--used .sp__val { color: #8a6a2f; }
+.sp__detail { grid-column: 1 / -1; font-size: 0.74rem; color: var(--unk); overflow-wrap: anywhere; }
+.sp__foot { margin: 0.4rem 0 0; font-size: 0.72rem; color: var(--unk); }

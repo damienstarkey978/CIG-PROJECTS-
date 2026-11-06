@@ -1058,15 +1058,7 @@ function ingredientChecks(facts, evidence = "winery") {
   const out = [];
   if (!list.length && !allergens) return out;
   const addedSugar = list.filter((x) => /sucrose|sugar|saccharose|zucchero|sucre|azúcar|concentrated (grape )?must|mosto concentrato|moût concentré|dosage|liqueur|tirage|expedition/i.test(x));
-  // Sparkling wine: plain "sugar" on the list is usually tirage sugar for the
-  // second fermentation (consumed by the yeast), not sweetening. With a zero
-  // dosage label it is not counted as a failure; the detail explains why.
-  const tirageOnly = facts.sparkling && addedSugar.length && addedSugar.every((x) => /^(sugar|sucrose|saccharose|zucchero|sucre|az[uú]car)$/i.test(x.replace(/^[^:]*:\s*/, "").trim()));
-  if (tirageOnly && facts.zeroDosage) {
-    out.push({ ...base, id: "no_added_sugar", status: "unknown", evidence: "none", detail: `EU label lists ${addedSugar.join(", ")}: in a zero dosage sparkling wine this is normally tirage sugar used up by the yeast in the second fermentation, not sweetening. Not counted as a fail; not verified as a pass.` });
-  } else if (addedSugar.length) {
-    out.push({ ...base, id: "no_added_sugar", status: "fail", evidence, detail: `EU label lists ${addedSugar.join(", ")}${facts.sparkling ? " (may include tirage sugar for the second fermentation)" : ""}.` });
-  }
+  // "No added sugar" is decided by the sugar profile (buildSugarProfile).
   const concentrate = list.filter((x) => /concentrated (grape )?must|mosto concentrato|moût concentré|mosto concentrado/i.test(x));
   if (concentrate.length) out.push({ ...base, id: "no_concentrates", status: "fail", evidence, detail: `EU label lists ${concentrate.join(", ")}.` });
   const basic = /^(grapes?|uve|raisins?|uva|wine|organic grapes|sulph|sulfi|preservative: (sulph|sulfi)|antioxidant: (sulph|sulfi)|acidity regulator: tartaric|tartaric|packaging gas|nitrogen|argon|carbon dioxide|protective atmosphere|yeast)/i;
@@ -1096,6 +1088,7 @@ const SHEET_LABELS = [
   { key: "so2_total", re: /total\s+(sulphur|sulfur)\s+dioxide|total\s+so2|so2\s+tot|anidride\s+solforosa\s+totale|solforosa\s+totale|so2\s+totale|anhydride\s+sulfureux\s+total|so2\s+total|gesamte\s+schweflige|schwefeldioxid\s+gesamt|anh[ií]drido\s+sulfuroso\s+total/i },
   { key: "so2_free", re: /free\s+(sulphur|sulfur)\s+dioxide|free\s+so2|solforosa\s+libera|so2\s+libera|so2\s+libre|anhydride\s+sulfureux\s+libre|freie\s+schweflige|sulfuroso\s+libre/i },
   { key: "rs", re: /residual\s+sugar|sugars?\s*\(glucose|^sugars?\b|zuccheri(\s+residui)?|sucres?\s+r[eé]siduels?|restzucker|az[uú]car\s+residual/i },
+  { key: "dosage", re: /^(dosage|dosaggio|liqueur d'?exp)/i },
   { key: "other", re: /^(ph|total\s+acidity|volatile\s+acidity|acidit[aà]|net\s+dry\s+extract|estratto|pressure|pressione|alcohol|alcool|density)/i },
 ];
 const NUM = /^\s*(\d+(?:[.,]\d+)?)(?:\s*[-–]\s*(\d+(?:[.,]\d+)?))?\s*(mg\/l|g\/l|%|bar)?\s*$/i;
@@ -1135,6 +1128,71 @@ function sheetNumbers(text) {
     i = j;
   }
   return out;
+}
+
+// ---------- sugar in winemaking ----------
+// Keeps four things apart:
+//   residual    sugar left in the finished bottle (scored by the < 1 g standard)
+//   fermentation sugar used up by yeast, e.g. tirage for the second fermentation (neutral)
+//   dosage      sugar added after the second fermentation to sweeten sparkling wine
+//   sweetening  any other sugar or sweetener added to sweeten the finished wine
+// "No added sugar" only passes on an explicit producer statement; it fails only
+// on verified dosage or sweetening. Low residual sugar or zero dosage never
+// makes it pass, and missing information is "Not verified".
+
+const SUGAR_TERMS = {
+  dosage: /dosage|dosaggio|liqueur d['’ ]?\s*exp[eé]dition|exp[eé]dition liqueur|sciroppo di dosaggio|versanddosage/i,
+  tirage: /tirage|tiraggio|liqueur de tirage|sciroppo di tiraggio|fülldosage|prise de mousse/i,
+  plainSugar: /^(sugar|sucrose|saccharose|zucchero|sucre|az[uú]car|zucker|cane sugar|beet sugar)$/i,
+  concentrate: /concentrated (grape )?must|mosto concentrato|mo[uû]t concentr[eé]|mosto concentrado|traubenmost.?konzentrat/i,
+  sweetener: /sweeten|dolcific|édulcor|edulcor|süßstoff|sucralose|aspartame|stevia|acesulfame|saccharin/i,
+};
+
+function buildSugarProfile({ wine, list, listSource, zeroDosageLabel, sheetDosage, noAddedCheck }) {
+  const styleText = `${wine.name} ${wine.style}`;
+  const sparkling = /sparkl|spumante|champagne|cava|cr[eé]mant|prosecco|franciacorta|sekt|brut|frizzante|mousseux|espumoso/i.test(styleText);
+  const items = (list || []).map((x) => ({ raw: x, name: String(x).replace(/^[^:]*:\s*/, "").trim() }));
+  const src = listSource || { origin: "", url: "", label: "Ingredient list" };
+  const nv = (detail = "Not verified: not disclosed in the sources found.") => ({ status: "not_verified", detail, origin: "", url: "" });
+  const profile = { sparkling, fermentation: nv(), dosage: sparkling ? nv() : { status: "not_applicable", detail: "Still wine: no dosage.", origin: "", url: "" }, sweetening: nv(), concentrate: null };
+
+  const dosageItems = items.filter((x) => SUGAR_TERMS.dosage.test(x.raw));
+  const tirageItems = items.filter((x) => SUGAR_TERMS.tirage.test(x.raw));
+  const plainSugar = items.filter((x) => SUGAR_TERMS.plainSugar.test(x.name));
+  const concentrate = items.filter((x) => SUGAR_TERMS.concentrate.test(x.raw));
+  const sweeteners = items.filter((x) => SUGAR_TERMS.sweetener.test(x.raw));
+  const from = { origin: src.origin, url: src.url };
+
+  // Fermentation (tirage): neutral either way.
+  if (tirageItems.length) profile.fermentation = { status: "used", detail: `${src.label} lists ${tirageItems.map((x) => x.raw).join(", ")}: sugar used during fermentation.`, ...from };
+  else if (sparkling && zeroDosageLabel && plainSugar.length) profile.fermentation = { status: "used", detail: `${src.label} lists ${plainSugar.map((x) => x.raw).join(", ")}; with zero dosage this is sugar used during the second fermentation (tirage), consumed by the yeast.`, ...from };
+
+  // Dosage.
+  if (sparkling) {
+    if (sheetDosage && sheetDosage.value > 0) profile.dosage = { status: "added", amount_g_l: sheetDosage.value, detail: `Tech sheet: dosage ${sheetDosage.text} g/L.`, origin: "Winery tech sheet", url: sheetDosage.url || "" };
+    else if (dosageItems.length && !zeroDosageLabel) profile.dosage = { status: "added", detail: `${src.label} lists ${dosageItems.map((x) => x.raw).join(", ")}.`, ...from };
+    else if (zeroDosageLabel || (sheetDosage && sheetDosage.value === 0)) profile.dosage = { status: "none", detail: `${zeroDosageLabel ? `Label says "${zeroDosageLabel}"` : "Tech sheet: dosage 0 g/L"}: no sweetening dosage added. This does not mean zero residual sugar.`, origin: zeroDosageLabel ? "Bottle label" : "Winery tech sheet", url: "" };
+    else if (plainSugar.length) profile.dosage = nv(`${src.label} lists ${plainSugar.map((x) => x.raw).join(", ")} but doesn't say whether it was used for fermentation (tirage) or dosage.`);
+  }
+
+  // Sweetening (other than dosage).
+  if (sweeteners.length) profile.sweetening = { status: "added", detail: `${src.label} lists ${sweeteners.map((x) => x.raw).join(", ")}.`, ...from };
+  else if (!sparkling && plainSugar.length) profile.sweetening = { status: "added", detail: `${src.label} lists ${plainSugar.map((x) => x.raw).join(", ")} in a still wine.`, ...from };
+  else if (noAddedCheck?.status === "pass" && ["lab", "certified", "winery", "third_party"].includes(noAddedCheck.evidence)) profile.sweetening = { status: "none_stated", detail: noAddedCheck.detail, origin: noAddedCheck.origin || "", url: noAddedCheck.source_url || "" };
+
+  // Concentrated must: disclosed, purpose not stated.
+  if (concentrate.length) profile.concentrate = { detail: `${src.label} lists ${concentrate.map((x) => x.raw).join(", ")}. Used either to raise alcohol before fermentation or to sweeten; the source doesn't say which.`, ...from };
+
+  // The "No added sugar" standard, from the above.
+  let check = null;
+  if (profile.dosage.status === "added") check = { status: "fail", detail: `Dosage sugar added: ${profile.dosage.detail}`, url: profile.dosage.url };
+  else if (profile.sweetening.status === "added") check = { status: "fail", detail: `Sweetening added: ${profile.sweetening.detail}`, url: profile.sweetening.url };
+  else if (profile.sweetening.status === "none_stated") check = null; // keep the producer's statement as is
+  else {
+    const notes = [profile.fermentation.status === "used" ? "sugar was used during fermentation (neutral)" : "", profile.dosage.status === "none" ? "no dosage" : "", profile.concentrate ? "concentrated must listed, purpose not stated" : ""].filter(Boolean);
+    check = { status: "unknown", detail: `Not verified: no producer statement that no sugar was added${notes.length ? `; ${notes.join(", ")}` : ""}.`, url: "" };
+  }
+  return { profile, check };
 }
 
 // ---------- one Claude call with tools, under a deadline ----------
@@ -1267,7 +1325,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v51";
+const ENGINE_VERSION = "v52";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1368,6 +1426,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // the WordPress media search) need no AI; a one search lookup for the PDF
   // runs alongside in case the fast routes find nothing.
   let producerOrigin = "";
+  let sheetNumsSeen = null;
   // Started up front so it runs alongside everything else.
   const nutritionSearch = runAgent({ diag,
     name: "nutrition-search", model: SMART_MODEL, system: NUTRITION_SEARCH_SYSTEM, schema: NUTRITION_SCHEMA, send, deadline: deadline - 4000,
@@ -1559,6 +1618,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     // Backstop: numbers read from the sheet text in code fill anything the
     // model left out (sulfites, sugar), so a lab figure is never lost.
     const nums = sheetNumbers(text);
+    sheetNumsSeen = { ...nums, url: sheet.url };
     if (Object.keys(nums).length) {
       const out = read || { checks: [], sources: [], nutrition: { ...EMPTY_NUTRITION }, tech_sheet_url: sheet.url, tech_sheet_vintage: "" };
       out.nutrition = out.nutrition || { ...EMPTY_NUTRITION };
@@ -2129,6 +2189,36 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
   if (zeroTerm && best.zero_dosage?.status !== "fail" && best.zero_dosage?.status !== "pass") {
     best.zero_dosage = { id: "zero_dosage", status: "pass", evidence: "winery", scope: "this_wine", as_of: "", detail: `Label says "${zeroTerm[1].replace(/\b\w/g, (c) => c.toUpperCase())}": no sugar added at dosage.`, source_url: "" };
   }
+  // Sugar in winemaking: residual vs fermentation vs dosage vs sweetening.
+  let sugarProfile = null;
+  {
+    const euList = eu?.ingredients?.length ? eu.ingredients : [];
+    const wy = String(wine.vintage || "").match(/(19|20)\d{2}/)?.[0] || "";
+    const euEvidence = eu ? (["elabel", "winery", "consortium", "distributor"].includes(eu.kind) ? "winery" : eu.kind === "retailer" && wy && String(eu.vintage || "").includes(wy) ? "third_party" : "estimate") : "none";
+    let list = euList, listEvidence = euEvidence, listSource = eu ? { label: eu.kind === "elabel" ? "EU e-label" : "EU ingredient list", url: eu.source_url, origin: eu.kind === "elabel" ? "Official e-label" : "" } : null;
+    if (!list.length) {
+      const ing = cleanIngredients(await ingredientsLookup, wine);
+      if (ing.source && ing.source !== "typical") {
+        list = ing.ingredients;
+        listEvidence = ["winery", "importer", "elabel"].includes(ing.source) ? "winery" : "estimate";
+        listSource = { label: "Ingredient list", url: ing.source_url, origin: "" };
+      }
+    }
+    if (listEvidence === "estimate") list = [];
+    const zeroTerm = `${wine.name} ${wine.style}`.match(/brut nature|pas dos[eé]|dosaggio zero|zero dosage|non dos[eé]|brut zero|dosage zero/i)?.[0] || "";
+    const built = buildSugarProfile({
+      wine, list, listSource, zeroDosageLabel: zeroTerm,
+      sheetDosage: sheetNumsSeen?.dosage ? { ...sheetNumsSeen.dosage, url: sheetNumsSeen.url } : null,
+      noAddedCheck: best.no_added_sugar,
+    });
+    sugarProfile = built.profile;
+    if (built.check) {
+      const ev = built.check.status === "fail" ? (listEvidence === "none" || listEvidence === "estimate" ? "winery" : listEvidence) : "none";
+      best.no_added_sugar = { id: "no_added_sugar", status: built.check.status, evidence: ev, scope: "this_wine", as_of: "", detail: built.check.detail, source_url: built.check.url || "" };
+    }
+    diag.push({ name: "sugar-profile", outcome: `ferment ${sugarProfile.fermentation.status}, dosage ${sugarProfile.dosage.status}, sweetening ${sugarProfile.sweetening.status}${sugarProfile.concentrate ? ", concentrate" : ""} -> no_added_sugar ${best.no_added_sugar?.status}` });
+  }
+
   // Zero dosage only applies to sparkling wine.
   const sparkling = /sparkl|spumante|champagne|cava|cr[eé]mant|prosecco|franciacorta|sekt|brut|p[eé]tillant|frizzante|mousseux|espumoso/i.test(`${wine.style} ${wine.name}`);
   if (!sparkling && (!best.zero_dosage || best.zero_dosage.status === "unknown")) {
@@ -2169,6 +2259,7 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
     ratings,
     tasting,
     eu_disclosure: euDisclosure,
+    sugar_profile: sugarProfile,
     ingredients: eu?.ingredients?.length
       ? cleanIngredients({ found: true, ingredients: eu.ingredients, source: "elabel", source_url: eu.source_url }, wine)
       : cleanIngredients(await ingredientsLookup, wine),
@@ -2229,6 +2320,13 @@ function demoResult() {
     source: { type: "Verified European E-Label", verified_elabel: true, host: "u-label.com", url: "https://u-label.com/demo", vintage: "2024", vintage_verified: true, bottle_size: "0.75 l" },
   };
   return {
+    sugar_profile: {
+      sparkling: true,
+      fermentation: { status: "used", detail: "EU e-label lists Sugar; with zero dosage this is sugar used during the second fermentation (tirage), consumed by the yeast.", origin: "Official e-label", url: "https://u-label.com/demo" },
+      dosage: { status: "none", detail: 'Label says "Brut Nature": no sweetening dosage added. This does not mean zero residual sugar.', origin: "Bottle label", url: "" },
+      sweetening: { status: "none_stated", detail: "Winery states no sugar or concentrate added.", origin: "Winery website", url: "" },
+      concentrate: null,
+    },
     eu_disclosure: euDemo,
     demo: true,
     identified: true,
