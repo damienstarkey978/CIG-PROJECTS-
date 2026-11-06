@@ -149,7 +149,9 @@
     // Estimates and typical values are dropped and shown as Unverified.
     const sc = (data.checks || []).find((c) => c.id === "sugar_under_1g");
     const sugarVerified = sc && (sc.status === "pass" || sc.status === "fail") && ["lab", "winery", "certified"].includes(sc.evidence);
-    if (!sugarVerified) n.residual_sugar_g_l = null;
+    if (!sugarVerified) { n.residual_sugar_g_l = null; n.sugar_below_g_l = null; }
+    // EU labels round small amounts: "under 0.5 g per 100 ml" is shown as an upper bound.
+    if (n.residual_sugar_g_l == null && n.sugar_below_g_l != null) n.sugar_below_5oz = (n.sugar_below_g_l * SERVING_ML) / 1000;
     if (n.residual_sugar_g_l != null) n.sugar_5oz = (n.residual_sugar_g_l * SERVING_ML) / 1000;
     if (n.calories_5oz == null && n.abv != null) {
       n.calories_5oz = SERVING_ML * (n.abv / 100) * 0.789 * 7 + (n.sugar_5oz || 0) * 4;
@@ -320,15 +322,15 @@
       <div class="card sugar">
         <div>
           <div class="lbl">Sugar per 5 oz</div>
-          <div class="big">${sugar == null ? "—" : `${fmt(sugar, 1)}<small> g</small>`}</div>
+          <div class="big">${sugar != null ? `${fmt(sugar, 1)}<small> g</small>` : n.sugar_below_5oz != null ? `&lt;${fmt(n.sugar_below_5oz, 1)}<small> g</small>` : "—"}</div>
         </div>
         <div>
-          <div class="verdict ${sugar == null ? "" : sugar < 1 ? "ok" : "no"}">
-            ${sugar == null ? "Unverified" : typ.includes("sugar") ? (sugar < 1 ? "Likely under 1 g per glass" : "Likely over 1 g per glass") : sugar < 1 ? "Under 1 g. Skinny sip approved." : "Over 1 g per glass"}
+          <div class="verdict ${sugar == null ? (n.sugar_below_5oz != null && n.sugar_below_5oz < 1 ? "ok" : "") : sugar < 1 ? "ok" : "no"}">
+            ${sugar == null && n.sugar_below_5oz != null ? (n.sugar_below_5oz < 1 ? "Under 1 g. Skinny sip approved." : `Under ${fmt(n.sugar_below_5oz, 1)} g per glass`) : sugar == null ? "Unverified" : typ.includes("sugar") ? (sugar < 1 ? "Likely under 1 g per glass" : "Likely over 1 g per glass") : sugar < 1 ? "Under 1 g. Skinny sip approved." : "Over 1 g per glass"}
           </div>
           <div class="detail" style="font-size:.82rem;color:var(--muted)">
-            ${n.residual_sugar_g_l != null ? `${fmt(n.residual_sugar_g_l, 1)} g/L residual sugar` : ""}
-            ${sugar == null ? "The winery hasn't published a sugar figure we can verify." : sugarCheck ? ` <span class="chip ${sugarCheck.evidence}">${EVIDENCE[sugarCheck.evidence].label}</span>` : ""}
+            ${n.residual_sugar_g_l != null ? `${fmt(n.residual_sugar_g_l, 1)} g/L residual sugar` : n.sugar_below_g_l != null ? `Under ${fmt(n.sugar_below_g_l, 1)} g/L residual sugar` : ""}
+            ${sugar == null && n.sugar_below_5oz == null ? "The winery hasn't published a sugar figure we can verify." : sugarCheck ? ` <span class="chip ${sugarCheck.evidence}">${EVIDENCE[sugarCheck.evidence].label}</span>` : ""}
           </div>
           ${sugarTiers}
         </div>

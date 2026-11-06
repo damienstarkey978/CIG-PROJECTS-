@@ -1693,7 +1693,7 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
     const verified = sc && (sc.status === "pass" || sc.status === "fail") && ["lab", "winery", "certified"].includes(sc.evidence);
     if (!verified) {
       best.sugar_under_1g = { id: "sugar_under_1g", status: "unknown", evidence: "none", scope: "this_wine", as_of: "", detail: "Unverified: no published sugar figure for this wine.", source_url: "" };
-      if (tech?.nutrition) { tech.nutrition.residual_sugar_g_l = null; if (["estimate", "typical"].includes(tech.nutrition.source)) tech.nutrition.source = "none"; }
+      if (tech?.nutrition) { tech.nutrition.residual_sugar_g_l = null; delete tech.nutrition.sugar_below_g_l; if (["estimate", "typical"].includes(tech.nutrition.source)) tech.nutrition.source = "none"; }
       diag.push({ name: "sugar", outcome: `unverified (${sc ? `${sc.status}/${sc.evidence}` : "none"}), hidden` });
     }
   }
