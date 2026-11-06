@@ -149,7 +149,7 @@
     if (!p) return "";
     const LABEL = {
       used: "Used during fermentation (neutral)", none: "None added", added: "Added", none_stated: "None added (producer statement)",
-      not_verified: "Not verified", not_applicable: "Not applicable",
+      not_verified: "Not verified", not_applicable: "Not applicable", reported: "Reported by a shop (not verified)",
     };
     const line = (name, x) => {
       if (!x) return "";

@@ -453,3 +453,5 @@ button.ring { border: 0; background: none; padding: 0; cursor: pointer; }
 .sp--used .sp__val { color: #8a6a2f; }
 .sp__detail { grid-column: 1 / -1; font-size: 0.74rem; color: var(--unk); overflow-wrap: anywhere; }
 .sp__foot { margin: 0.4rem 0 0; font-size: 0.72rem; color: var(--unk); }
+
+.sp--reported .sp__val { color: var(--unk); font-style: italic; }
