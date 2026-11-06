@@ -9,6 +9,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",
     "@netlify/blobs": "^11.1.7",
+    "jpeg-js": "^0.4.4",
+    "jsqr": "^1.4.0",
     "unpdf": "^1.9.1"
   },
   "private": true
