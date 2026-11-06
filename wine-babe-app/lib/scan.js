@@ -390,6 +390,9 @@ function cleanIngredients(raw, wine) {
   const flavorish = /\b(flavou?rs?|aromas?|notes?|hints?|toast(ed)?|oak|spices?|berry|berries|cherr(y|ies)|plum|vanilla|chocolate|citrus|apple|pear|peach|floral|finish|palate|bouquet)\b/i;
   const list = all.filter((x) => !flavorish.test(x) || /grape|must|wine\b/i.test(x) && !/flavou?r|aroma|note/i.test(x)).slice(0, 15);
   if (all.length && list.length < all.length / 2) return typicalIngredients(wine);
+  // Shop listings are often wrong (one "ingredient", another vintage): use
+  // them only with at least two items including the sulphites line.
+  if (raw?.source === "retailer" && (list.length < 2 || !list.some((x) => /sulph|sulfi|solfit/i.test(x)))) return typicalIngredients(wine);
   if (raw?.found && list.length && /^https?:\/\//.test(raw.source_url || "") && raw.source !== "none") {
     return { ingredients: list, source: raw.source, source_url: raw.source_url };
   }
@@ -898,7 +901,7 @@ vintage: the vintage the declaration is for, if shown, else "". source_url: the 
 If the pages hold no declaration for this wine, found false, nulls and empty lists.`;
 
 // Map an EU ingredient list onto checklist items.
-function ingredientChecks(facts) {
+function ingredientChecks(facts, evidence = "winery") {
   const list = facts.ingredients || [];
   const text = list.join(" | ").toLowerCase();
   const allergens = (facts.allergens || []).join(" ").toLowerCase();
@@ -907,25 +910,25 @@ function ingredientChecks(facts) {
   if (!list.length) return out;
   const addedSugar = list.filter((x) => /sucrose|sugar|saccharose|zucchero|sucre|azúcar|concentrated (grape )?must|mosto concentrato|moût concentré|dosage|liqueur|tirage|expedition/i.test(x));
   out.push(addedSugar.length
-    ? { ...base, id: "no_added_sugar", status: "fail", evidence: "winery", detail: `EU label lists ${addedSugar.join(", ")}.` }
-    : { ...base, id: "no_added_sugar", status: "pass", evidence: "winery", detail: "EU ingredient list shows no sugar or concentrated must." });
+    ? { ...base, id: "no_added_sugar", status: "fail", evidence, detail: `EU label lists ${addedSugar.join(", ")}.` }
+    : { ...base, id: "no_added_sugar", status: "pass", evidence, detail: "EU ingredient list shows no sugar or concentrated must." });
   const concentrate = list.filter((x) => /concentrated (grape )?must|mosto concentrato|moût concentré|mosto concentrado/i.test(x));
-  if (concentrate.length) out.push({ ...base, id: "no_concentrates", status: "fail", evidence: "winery", detail: `EU label lists ${concentrate.join(", ")}.` });
-  else out.push({ ...base, id: "no_concentrates", status: "pass", evidence: "winery", detail: "No concentrated grape must on the EU ingredient list." });
+  if (concentrate.length) out.push({ ...base, id: "no_concentrates", status: "fail", evidence, detail: `EU label lists ${concentrate.join(", ")}.` });
+  else out.push({ ...base, id: "no_concentrates", status: "pass", evidence, detail: "No concentrated grape must on the EU ingredient list." });
   // Additives beyond grapes, sulphites, tartaric acid and packaging gases.
   const basic = /^(grapes?|uve|raisins?|uva|wine|organic grapes|sulph|sulfi|preservative: (sulph|sulfi)|antioxidant: (sulph|sulfi)|acidity regulator: tartaric|tartaric|packaging gas|nitrogen|argon|carbon dioxide|protective atmosphere|yeast)/i;
   const extra = list.filter((x) => !basic.test(x.trim()) && !addedSugar.includes(x));
   out.push(extra.length
-    ? { ...base, id: "no_unnecessary_additives", status: "fail", evidence: "winery", detail: `EU label lists additives: ${extra.slice(0, 6).join(", ")}.` }
-    : { ...base, id: "no_unnecessary_additives", status: "pass", evidence: "winery", detail: "EU label lists only grapes, sulphites and basic winemaking aids." });
+    ? { ...base, id: "no_unnecessary_additives", status: "fail", evidence, detail: `EU label lists additives: ${extra.slice(0, 6).join(", ")}.` }
+    : { ...base, id: "no_unnecessary_additives", status: "pass", evidence, detail: "EU label lists only grapes, sulphites and basic winemaking aids." });
   if (/\b(egg|albumin|lysozyme|milk|casein|lactose|fish|isinglass|gelatin)\b/.test(`${text} ${allergens}`)) {
-    out.push({ ...base, id: "vegan", status: "fail", evidence: "winery", detail: `EU label declares animal derived ${/(egg|albumin|lysozyme)/.test(`${text} ${allergens}`) ? "egg" : /(milk|casein|lactose)/.test(`${text} ${allergens}`) ? "milk" : "fish"} products.` });
+    out.push({ ...base, id: "vegan", status: "fail", evidence, detail: `EU label declares animal derived ${/(egg|albumin|lysozyme)/.test(`${text} ${allergens}`) ? "egg" : /(milk|casein|lactose)/.test(`${text} ${allergens}`) ? "milk" : "fish"} products.` });
   }
   if (/sulph|sulfi|solfit/i.test(`${text} ${allergens}`)) {
-    out.push({ ...base, id: "sulfites", status: "pass", evidence: "winery", detail: "EU label declares sulphites." });
+    out.push({ ...base, id: "sulfites", status: "pass", evidence, detail: "EU label declares sulphites." });
   }
-  out.push({ ...base, id: "no_artificial_flavors", status: /flavou?r|aroma(?!tic)/i.test(text) ? "fail" : "pass", evidence: "winery", detail: /flavou?r|aroma(?!tic)/i.test(text) ? "EU label lists a flavouring." : "No flavourings on the EU ingredient list." });
-  out.push({ ...base, id: "no_artificial_colors", status: /colou?r|caramel|e1\d\d\b/i.test(text) ? "fail" : "pass", evidence: "winery", detail: /colou?r|caramel/i.test(text) ? "EU label lists a colouring." : "No colourings on the EU ingredient list." });
+  out.push({ ...base, id: "no_artificial_flavors", status: /flavou?r|aroma(?!tic)/i.test(text) ? "fail" : "pass", evidence, detail: /flavou?r|aroma(?!tic)/i.test(text) ? "EU label lists a flavouring." : "No flavourings on the EU ingredient list." });
+  out.push({ ...base, id: "no_artificial_colors", status: /colou?r|caramel|e1\d\d\b/i.test(text) ? "fail" : "pass", evidence, detail: /colou?r|caramel/i.test(text) ? "EU label lists a colouring." : "No colourings on the EU ingredient list." });
   return out;
 }
 
@@ -1059,7 +1062,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v40";
+const ENGINE_VERSION = "v41";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1384,7 +1387,11 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       name: "eu-read", model: READ_MODEL, system: EU_READ_SYSTEM, schema: EU_FACTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 9000),
       content: ask(`Wine: ${wineLine(wine)}.\n\n${useful.map((x) => `Page (${x.p.kind}) ${x.p.url}:\n${x.t.slice(0, 6000)}`).join("\n\n")}`),
     });
-    return facts?.found ? facts : null;
+    if (!facts?.found) return null;
+    const src = useful.find((x) => x.p.url === facts.source_url) || useful[0];
+    facts.kind = src?.p.kind || "retailer";
+    if (!facts.source_url) facts.source_url = src?.p.url || "";
+    return facts;
   })().catch(() => null);
 
   const typicalTastingCall = runAgent({ diag,
@@ -1492,28 +1499,62 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
     if (!tech) tech = { checks: [], sources: [], nutrition: { ...EMPTY_NUTRITION }, tech_sheet_url: "", tech_sheet_vintage: "" };
     tech.nutrition = tech.nutrition || { ...EMPTY_NUTRITION };
     const n = tech.nutrition;
+    // Verified only from the e-label itself, the winery or its European
+    // distributor. A shop's copy of the label is an estimate.
+    const verified = ["elabel", "winery", "distributor"].includes(eu.kind);
+    const evidence = verified ? "winery" : "estimate";
+    let host = "";
+    try { host = new URL(eu.source_url).hostname.replace(/^www\./, ""); } catch {}
+    const via = eu.kind === "elabel" ? "" : ` (via ${host})`;
+    const euYear = String(eu.vintage || "").match(/(19|20)\d{2}/)?.[0];
+    const wineYear = String(wine.vintage || "").match(/(19|20)\d{2}/)?.[0];
+    const otherVintage = euYear && wineYear && euYear !== wineYear;
+    const label = otherVintage ? `EU label for the ${euYear}` : "EU label";
     const weak = (src) => !src || src === "none" || src === "estimate" || src === "typical";
     const strong = (c) => c && (c.evidence === "lab" || c.evidence === "certified");
+    const euBase = { scope: otherVintage ? "related_wine" : "this_wine", as_of: eu.vintage || "", source_url: eu.source_url || "" };
     const filled = [];
     if (eu.abv != null && n.abv == null) n.abv = eu.abv;
-    if (eu.sugars_100ml != null && (n.residual_sugar_g_l == null || weak(n.source))) {
-      n.residual_sugar_g_l = Math.round(eu.sugars_100ml * 100) / 10;
-      n.source = "winery";
+    // Sugar is shown only when verified. EU labels round small amounts down,
+    // so 0 (or under 0.5) per 100 ml means "less than 0.5 g", not none.
+    if (verified && eu.sugars_100ml != null && (n.residual_sugar_g_l == null || weak(n.source)) && !strong(best.sugar_under_1g)) {
+      if (eu.sugars_100ml < 0.5) {
+        n.residual_sugar_g_l = null;
+        n.sugar_below_g_l = 5;
+        best.sugar_under_1g = { ...euBase, id: "sugar_under_1g", status: "pass", evidence, detail: `${label}: under 0.5 g sugar per 100 ml, so under about 0.7 g per 5 oz glass${via}.` };
+      } else {
+        n.residual_sugar_g_l = Math.round(eu.sugars_100ml * 100) / 10;
+        n.source = "winery";
+      }
       filled.push("sugar");
     }
-    const euBase = { scope: "this_wine", as_of: eu.vintage || "", source_url: eu.source_url || "" };
-    if (eu.energy_kcal_100ml != null && !strong(best.calories)) {
+    if (eu.energy_kcal_100ml != null && !strong(best.calories) && !(best.calories?.evidence === "winery" && !verified)) {
       n.calories_5oz = Math.round(eu.energy_kcal_100ml * 1.48);
-      best.calories = { ...euBase, id: "calories", status: "pass", evidence: "winery", detail: `EU label: ${eu.energy_kcal_100ml} kcal per 100 ml, about ${n.calories_5oz} per 5 oz.` };
+      best.calories = { ...euBase, id: "calories", status: "pass", evidence, detail: `${label}: ${eu.energy_kcal_100ml} kcal per 100 ml, about ${n.calories_5oz} per 5 oz${via}.` };
       filled.push("calories");
     }
-    if (eu.carbs_100ml != null && !strong(best.carbs)) {
-      n.carbs_5oz = Math.round(eu.carbs_100ml * 14.8) / 10;
-      best.carbs = { ...euBase, id: "carbs", status: "pass", evidence: "winery", detail: `EU label: ${eu.carbs_100ml} g carbs per 100 ml, about ${n.carbs_5oz} g per 5 oz.` };
+    if (eu.carbs_100ml != null && !strong(best.carbs) && !(best.carbs?.evidence === "winery" && !verified)) {
+      if (eu.carbs_100ml < 0.5) {
+        n.carbs_5oz = null;
+        best.carbs = { ...euBase, id: "carbs", status: "pass", evidence, detail: `${label}: under 0.5 g carbs per 100 ml, so under about 0.7 g per 5 oz${via}.` };
+      } else {
+        n.carbs_5oz = Math.round(eu.carbs_100ml * 14.8) / 10;
+        best.carbs = { ...euBase, id: "carbs", status: "pass", evidence, detail: `${label}: ${eu.carbs_100ml} g carbs per 100 ml, about ${n.carbs_5oz} g per 5 oz${via}.` };
+      }
       filled.push("carbs");
     }
-    for (const c of ingredientChecks(eu)) if (!strong(best[c.id])) best[c.id] = c;
-    diag.push({ name: "eu-label", outcome: `${filled.join(", ") || "no nutrition"}; ${(eu.ingredients || []).length} ingredients from ${eu.source_url}`.slice(0, 300) });
+    const list = eu.ingredients || [];
+    const listOk = verified ? list.length >= 1 : list.length >= 2 && list.some((x) => /sulph|sulfi|solfit/i.test(x));
+    if (listOk) {
+      for (const c of ingredientChecks({ ...eu, ingredients: list }, evidence)) {
+        if (otherVintage) c.scope = "related_wine";
+        if (via) c.detail = `${c.detail.replace(/\.$/, "")}${via}.`;
+        if (!strong(best[c.id]) && !(best[c.id]?.evidence === "winery" && !verified)) best[c.id] = c;
+      }
+    } else {
+      eu.ingredients = [];
+    }
+    diag.push({ name: "eu-label", outcome: `${eu.kind}${verified ? "" : " (estimate)"}${otherVintage ? `, ${euYear} label` : ""}: ${filled.join(", ") || "no nutrition"}; ${list.length} ingredients${listOk ? "" : " (not used)"} from ${eu.source_url}`.slice(0, 300) });
   }
 
   // Fill gaps from the nutrition search, only when the figures come from the
