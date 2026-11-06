@@ -2079,7 +2079,8 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
     identified: true,
     wine: { ...wine, tech_sheet_url: tech?.tech_sheet_url || "", tech_sheet_vintage: tech?.tech_sheet_vintage || "" },
     nutrition,
-    checks,
+    // Every finding names where it came from; unknowns say none was found.
+    checks: checks.map((c) => ({ ...c, origin: c.origin || (c.status === "unknown" || c.evidence === "none" ? "No source found yet" : c.status === "na" ? "Not applicable" : "Scan research") })),
     ratings,
     tasting,
     eu_disclosure: euDisclosure,
