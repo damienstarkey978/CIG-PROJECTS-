@@ -167,7 +167,7 @@ const IDENTIFY_SYSTEM = `You identify wines for the Wine Babe app, fast.
 From the label photo or text, identify producer, wine name, vintage, region, country, grapes and style (for sparkling, the dosage term on the label: Brut Nature, Pas Dosé, Dosaggio Zero, Extra Brut, Brut, Extra Dry...).
 Then find the winery's official website and this wine's product page on it, with at most one web search. Be quick. Prefer the winery's own domain over shops.
 A name without a vintage is fine: identify the wine and leave vintage "" (non vintage or latest).
-No producer given (e.g. "Pinot Noir Rosé Single Fermentation"): use your web search on the exact name to find which winery makes it. If the results point to one producer's wine, identify it with that producer. If several fit, pick the most popular one and say so in note. Watch for different wineries sharing a family name (e.g. Ciccio Zaccagnini in Abruzzo makes the "Zeta" line; Fratelli Zaccagnini in Marche makes Rosso Piceno): match the wine line and appellation to the right producer and its own website, and say in note if the name mixes them.
+No producer given (e.g. "Pinot Noir Rosé Single Fermentation"): use your web search on the exact name to find which winery makes it. If the results point to one producer's wine, identify it with that producer. If several fit, pick the most popular one and say so in note. Watch for different wineries sharing a family name (e.g. Ciccio Zaccagnini in Abruzzo makes the "Zeta" line; Fratelli Zaccagnini in Marche makes Rosso Piceno): match the wine line and appellation to the right producer and its own website (Ciccio Zaccagnini is cantinazaccagnini.it, Fratelli Zaccagnini is zaccagnini.it), and say in note if the name mixes them. winery_website must belong to the producer you named.
 From a label photo, also list in label_marks every certification logo, code and claim you can see: EU organic leaf (Euroleaf), AB Agriculture Biologique, Demeter, codes like IT-BIO-006 or FR-BIO-01, and words like Sans OGM, Senza OGM, Privo di OGM, Non OGM, Vino biologico, Uve biologiche, Da agricoltura biologica, Vin biologique. If the barcode is visible, put its printed digits in ean. With text input only, label_marks is [] and ean is "".
 Never ask for a photo or more details. Always give your best guess for anything that looks like a wine (even just a grape or style, e.g. "Pinot Grigio"): fill what you can and leave the rest "". Only set identified false when the input is clearly not a wine at all (a person, a scene, a different product), and explain in note. Unknown text fields are "".`;
 
@@ -980,7 +980,7 @@ const EU_READ_SYSTEM = `You read a wine's EU ingredient and nutrition declaratio
 Use only the page text given, and only figures for this exact wine. If several pages are given, use the most authoritative one that has a sugar figure (e-label, then winery, then distributor, then shop) and report its url as source_url.
 Sugar terms: Italian "zuccheri", "di cui zuccheri", "zuccheri residui"; French "sucres", "dont sucres", "sucres résiduels"; German "Zucker", "davon Zucker", "Restzucker"; Spanish "azúcares", "de los cuales azúcares"; English "sugars", "of which sugars", "residual sugar". Carbohydrates: carboidrati, glucides, Kohlenhydrate, hidratos de carbono.
 Nutrition panels are per 100 ml (blocks titled e.g. "Allergens & Nutrition", "Nutritional information per 100 ml", "Nährwertangaben", "Valori nutrizionali", "Déclaration nutritionnelle"). sugars_100ml: the "of which sugars" figure per 100 ml (sugars_kind "total_sugars"); if the page only gives residual sugar in g/L, divide by 10 and use sugars_kind "residual_sugar". "<0.5 g" means 0.4. sugars_original: the value and unit exactly as printed (e.g. "0,4 g / 100 ml", "<0.5 g", "3 g/l zuccheri residui"). Energy in kcal (kJ / 4.184 if only kJ).
-Ingredients in the order listed, translated to plain English, keeping the category (e.g. "Grapes", "Rectified concentrated grape must", "Acidity regulator: tartaric acid", "Preservative: sulphites"). Allergens as declared.
+Ingredients in the order listed, translated to plain English, keeping the category (e.g. "Grapes", "Rectified concentrated grape must", "Acidity regulator: tartaric acid", "Preservative: sulphites"). Allergens as declared, including lines like "Allergens: contains sulphites" or "Contiene solfiti" (→ "Sulphites").
 vintage: the vintage shown on the source for this wine, else "". bottle_size as shown (e.g. "0.75 l"), else "". energy_original and carbs_original: exactly as printed (e.g. "311 kJ / 74 kcal", "1,3 g"). Carbohydrates and sugars are different figures: never copy one into the other. Total sugars and residual sugar are different unless the source says so.
 is_official_elabel: true only for the producer's official nutritional e-label page (often on an e-label platform, reached from the bottle's QR code), not a shop or a tech sheet.
 Never invent a value. Never use a figure for another vintage or a similarly named wine as if it were this one.
@@ -1152,7 +1152,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v46";
+const ENGINE_VERSION = "v47";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1511,7 +1511,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
         ? `\n\nSugar figures seen in search results (use only if no page confirms better; the page url is the source):\n${snippets.map((x) => `- ${x.sugars_original} (vintage ${x.vintage || "not shown"}, ${x.kind}) at ${x.url}`).join("\n")}`
         : "";
       const facts = await runAgent({ diag,
-        name: `eu-read r${status.rounds}`, model: SMART_MODEL, system: EU_READ_SYSTEM, schema: EU_FACTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + (unread.length ? 20000 : 10000)),
+        name: `eu-read r${status.rounds}`, model: SMART_MODEL, system: EU_READ_SYSTEM, schema: EU_FACTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + (unread.length ? 12000 : 8000)),
         content: ask(`Wine: ${wineLine(wine)}${id.bottle_size ? `, ${id.bottle_size}` : ""}.\n\n${useful.map((x) => `Page (${x.p.kind}) ${x.p.url}:\n${x.t.slice(0, 5000)}`).join("\n\n")}${unread.length ? `\n\nThese pages could not be read directly; fetch them with web_fetch if the pages above don't settle it:\n${unread.map((p) => `- (${p.kind}) ${p.url}`).join("\n")}` : ""}${snippetText}`),
         tools: unread.length ? [{ type: "web_fetch_20250910", name: "web_fetch", max_uses: unread.length }] : [],
       });
@@ -1671,8 +1671,15 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
       verified_elabel: eu.kind === "elabel" && vintageVerified,
       host, url: eu.source_url, vintage: eu.vintage || "", vintage_verified: vintageVerified, bottle_size: eu.bottle_size || "",
     };
-    const label = otherVintage ? `EU label for the ${euYear}` : "EU label";
-    const via = eu.kind === "elabel" ? "" : ` (${sourceType.toLowerCase()}: ${host})`;
+    // How to name the source in details: an e-label, a shop's copy of the EU
+    // nutrition panel, or a winery / consortium document.
+    const docName = eu.kind === "elabel" ? "official EU e-label"
+      : eu.kind === "retailer" ? `EU nutrition panel shown by ${host}`
+      : eu.kind === "consortium" ? `consortium tech sheet (${host})`
+      : eu.kind === "distributor" ? `European distributor page (${host})`
+      : `winery page (${host})`;
+    const label = otherVintage ? `${docName}, ${euYear} vintage` : docName;
+    const via = "";
     const weak = (src) => !src || src === "none" || src === "estimate" || src === "typical";
     const strong = (c) => c && (c.evidence === "lab" || c.evidence === "certified");
     const euBase = { scope: otherVintage ? "related_wine" : "this_wine", as_of: eu.vintage || "", source_url: eu.source_url || "" };
@@ -1697,7 +1704,7 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
       }
       n.source = evidence === "third_party" ? "third_party" : "winery";
       best.sugar_under_1g = { ...euBase, id: "sugar_under_1g", status: per5 < 1 ? "pass" : "fail", evidence,
-        detail: `${bound ? "Under " : ""}${per5.toFixed(2)} g ${kindLabel} per 5 oz (${original} on the ${label}${via}).` };
+        detail: `${bound ? "Under " : ""}${per5.toFixed(2)} g ${kindLabel} per 5 oz: ${original} on the ${label}.` };
       euDisclosure.sugar = {
         per_5oz: Math.round(per5 * 100) / 100,
         upper_bound: bound,
@@ -1716,13 +1723,13 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
     const euEvidenceOk = evidence !== "estimate" && !otherVintage;
     if (eu.energy_kcal_100ml != null && euEvidenceOk && !strong(best.calories) && !(best.calories?.evidence === "winery" && evidence !== "winery")) {
       n.calories_5oz = Math.round(eu.energy_kcal_100ml * 1.4787);
-      best.calories = { ...euBase, id: "calories", status: "pass", evidence, detail: `${label}: ${eu.energy_kcal_100ml} kcal per 100 ml, about ${n.calories_5oz} per 5 oz${via}.` };
+      best.calories = { ...euBase, id: "calories", status: "pass", evidence, detail: `${label[0].toUpperCase() + label.slice(1)}: ${eu.energy_kcal_100ml} kcal per 100 ml, about ${n.calories_5oz} per 5 oz${via}.` };
       euDisclosure.calories = { per_5oz: n.calories_5oz, per_100ml: eu.energy_kcal_100ml, original: eu.energy_original || `${eu.energy_kcal_100ml} kcal / 100 ml` };
       filled.push("calories");
     }
     if (eu.carbs_100ml != null && euEvidenceOk && !strong(best.carbs) && !(best.carbs?.evidence === "winery" && evidence !== "winery")) {
       n.carbs_5oz = Math.round(eu.carbs_100ml * 14.787) / 10;
-      best.carbs = { ...euBase, id: "carbs", status: "pass", evidence, detail: `${label}: ${eu.carbs_100ml} g carbs per 100 ml, about ${n.carbs_5oz} g per 5 oz${via}.` };
+      best.carbs = { ...euBase, id: "carbs", status: "pass", evidence, detail: `${label[0].toUpperCase() + label.slice(1)}: ${eu.carbs_100ml} g carbs per 100 ml, about ${n.carbs_5oz} g per 5 oz${via}.` };
       euDisclosure.carbs = { per_5oz: n.carbs_5oz, per_100ml: eu.carbs_100ml, original: eu.carbs_original || `${eu.carbs_100ml} g / 100 ml` };
       filled.push("carbs");
     }
