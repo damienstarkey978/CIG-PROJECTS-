@@ -417,3 +417,7 @@ details.cat .checks { padding: 0 1rem 0.4rem; }
 .eu__src.verified { background: var(--pass-bg); color: var(--pass); }
 .eu__orig { color: var(--muted); font-size: 0.8rem; }
 .eu__qr { margin-top: 0.8rem; font-size: 0.74rem; padding: 0.8rem; }
+
+.verif { margin-top: 0.4rem !important; font-size: 0.82rem; color: var(--ink) !important; }
+.origin { margin-top: 0.15rem; font-size: 0.76rem; color: var(--unk); }
+.eu__qrmsg { margin: 0.7rem 0 0; padding: 0.6rem 0.75rem; border-radius: 10px; background: #fbf1df; font-size: 0.85rem; }

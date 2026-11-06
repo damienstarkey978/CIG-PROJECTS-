@@ -44,7 +44,8 @@
   });
 
   // ---------- image prep ----------
-  function shrink(file, max = 1600) {
+  // Larger photos keep small back-label QR codes decodable.
+  function shrink(file, max = 2400) {
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file);
       const img = new Image();
@@ -55,7 +56,7 @@
         c.height = Math.round(img.height * s);
         c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
         URL.revokeObjectURL(url);
-        resolve(c.toDataURL("image/jpeg", 0.85));
+        resolve(c.toDataURL("image/jpeg", 0.9));
       };
       img.onerror = () => reject(new Error("Could not read that photo."));
       img.src = url;
@@ -176,30 +177,24 @@
     if (est.calories) fill("calories", `About ${Math.round(n.calories_5oz)} calories per 5 oz, calculated from the published alcohol and sugar.`);
     if (est.carbs) fill("carbs", `About ${n.carbs_5oz.toFixed(1)} g carbs per 5 oz, calculated from the published sugar.`);
 
-    // Wine Babe score: how well the wine meets the Wine Babe top 10, judged on
-    // what is actually known. 70% is how the known items measure up (a pass
-    // counts by how solid its source is, a fail counts zero), 30% is how many
-    // of the applicable top 10 are known at all. Items nobody publishes don't
-    // drag a good wine down to zero.
+    // Two separate numbers:
+    // - Quality: how the VERIFIED top 10 items measure up (passes / verified).
+    //   Estimates, typical values and unknowns never count as a pass.
+    // - Verification: how many of the applicable top 10 are verified at all.
     const top = checks.filter((c) => c.top).sort((a, b) => a.top - b.top);
-    const POINTS = { lab: 1, certified: 1, winery: 0.9, estimate: 0.7, typical: 0.4 };
+    const STRONG = ["lab", "certified", "winery", "third_party"];
     const applicable = top.filter((c) => c.status !== "na");
-    const known = applicable.filter((c) => c.status === "pass" || c.status === "fail");
-    let score = null;
-    if (known.length >= 1) {
-      const quality = known.reduce((t, c) => t + (c.status === "pass" ? POINTS[c.evidence] ?? 0.5 : 0), 0) / known.length;
-      const coverage = known.length / applicable.length;
-      score = Math.round(100 * (0.7 * quality + 0.3 * coverage));
-    }
+    const known = applicable.filter((c) => (c.status === "pass" || c.status === "fail") && STRONG.includes(c.evidence));
+    const verification = applicable.length ? Math.round((100 * known.length) / applicable.length) : 0;
+    let score = known.length ? Math.round((100 * known.filter((c) => c.status === "pass").length) / known.length) : null;
     let tier, blurb;
-    const mostlyTypical = known.filter((c) => c.evidence === "typical" || c.evidence === "estimate").length >= known.length / 2;
-    if (score == null) { score = 50; tier = "Estimated"; blurb = "Based on typical wines of this type."; }
-    else if (score >= 80) { tier = "Wine Babe approved"; blurb = "Meets the Wine Babe standards, backed by solid sources."; }
-    else if (score >= 60) { tier = "Good choice"; blurb = "Meets most of the Wine Babe standards that could be checked."; }
-    else if (score >= 40) { tier = "Mixed"; blurb = "Meets some Wine Babe standards and misses others."; }
+    if (score == null || known.length < 3) { tier = "Not enough verified info"; blurb = "Too few of the top 10 could be verified to judge quality yet."; }
+    else if (score >= 80) { tier = "Wine Babe approved"; blurb = "Meets the Wine Babe standards that could be verified."; }
+    else if (score >= 60) { tier = "Good choice"; blurb = "Meets most of the Wine Babe standards that could be verified."; }
+    else if (score >= 40) { tier = "Mixed"; blurb = "Meets some verified Wine Babe standards and misses others."; }
     else { tier = "Doesn't measure up"; blurb = "Misses key Wine Babe standards."; }
-    if (mostlyTypical && tier !== "Estimated") blurb += " Mostly estimated from typical wines of this type.";
-    return { n, est, checks, score, top, tier, blurb, knownCount: known.length, applicableCount: applicable.length };
+    if (known.length < 3) score = null;
+    return { n, est, checks, score, top, tier, blurb, knownCount: known.length, applicableCount: applicable.length, verification };
   }
 
   // ---------- sulfites ----------
@@ -228,7 +223,7 @@
         <div class="name">${showNum ? `<span class="num">${c.top}</span>` : ""}${esc(c.label)}
           ${c.status === "na" ? `<span class="chip none">Not applicable</span>` : `<span class="chip ${c.evidence}">${esc(EVIDENCE[c.evidence]?.label || "Not verified")}</span>`}
           ${SCOPE[c.scope] ? `<span class="chip scope">${SCOPE[c.scope]}</span>` : ""}</div>
-        <div class="detail">${esc(c.detail)}${c.as_of ? ` <span class="asof">(${esc(c.as_of)})</span>` : ""}${url ? ` <a href="${esc(url)}" target="_blank" rel="noopener">Source</a>` : ""}</div>
+        <div class="detail">${esc(c.detail)}${c.as_of ? ` <span class="asof">(${esc(c.as_of)})</span>` : ""}${c.origin || url ? `<div class="origin">${c.origin ? `From: ${esc(c.origin)}` : ""}${url ? ` · <a href="${esc(url)}" target="_blank" rel="noopener">Source</a>` : ""}</div>` : ""}</div>
       </div>
     </li>`;
   }
@@ -244,7 +239,9 @@
     const row = (k, v) => (v ? `<dt>${k}</dt><dd>${v}</dd>` : "");
     const s = eu.sugar;
     const found = s || eu.calories || eu.carbs || (eu.ingredients || []).length;
-    const qrNote = eu.qr && eu.qr.type !== "nutrition"
+    const qrNote = eu.qr && eu.qr.type === "undecoded"
+      ? `<p class="eu__qrmsg">QR code detected — unable to decode. The nutrition information may still exist behind it; try a closer, sharper photo of the QR code.</p>`
+      : eu.qr && eu.qr.type !== "nutrition"
       ? `<p class="eu__note">The bottle's QR code leads to ${eu.qr.type === "environmental" ? "a recycling / environmental page" : eu.qr.type === "marketing" ? "a winery marketing page" : "a page we couldn't read"}, not the nutritional e-label.</p>` : "";
     return `<div class="card eu">
       <div class="eu__head"><span class="lbl">EU Nutrition Search</span><span class="eu__status ${done ? "ok" : "warn"}">${done ? "Completed" : "Additional Verification Required"}</span></div>
@@ -259,6 +256,7 @@
           ${(eu.allergens || []).length ? row("Allergens", esc(eu.allergens.join(", "))) : ""}
           ${row("Source", `${esc(src?.type || "")}${link ? ` · ${link}` : ""}`)}
           ${row("Vintage", src?.vintage_verified ? `${esc(src.vintage || "Matches this bottle")} ✓` : esc(src?.vintage ? `${src.vintage} (not this bottle's vintage)` : "Not shown on source"))}
+          ${eu.calories?.origin ? row("Calories from", esc(eu.calories.origin)) : ""}
         </dl>`
         : `<p class="eu__none">${esc(eu.message || "European nutritional information not located online.")}</p>
            <label class="btn ghost eu__qr" for="photo">Upload a photo of the bottle's QR code</label>`}
@@ -333,15 +331,9 @@
         <div class="score-info" id="scoreInfo" role="dialog" aria-label="About the Wine Babe score" hidden>
           <p><b>What the Wine Babe score means</b></p>
           <p>The score, from 0 to 100, shows how well this wine meets the Wine Babe top 10: low sugar, no added sugar, non GMO, vegan, organic, no artificial flavors, hand harvested, sustainable, sulfite transparency and calories.</p>
-          <p>Most of the score (70%) is how the items we could check measure up:</p>
-          <ul>
-            <li>Meets it, with a lab report or certification: full credit</li>
-            <li>Meets it, per the winery: nearly full credit</li>
-            <li>Meets it, by our estimate: most of the credit</li>
-            <li>Doesn't meet it (for example over 1 g sugar per glass): no credit</li>
-          </ul>
-          <p>The rest (30%) is how much of the top 10 we could check. Items that don't apply, like dosage on a still wine, are left out. If fewer than 3 items can be checked, we say so instead of guessing.</p>
-          <p>This wine: ${r.knownCount} of ${r.applicableCount} top 10 items checked.</p>
+          <p><b>Quality</b> is the share of verified top 10 items the wine passes. Only verified findings count (lab report, certification, bottle label, e-label, winery or a European label copy). Estimates, typical values and missing information never count as a pass.</p>
+          <p><b>Verification</b> is how much of the top 10 could be verified at all. Items that don't apply, like dosage on a still wine, are left out. With fewer than 3 verified items there is no quality number.</p>
+          <p>This wine: ${r.knownCount} of ${r.applicableCount} top 10 items verified.</p>
           <button type="button" class="info-close">Got it</button>
         </div>
         <div class="score-body">
@@ -350,7 +342,8 @@
               stroke-dasharray="${circ}" stroke-dashoffset="${circ}" data-to="${circ * (1 - (r.score ?? 0) / 100)}" /></svg>
             <b>${r.score ?? "—"}</b>
           </div>
-          <div><p class="tier">${r.tier}</p><p>${r.blurb}</p></div>
+          <div><p class="tier">${r.tier}</p><p>${r.blurb}</p>
+            <p class="verif"><b>Verification: ${r.verification}%</b> · ${r.knownCount} of ${r.applicableCount} top 10 items verified</p></div>
         </div>
       </div>
 

@@ -74,11 +74,29 @@ const SOURCES = {
 const IDENTIFY_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["identified", "wine", "winery_website", "product_page_url", "note", "label_marks", "ean", "bottle_size"],
+  required: ["identified", "wine", "winery_website", "product_page_url", "note", "label_marks", "ean", "bottle_size", "qr_visible", "qr_box", "label_nutrition"],
   properties: {
     identified: { type: "boolean" },
     ean: { type: "string", description: "Barcode digits (EAN / GTIN) printed under the barcode, if visible in the photo, else empty." },
     bottle_size: { type: "string", description: "Bottle size if shown or stated (e.g. 750 ml, 1.5 l), else empty." },
+    qr_visible: { type: "boolean", description: "True if a QR code is visible anywhere in the photo." },
+    qr_box: {
+      type: "object", additionalProperties: false, required: ["x", "y", "w", "h"],
+      description: "Where the QR code is, as fractions of the photo's width and height (0 to 1). All 0 if none.",
+      properties: { x: { type: "number" }, y: { type: "number" }, w: { type: "number" }, h: { type: "number" } },
+    },
+    label_nutrition: {
+      type: "object", additionalProperties: false,
+      required: ["energy_kcal_100ml", "energy_original", "sugars_100ml", "carbs_100ml", "printed_text"],
+      description: "Nutrition printed on the bottle label itself (EU labels must print energy, e.g. 'E (100 ml) = 85 kcal'). Null / empty if not visible.",
+      properties: {
+        energy_kcal_100ml: { type: ["number", "null"] },
+        energy_original: str,
+        sugars_100ml: { type: ["number", "null"] },
+        carbs_100ml: { type: ["number", "null"] },
+        printed_text: str,
+      },
+    },
     label_marks: {
       type: "array",
       items: { type: "string" },
@@ -151,6 +169,7 @@ const RULES = `Rules for each check:
 - as_of: date or year of the statement or document if shown, else "".
 - detail: at most 15 words for a shopper, with the number or quoted wording when there is one.
 - source_url: the page that supports it, or "".
+- Never pass an item because something is not mentioned: absence is not evidence. "No added sugar", "No artificial flavors" and similar pass only when the producer states it or an ingredient list declared complete shows it.
 - Return one check for every id listed. Be fast: stop as soon as you have the answers; do not research beyond your listed sources.`;
 
 // Brand + wine name, without repeating the brand when the name already has it
@@ -168,7 +187,7 @@ From the label photo or text, identify producer, wine name, vintage, region, cou
 Then find the winery's official website and this wine's product page on it, with at most one web search. Be quick. Prefer the winery's own domain over shops.
 A name without a vintage is fine: identify the wine and leave vintage "" (non vintage or latest).
 No producer given (e.g. "Pinot Noir Rosé Single Fermentation"): use your web search on the exact name to find which winery makes it. If the results point to one producer's wine, identify it with that producer. If several fit, pick the most popular one and say so in note. Watch for different wineries sharing a family name (e.g. Ciccio Zaccagnini in Abruzzo makes the "Zeta" line; Fratelli Zaccagnini in Marche makes Rosso Piceno): match the wine line and appellation to the right producer and its own website (Ciccio Zaccagnini is cantinazaccagnini.it, Fratelli Zaccagnini is zaccagnini.it), and say in note if the name mixes them. winery_website must belong to the producer you named.
-From a label photo, also list in label_marks every certification logo, code and claim you can see: EU organic leaf (Euroleaf), AB Agriculture Biologique, Demeter, codes like IT-BIO-006 or FR-BIO-01, and words like Sans OGM, Senza OGM, Privo di OGM, Non OGM, Vino biologico, Uve biologiche, Da agricoltura biologica, Vin biologique. If the barcode is visible, put its printed digits in ean. With text input only, label_marks is [] and ean is "".
+From a label photo, also list in label_marks every certification logo, code and claim you can see: EU organic leaf (Euroleaf), AB Agriculture Biologique, Demeter, codes like IT-BIO-006 or FR-BIO-01, and words like Sans OGM, Senza OGM, Privo di OGM, Non OGM, Vino biologico, Uve biologiche, Da agricoltura biologica, Vin biologique. If the barcode is visible, put its printed digits in ean. Say whether a QR code is visible (qr_visible) and where (qr_box, fractions of the photo). Read any nutrition printed on the label into label_nutrition exactly: EU labels show energy per 100 ml (e.g. "E (100 ml) = 357 kJ / 85 kcal"); copy the printed text into printed_text, kcal per 100 ml into energy_kcal_100ml (kJ / 4.184 if only kJ), and sugars or carbohydrates per 100 ml only if printed. Never estimate these. With text input only, label_marks is [] and ean is "".
 Never ask for a photo or more details. Always give your best guess for anything that looks like a wine (even just a grape or style, e.g. "Pinot Grigio"): fill what you can and leave the rest "". Only set identified false when the input is clearly not a wine at all (a person, a scene, a different product), and explain in note. Unknown text fields are "".`;
 
 const PDF_URLS_SCHEMA = {
@@ -845,14 +864,54 @@ function marksToChecks(marks, source) {
 // Routes: read the QR code in the label photo; search where the wine is sold
 // in Europe (in the producer's language); read the pages found.
 
-function decodeQr(base64) {
+// Decode a QR code from a JPEG photo. Tries the whole photo, then the area
+// the vision step pointed at (enlarged), then overlapping tiles, since a QR
+// code on a back label is often small in a phone photo.
+function decodeQr(base64, box) {
   try {
     const jpeg = require("jpeg-js");
     const jsqrMod = require("jsqr");
     const jsQR = jsqrMod.default || jsqrMod;
-    const raw = jpeg.decode(Buffer.from(base64, "base64"), { useTArray: true, maxMemoryUsageInMB: 512 });
-    const code = jsQR(raw.data, raw.width, raw.height, { inversionAttempts: "attemptBoth" });
-    return code?.data && /^https?:\/\//i.test(code.data.trim()) ? code.data.trim() : "";
+    const img = jpeg.decode(Buffer.from(base64, "base64"), { useTArray: true, maxMemoryUsageInMB: 1024 });
+    const crop = (x0, y0, w0, h0, scale = 1) => {
+      const x = Math.max(0, Math.floor(x0)), y = Math.max(0, Math.floor(y0));
+      const w = Math.min(img.width - x, Math.floor(w0)), h = Math.min(img.height - y, Math.floor(h0));
+      if (w < 40 || h < 40) return null;
+      const W = Math.floor(w * scale), H = Math.floor(h * scale);
+      const out = new Uint8ClampedArray(W * H * 4);
+      for (let j = 0; j < H; j++) {
+        const sy = y + Math.floor(j / scale);
+        for (let i = 0; i < W; i++) {
+          const si = ((sy * img.width) + x + Math.floor(i / scale)) * 4, di = (j * W + i) * 4;
+          out[di] = img.data[si]; out[di + 1] = img.data[si + 1]; out[di + 2] = img.data[si + 2]; out[di + 3] = 255;
+        }
+      }
+      return { data: out, width: W, height: H };
+    };
+    const tryOne = (c) => {
+      if (!c) return "";
+      const code = jsQR(c.data, c.width, c.height, { inversionAttempts: "attemptBoth" });
+      return code?.data ? code.data.trim() : "";
+    };
+    const attempts = [() => tryOne({ data: img.data, width: img.width, height: img.height })];
+    if (box && box.w > 0 && box.h > 0) {
+      const px = box.x * img.width, py = box.y * img.height, pw = box.w * img.width, ph = box.h * img.height;
+      const pad = Math.max(pw, ph) * 0.35;
+      const side = Math.max(pw, ph) + 2 * pad;
+      const scale = side < 500 ? Math.min(3, 600 / side) : 1;
+      attempts.push(() => tryOne(crop(px - pad, py - pad, pw + 2 * pad, ph + 2 * pad, scale)));
+    }
+    for (const n of [2, 3]) {
+      const tw = img.width / n * 1.4, th = img.height / n * 1.4;
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+        attempts.push(() => tryOne(crop(c * img.width / n - tw * 0.14, r * img.height / n - th * 0.14, tw, th, tw < 700 ? 1.5 : 1)));
+      }
+    }
+    for (const run of attempts) {
+      const data = run();
+      if (data) return data;
+    }
+    return "";
   } catch {
     return "";
   }
@@ -1152,7 +1211,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v47";
+const ENGINE_VERSION = "v48";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1167,7 +1226,8 @@ const cacheKey = (w) => {
 
 async function runScan({ image, mediaType, query, fresh }, send, cache) {
   // QR code on the label (usually the EU e-label): read it from the photo.
-  const qrUrl = image ? decodeQr(image) : "";
+  let qrRaw = image ? decodeQr(image) : "";
+  let qrUrl = /^https?:\/\//i.test(qrRaw) ? qrRaw : "";
   const t0 = Date.now();
   const diag = [];
 
@@ -1211,6 +1271,13 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     };
   }
   const wine = id.wine;
+  // QR code seen by the vision step but not decoded yet: retry on its area.
+  if (image && !qrRaw && id.qr_visible) {
+    qrRaw = decodeQr(image, id.qr_box);
+    qrUrl = /^https?:\/\//i.test(qrRaw) ? qrRaw : "";
+  }
+  const qrState = !image ? "no_photo" : qrUrl ? "decoded" : qrRaw ? "not_a_link" : id.qr_visible ? "undecoded" : "none";
+  diag.push({ name: "qr-state", outcome: `${qrState}${qrRaw ? `: ${qrRaw.slice(0, 120)}` : ""}` });
   // Text sources scanned by the certification recognizer.
   const markSources = [];
   {
@@ -1754,6 +1821,44 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
     diag.push({ name: "eu-label", outcome: `${eu.kind}/${evidence}${otherVintage ? `, ${euYear} label` : ""}: ${filled.join(", ") || "no nutrition"}; ${list.length} ingredients${listOk ? "" : " (not used)"} from ${eu.source_url}`.slice(0, 300) });
   }
 
+  // QR code state for the disclosure card.
+  if (qrState === "undecoded") euDisclosure.qr = { type: "undecoded", url: "", message: "QR code detected — unable to decode." };
+  else if (qrState === "not_a_link") euDisclosure.qr = { type: "marketing", url: "", message: "" };
+
+  // Nutrition printed on the bottle label (read from the photo): the
+  // producer's own figure, ahead of e-label copies, shops and calculations.
+  const ln = id.label_nutrition || {};
+  if (image && (ln.energy_kcal_100ml != null || ln.sugars_100ml != null || ln.carbs_100ml != null)) {
+    if (!tech) tech = { checks: [], sources: [], nutrition: { ...EMPTY_NUTRITION }, tech_sheet_url: "", tech_sheet_vintage: "" };
+    tech.nutrition = tech.nutrition || { ...EMPTY_NUTRITION };
+    const n = tech.nutrition;
+    const lb = { scope: "this_wine", as_of: wine.vintage || "", source_url: "", origin: "Bottle label" };
+    const printed = ln.printed_text ? ` ("${ln.printed_text.slice(0, 60)}")` : "";
+    const used = [];
+    if (ln.energy_kcal_100ml != null && best.calories?.evidence !== "lab") {
+      n.calories_5oz = Math.round(ln.energy_kcal_100ml * 1.4787);
+      best.calories = { ...lb, id: "calories", status: "pass", evidence: "winery", detail: `Bottle label: ${ln.energy_kcal_100ml} kcal per 100 ml${printed}, about ${n.calories_5oz} per 5 oz.` };
+      euDisclosure.calories = { per_5oz: n.calories_5oz, per_100ml: ln.energy_kcal_100ml, original: ln.energy_original || `${ln.energy_kcal_100ml} kcal`, origin: "Bottle label" };
+      used.push("calories");
+    }
+    if (ln.carbs_100ml != null && best.carbs?.evidence !== "lab") {
+      n.carbs_5oz = Math.round(ln.carbs_100ml * 14.787) / 10;
+      best.carbs = { ...lb, id: "carbs", status: "pass", evidence: "winery", detail: `Bottle label: ${ln.carbs_100ml} g carbohydrates per 100 ml, about ${n.carbs_5oz} g per 5 oz.` };
+      used.push("carbs");
+    }
+    if (ln.sugars_100ml != null && !(best.sugar_under_1g?.evidence === "lab")) {
+      const per5 = ln.sugars_100ml * 1.4787;
+      n.residual_sugar_g_l = Math.round(ln.sugars_100ml * 100) / 10;
+      n.eu_sugar = true;
+      n.sugar_kind = "total_sugars";
+      n.source = "winery";
+      best.sugar_under_1g = { ...lb, id: "sugar_under_1g", status: per5 < 1 ? "pass" : "fail", evidence: "winery", detail: `${per5.toFixed(2)} g total sugars per 5 oz: ${ln.sugars_100ml} g per 100 ml on the bottle label.` };
+      euDisclosure.sugar = { per_5oz: Math.round(per5 * 100) / 100, upper_bound: false, original: `${ln.sugars_100ml} g / 100 ml`, kind: "total sugars", source_type: "Bottle label", host: "", url: "", vintage: wine.vintage || "", vintage_verified: true };
+      used.push("sugar");
+    }
+    diag.push({ name: "label-nutrition", outcome: `${used.join(", ") || "none"}: ${ln.printed_text || ""}`.slice(0, 200) });
+  }
+
   if (euDisclosure.applicable && !euDisclosure.sugar) {
     euDisclosure.message = "European nutritional information not located online. This does not mean the winery has failed to provide the required information. The nutritional e-label may only be accessible through the QR code printed on the European bottle.";
   }
@@ -1901,6 +2006,26 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
       diag.push({ name: "sugar", outcome: `unverified (${sc ? `${sc.status}/${sc.evidence}` : "none"}), hidden` });
     }
   }
+  // Where each finding came from: bottle label, official e-label, winery
+  // website, or another named source.
+  {
+    const own = [site, producerOrigin].map((u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } }).filter(Boolean);
+    const prodW = norm(wine.producer).split(" ").filter((w) => w.length > 3);
+    for (const c of Object.values(best)) {
+      if (!c || c.origin) continue;
+      if (c.evidence === "typical") { c.origin = "Typical for this type of wine"; continue; }
+      if (c.evidence === "estimate" && !c.source_url) { c.origin = "Calculated estimate"; continue; }
+      if (/^Label\b/.test(c.detail || "")) { c.origin = "Bottle label"; continue; }
+      let host = "";
+      try { host = new URL(c.source_url).hostname.replace(/^www\./, ""); } catch {}
+      if (!host) { c.origin = c.evidence === "none" ? "" : "Scan research"; continue; }
+      if (/u-label|e-label|scantrust|wine-id|ilabel|winelabel|qr\.wine/.test(host) || /official EU e-label/i.test(c.detail || "")) c.origin = "Official e-label";
+      else if (own.some((h) => host.endsWith(h)) || prodW.some((w) => host.includes(w))) c.origin = /\.pdf(\?|$)/i.test(c.source_url) ? "Winery tech sheet" : "Winery website";
+      else if (/barnivore\.com$/.test(host)) c.origin = "Barnivore (winery's own reply)";
+      else c.origin = `Other source: ${host}`;
+    }
+  }
+
   // Honest sourcing: a "winery" statement found on another site (importer,
   // shop) names that site in the detail.
   const ownHosts = [site, producerOrigin, cert?.url].map((u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } }).filter(Boolean);
@@ -2023,7 +2148,7 @@ function demoResult() {
       name: "Sample Prosecco Brut Nature (demo)", producer: "Demo Estate", vintage: "2024", region: "Treviso",
       country: "Italy", grapes: "Glera", style: "Sparkling, Brut Nature", tech_sheet_url: null, tech_sheet_vintage: null,
     },
-    nutrition: { abv: 12.5, residual_sugar_g_l: 4, eu_sugar: true, sugar_kind: "total_sugars", calories_5oz: 108, carbs_5oz: 0.8, total_so2_mg_l: 78, free_so2_mg_l: 22, ph: 3.3, ta_g_l: 5.8, source: "winery" },
+    nutrition: { abv: 12.5, residual_sugar_g_l: 4, eu_sugar: true, sugar_kind: "total_sugars", calories_5oz: 109, carbs_5oz: 1.9, total_so2_mg_l: 78, free_so2_mg_l: 22, ph: 3.3, ta_g_l: 5.8, source: "winery" },
     checks: ALL_ITEMS.map((i) => known[i.id] || unk(i.id)),
     tasting: { notes: "Pale straw with fine bubbles. Crisp green apple and white flowers, with a dry, mineral finish.", flavors: ["green apple", "white flowers", "citrus", "mineral"], pairings: ["oysters", "sushi", "fried appetizers"], source: "winery", source_url: "" },
     ratings: [
