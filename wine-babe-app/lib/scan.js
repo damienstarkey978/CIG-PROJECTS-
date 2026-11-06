@@ -862,8 +862,16 @@ const EU_COUNTRIES = /italy|italia|france|spain|españa|portugal|germany|deutsch
 const EU_SEARCH_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["pages"],
+  required: ["pages", "snippet_sugar"],
   properties: {
+    snippet_sugar: {
+      type: "array",
+      description: "Sugar figures for this exact wine seen in the search results themselves (titles, snippets).",
+      items: {
+        type: "object", additionalProperties: false, required: ["url", "kind", "sugars_original", "vintage"],
+        properties: { url: str, kind: { type: "string", enum: ["elabel", "winery", "distributor", "retailer", "other"] }, sugars_original: str, vintage: str },
+      },
+    },
     pages: {
       type: "array",
       items: {
@@ -926,6 +934,7 @@ EU law requires wine made from 8 December 2023 to declare ingredients and nutrit
 Wine: ${wineLine(w)}.
 Run these web searches, exactly as written, one after the other:
 ${queries.map((q, i) => `${i + 1}. ${q}`).join("\n")}
+Also, if a search result's own text already shows a sugar figure for this exact wine (e.g. "Zuccheri 0,4 g", "davon Zucker <0,5 g", "Restzucker 3 g/l"), list it in snippet_sugar exactly as printed, with its url, kind and the vintage shown (or "").
 Return up to 5 result pages or PDFs that show this exact wine (and vintage, when shown) with ingredients or a nutrition declaration: e-label pages first, then the winery, then European distributors and shops. Skip US shops. Tag each elabel, winery, distributor, retailer or other.`;
 
 const EU_FACTS_SCHEMA = {
@@ -953,6 +962,7 @@ Sugar terms: Italian "zuccheri", "di cui zuccheri", "zuccheri residui"; French "
 Nutrition panels are per 100 ml. sugars_100ml: the "of which sugars" figure per 100 ml (sugars_kind "total_sugars"); if the page only gives residual sugar in g/L, divide by 10 and use sugars_kind "residual_sugar". "<0.5 g" means 0.4. sugars_original: the value and unit exactly as printed (e.g. "0,4 g / 100 ml", "<0.5 g", "3 g/l zuccheri residui"). Energy in kcal (kJ / 4.184 if only kJ).
 Ingredients in the order listed, translated to plain English, keeping the category (e.g. "Grapes", "Rectified concentrated grape must", "Acidity regulator: tartaric acid", "Preservative: sulphites"). Allergens as declared.
 vintage: the vintage shown on the source for this wine, else "".
+Only this exact wine: a page for a different line or classification of the same brand (e.g. a "Collection IGT" when the wine is the DOC, a Riserva, another color) does not count.
 If no page has a declaration for this wine: found false, nulls, sugars_kind "none", empty lists.`;
 
 // Map an EU ingredient list onto checklist items.
@@ -1117,7 +1127,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v43";
+const ENGINE_VERSION = "v44";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1443,7 +1453,9 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     for (const p of results.flatMap((r) => r?.pages || []).sort((a, b) => (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9))) {
       if (/^https?:\/\//.test(p.url) && !pages.some((x) => x.url === p.url)) pages.push(p);
     }
-    const kept = pages.filter((p) => p.kind === "elabel" || p.kind === "winery" || !wrongShopPage(p.url, wine));
+    // US grocers and other-vintage pages are dropped for shops only; winery,
+    // distributor, e-label and PDF documents (e.g. consortium sheets) stay.
+    const kept = pages.filter((p) => ["elabel", "winery", "distributor"].includes(p.kind) || /\.pdf(\?|$)/i.test(p.url) || !wrongShopPage(p.url, wine));
     if (kept.length < pages.length) diag.push({ name: "eu-pages-skipped", outcome: pages.filter((p) => !kept.includes(p)).map((p) => p.url).join(" , ").slice(0, 300) });
     const readOne = async (p) => {
       if (/\.pdf(\?|$)/i.test(p.url)) {
@@ -1453,19 +1465,28 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       return { p, t: await pageText(p.url, 7000) };
     };
     const fetched = await Promise.all(kept.slice(0, 6).map(readOne));
-    status.checked = fetched.map((x) => { try { return new URL(x.p.url).hostname.replace(/^www\./, ""); } catch { return ""; } }).filter(Boolean);
+    status.checked = [...new Set(fetched.map((x) => { try { return new URL(x.p.url).hostname.replace(/^www\./, ""); } catch { return ""; } }).filter(Boolean))];
     const SUGAR_WORDS = /zuccher|sucres?\b|zucker|azúcar|açúcar|sugars?\b|kcal|\bkj\b|valori nutrizionali|valeurs nutritionnelles|nährwert|nutrition|ingredi|zutaten/i;
     const useful = fetched.filter((x) => x.t && SUGAR_WORDS.test(x.t)).slice(0, 3);
-    diag.push({ name: "eu-pages", outcome: `${useful.length}/${kept.length} useful: ${useful.map((x) => x.p.url).join(" , ")}`.slice(0, 400) });
-    if (!useful.length) return { status, facts: null };
+    diag.push({ name: "eu-pages", outcome: `${useful.length}/${kept.length} useful (${fetched.map((x) => `${x.t.length}c`).join(" ")}): ${useful.map((x) => x.p.url).join(" , ")}`.slice(0, 400) });
+    const snippets = results.flatMap((r) => r?.snippet_sugar || []).filter((x) => /^https?:\/\//.test(x.url) && x.sugars_original);
+    if (snippets.length) diag.push({ name: "eu-snippets", outcome: snippets.map((x) => `${x.sugars_original} @ ${x.url}`).join(" | ").slice(0, 300) });
+    // Pages the server could not read (scripts, bot blocks): Claude's own
+    // fetcher reads the best of them instead.
+    const unread = kept.slice(0, 6).filter((p) => !useful.some((x) => x.p.url === p.url)).slice(0, 3);
+    if (!useful.length && !unread.length && !snippets.length) return { status, facts: null };
+    const snippetText = snippets.length
+      ? `\n\nSugar figures seen in search results (use only if no page confirms better; the page url is the source):\n${snippets.map((x) => `- ${x.sugars_original} (vintage ${x.vintage || "not shown"}, ${x.kind}) at ${x.url}`).join("\n")}`
+      : "";
     const facts = await runAgent({ diag,
-      name: "eu-read", model: SMART_MODEL, system: EU_READ_SYSTEM, schema: EU_FACTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 9000),
-      content: ask(`Wine: ${wineLine(wine)}.\n\n${useful.map((x) => `Page (${x.p.kind}) ${x.p.url}:\n${x.t.slice(0, 5000)}`).join("\n\n")}`),
+      name: "eu-read", model: SMART_MODEL, system: EU_READ_SYSTEM, schema: EU_FACTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 12000),
+      content: ask(`Wine: ${wineLine(wine)}.\n\n${useful.map((x) => `Page (${x.p.kind}) ${x.p.url}:\n${x.t.slice(0, 5000)}`).join("\n\n")}${unread.length ? `\n\nThese pages could not be read directly; fetch them with web_fetch if the pages above don't settle it:\n${unread.map((p) => `- (${p.kind}) ${p.url}`).join("\n")}` : ""}${snippetText}`),
+      tools: unread.length ? [{ type: "web_fetch_20250910", name: "web_fetch", max_uses: unread.length }] : [],
     });
     if (!facts) status.complete = false;
     if (!facts?.found) return { status, facts: null };
-    const src = useful.find((x) => x.p.url === facts.source_url) || useful[0];
-    facts.kind = src?.p.kind || "retailer";
+    const src = useful.find((x) => x.p.url === facts.source_url) || kept.find((p) => p.url === facts.source_url) && { p: kept.find((p) => p.url === facts.source_url) } || (snippets.find((x) => x.url === facts.source_url) && { p: snippets.find((x) => x.url === facts.source_url) }) || useful[0];
+    facts.kind = src?.p?.kind || "retailer";
     if (!facts.source_url) facts.source_url = src?.p.url || "";
     return { status, facts };
   })().catch(() => ({ status: { applicable: true, note: "", steps: [], complete: false }, facts: null }));
