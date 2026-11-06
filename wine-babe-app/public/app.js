@@ -143,6 +143,51 @@
   });
 
   // ---------- scoring ----------
+  // ---------- WINE BABE standards ----------
+  // Published thresholds. Weights total 100.
+  const CALORIE_MAX = 100; // kcal per 5 oz, the "Under 100 Calories" Wine Babe standard
+  const VERIFIED_EVIDENCE = ["lab", "certified", "winery", "third_party"];
+  const STANDARDS = [
+    { id: "sugar_under_1g", pts: 20, critical: true, short: "sugar", name: "Less than 1 g sugar per 5 oz",
+      rule: "Pass: verified sugar under 1 g per 5 oz (147.87 ml), from a lab sheet, the bottle or EU e-label, the winery, or a European copy of the EU label for the same vintage. Fail: verified 1 g or more." },
+    { id: "no_added_sugar", pts: 15, critical: true, short: "no added sugar (ingredients)", name: "No added sugar",
+      rule: "Pass: the producer states no sugar, concentrate or sweetener is added. Fail: the ingredient list or producer shows added sugar or concentrated must." },
+    { id: "no_artificial_flavors", pts: 15, critical: true, short: "no artificial flavors (ingredients)", name: "No artificial flavors",
+      rule: "Pass: the producer states no flavourings are added. Fail: the ingredient list or producer shows a flavouring." },
+    { id: "sulfites", pts: 10, short: "sulfite level", name: "Sulfite transparency",
+      rule: "Pass: a verified source publishes the total sulfite level (mg/L). 'Contains sulphites' alone is a legal minimum and does not pass. No published level: not verified." },
+    { id: "calories", pts: 10, short: "calories", name: "Calories per 5 oz",
+      rule: `Pass: verified ${CALORIE_MAX} calories or less per 5 oz (bottle or EU label, winery, lab). Fail: verified over ${CALORIE_MAX}. Calculated estimates do not count.` },
+    { id: "organic", pts: 10, short: "organic", name: "Organic grapes",
+      rule: "Pass: organic certification (EU leaf, AB, control body code on the bottle, certifier) or the producer documents organic grapes. Fail: verified non-organic." },
+    { id: "non_gmo", pts: 5, short: "non GMO", name: "Non GMO", rule: "Pass: the producer states non GMO (e.g. NO OGM on the tech sheet) or a certifier does." },
+    { id: "vegan", pts: 5, short: "vegan", name: "Vegan friendly", rule: "Pass: the producer states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
+    { id: "hand_harvested", pts: 5, short: "hand harvest", name: "Hand harvested grapes", rule: "Pass: the producer states the grapes are hand picked." },
+    { id: "sustainable", pts: 5, short: "sustainable farming", name: "Sustainable farming", rule: "Pass: a sustainability certification or the producer's documented practices." },
+  ];
+
+  // Decide each standard: "pass", "fail" or "unverified", with the evidence used.
+  function judgeStandards(byId, n, est) {
+    return STANDARDS.map((s) => {
+      const c = byId[s.id];
+      const verified = c && (c.status === "pass" || c.status === "fail") && VERIFIED_EVIDENCE.includes(c.evidence);
+      let state = verified ? c.status : "unverified";
+      let basis = c?.detail || "";
+      if (s.id === "calories") {
+        const cal = n.calories_5oz;
+        if (verified && cal != null && !est.calories) { state = cal <= CALORIE_MAX ? "pass" : "fail"; basis = `${Math.round(cal)} calories per 5 oz. ${c.detail || ""}`; }
+        else { state = "unverified"; basis = cal != null ? `About ${Math.round(cal)} calories per 5 oz, an estimate only.` : "No verified calorie figure."; }
+      }
+      if (s.id === "sulfites") {
+        const typicalSo2 = (n.typical?.fields || []).includes("so2");
+        const so2Verified = n.total_so2_mg_l != null && !typicalSo2 && verified;
+        state = so2Verified ? "pass" : "unverified";
+        basis = so2Verified ? `Total sulfites ${Math.round(n.total_so2_mg_l)} mg/L published. ${c?.detail || ""}` : "No published total sulfite level.";
+      }
+      return { ...s, state, basis: String(basis).trim(), origin: c?.origin || "", url: c?.source_url || "", evidence: c?.evidence || "none" };
+    });
+  }
+
   function enrich(data) {
     const n = { ...data.nutrition };
     const est = {};
@@ -177,24 +222,28 @@
     if (est.calories) fill("calories", `About ${Math.round(n.calories_5oz)} calories per 5 oz, calculated from the published alcohol and sugar.`);
     if (est.carbs) fill("carbs", `About ${n.carbs_5oz.toFixed(1)} g carbs per 5 oz, calculated from the published sugar.`);
 
-    // Two separate numbers:
-    // - Quality: how the VERIFIED top 10 items measure up (passes / verified).
-    //   Estimates, typical values and unknowns never count as a pass.
-    // - Verification: how many of the applicable top 10 are verified at all.
+    // WINE BABE SCORE (0-100): points only for VERIFIED passes against the
+    // 10 standards, weighted. TRANSPARENCY (0-100%): how many of the 10 have
+    // enough evidence to decide pass or fail. Unknown is never a pass and
+    // never a fail.
     const top = checks.filter((c) => c.top).sort((a, b) => a.top - b.top);
-    const STRONG = ["lab", "certified", "winery", "third_party"];
-    const applicable = top.filter((c) => c.status !== "na");
-    const known = applicable.filter((c) => (c.status === "pass" || c.status === "fail") && STRONG.includes(c.evidence));
-    const verification = applicable.length ? Math.round((100 * known.length) / applicable.length) : 0;
-    let score = known.length ? Math.round((100 * known.filter((c) => c.status === "pass").length) / known.length) : null;
+    const std = judgeStandards(byId, n, est);
+    const score = std.reduce((t, x) => t + (x.state === "pass" ? x.pts : 0), 0);
+    const verifiedCount = std.filter((x) => x.state !== "unverified").length;
+    const transparency = verifiedCount * 10;
+    const unverifiedCritical = std.filter((x) => x.critical && x.state === "unverified");
     let tier, blurb;
-    if (score == null || known.length < 3) { tier = "Not enough verified info"; blurb = "Too few of the top 10 could be verified to judge quality yet."; }
-    else if (score >= 80) { tier = "Wine Babe approved"; blurb = "Meets the Wine Babe standards that could be verified."; }
-    else if (score >= 60) { tier = "Good choice"; blurb = "Meets most of the Wine Babe standards that could be verified."; }
+    if (unverifiedCritical.length) {
+      tier = "Additional Verification Required";
+      blurb = `Missing verified ${unverifiedCritical.map((x) => x.short).join(", ").replace(/, ([^,]*)$/, " and $1")}. The score only counts what has been verified.`;
+    } else if (score >= 80) { tier = "Excellent Choice"; blurb = "Meets the Wine Babe standards, with verified evidence."; }
+    else if (score >= 60) { tier = "Good Choice"; blurb = "Meets most Wine Babe standards, with verified evidence."; }
     else if (score >= 40) { tier = "Mixed"; blurb = "Meets some verified Wine Babe standards and misses others."; }
-    else { tier = "Doesn't measure up"; blurb = "Misses key Wine Babe standards."; }
-    if (known.length < 3) score = null;
-    return { n, est, checks, score, top, tier, blurb, knownCount: known.length, applicableCount: applicable.length, verification };
+    else { tier = "Does not meet Wine Babe standards"; blurb = "Verified evidence shows it misses key standards."; }
+    const known = std.filter((x) => x.state !== "unverified");
+    const applicable = std;
+    const verification = transparency;
+    return { n, est, checks, score, top, tier, blurb, knownCount: known.length, applicableCount: applicable.length, verification, transparency, std };
   }
 
   // ---------- sulfites ----------
@@ -326,24 +375,32 @@
       <div class="card score">
         <div class="score-head">
           <span class="score-title">Wine Babe score</span>
-          <button type="button" class="info-btn" aria-label="What is the Wine Babe score?" aria-expanded="false" aria-controls="scoreInfo">i</button>
+          <button type="button" class="info-btn" aria-label="See the score breakdown" aria-expanded="false" aria-controls="scoreInfo">i</button>
         </div>
-        <div class="score-info" id="scoreInfo" role="dialog" aria-label="About the Wine Babe score" hidden>
-          <p><b>What the Wine Babe score means</b></p>
-          <p>The score, from 0 to 100, shows how well this wine meets the Wine Babe top 10: low sugar, no added sugar, non GMO, vegan, organic, no artificial flavors, hand harvested, sustainable, sulfite transparency and calories.</p>
-          <p><b>Quality</b> is the share of verified top 10 items the wine passes. Only verified findings count (lab report, certification, bottle label, e-label, winery or a European label copy). Estimates, typical values and missing information never count as a pass.</p>
-          <p><b>Verification</b> is how much of the top 10 could be verified at all. Items that don't apply, like dosage on a still wine, are left out. With fewer than 3 verified items there is no quality number.</p>
-          <p>This wine: ${r.knownCount} of ${r.applicableCount} top 10 items verified.</p>
+        <div class="score-info" id="scoreInfo" role="dialog" aria-label="Wine Babe score breakdown" hidden>
+          <p><b>Score breakdown</b> · ${r.score} / 100 points · Transparency ${r.transparency}%</p>
+          <ul class="std-list">
+            ${r.std.map((x) => `<li class="std ${x.state}">
+              <div class="std__top"><span class="std__mark">${x.state === "pass" ? "✓" : x.state === "fail" ? "✕" : "?"}</span>
+                <span class="std__name">${esc(x.name)}</span>
+                <span class="std__pts">${x.state === "pass" ? x.pts : 0} / ${x.pts}</span></div>
+              <div class="std__state">${x.state === "pass" ? "Verified pass" : x.state === "fail" ? "Verified fail" : "Not verified (no points, not a failure)"}</div>
+              ${x.basis ? `<div class="std__basis">${esc(x.basis)}${x.origin ? ` · ${esc(x.origin)}` : ""}${safeUrl(x.url) ? ` · <a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener">Source</a>` : ""}</div>` : ""}
+              <div class="std__rule">${esc(x.rule)}</div>
+            </li>`).join("")}
+          </ul>
+          <p class="std__foot">Points are only awarded for verified evidence. "Not verified" means the information could not be found yet, not that the wine fails. Scores update when new verified information (EU QR code, winery site, tech sheet, certification) is found.</p>
           <button type="button" class="info-close">Got it</button>
         </div>
         <div class="score-body">
-          <div class="ring">
+          <button type="button" class="ring info-btn" aria-label="See the score breakdown" aria-controls="scoreInfo">
             <svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="42" /><circle class="fg" cx="50" cy="50" r="42"
               stroke-dasharray="${circ}" stroke-dashoffset="${circ}" data-to="${circ * (1 - (r.score ?? 0) / 100)}" /></svg>
-            <b>${r.score ?? "—"}</b>
-          </div>
-          <div><p class="tier">${r.tier}</p><p>${r.blurb}</p>
-            <p class="verif"><b>Verification: ${r.verification}%</b> · ${r.knownCount} of ${r.applicableCount} top 10 items verified</p></div>
+            <b>${r.score}</b>
+          </button>
+          <div><p class="tier">${esc(r.tier)}</p><p>${esc(r.blurb)}</p>
+            <p class="verif"><b>Transparency: ${r.transparency}%</b> · ${r.knownCount} of 10 standards verified</p>
+            <p class="tap-hint">Tap the score for the full breakdown.</p></div>
         </div>
       </div>
 

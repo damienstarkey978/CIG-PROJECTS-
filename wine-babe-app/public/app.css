@@ -421,3 +421,22 @@ details.cat .checks { padding: 0 1rem 0.4rem; }
 .verif { margin-top: 0.4rem !important; font-size: 0.82rem; color: var(--ink) !important; }
 .origin { margin-top: 0.15rem; font-size: 0.76rem; color: var(--unk); }
 .eu__qrmsg { margin: 0.7rem 0 0; padding: 0.6rem 0.75rem; border-radius: 10px; background: #fbf1df; font-size: 0.85rem; }
+
+/* score breakdown */
+button.ring { border: 0; background: none; padding: 0; cursor: pointer; }
+.tap-hint { margin-top: 0.2rem !important; font-size: 0.74rem !important; color: var(--unk) !important; }
+.std-list { list-style: none; margin: 0.6rem 0; padding: 0; display: grid; gap: 0.55rem; }
+.std { padding: 0.6rem 0.7rem; border-radius: 12px; background: var(--paper); border: 1px solid var(--line); }
+.std__top { display: flex; align-items: center; gap: 0.5rem; }
+.std__mark { flex: none; display: grid; place-items: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; font-size: 0.8rem; font-weight: 700; }
+.std.pass .std__mark { background: var(--pass-bg); color: var(--pass); }
+.std.fail .std__mark { background: var(--fail-bg); color: var(--fail); }
+.std.unverified .std__mark { background: var(--unk-bg); color: var(--unk); }
+.std__name { flex: 1; font-weight: 500; font-size: 0.9rem; }
+.std__pts { font-weight: 600; font-size: 0.85rem; }
+.std__state { margin-top: 0.15rem; font-size: 0.78rem; color: var(--muted); }
+.std.fail .std__state { color: var(--fail); }
+.std.pass .std__state { color: var(--pass); }
+.std__basis { margin-top: 0.2rem; font-size: 0.8rem; overflow-wrap: anywhere; }
+.std__rule { margin-top: 0.25rem; font-size: 0.72rem; color: var(--unk); }
+.std__foot { font-size: 0.78rem; color: var(--muted); }
