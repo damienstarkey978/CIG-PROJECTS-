@@ -3,9 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0A0F0C" />
+  <meta name="theme-color" content="#1aff5a" />
   <meta name="description" content="ON GO — When it's ON, you GO. Live Beaches food & drink offers." />
+  <meta name="application-name" content="ON GO" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="ON GO" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <title>ON GO — When it's ON, you GO</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icons/icon-180.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
+  <link rel="apple-touch-startup-image" href="/icons/apple-splash-1170x2532.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
@@ -13,20 +23,29 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <div id="launch-splash" class="launch-splash" role="img" aria-label="ON GO">
+    <img class="splash-icon" src="/assets/on-go-power-icon.png" width="128" height="128" alt="" />
+  </div>
   <div class="night" aria-hidden="true"></div>
 
   <!-- First viewport: brand + map as one composition -->
   <header class="signal-mast">
-    <img
-      class="brand-logo"
-      src="/assets/on-go-logo.jpg"
-      width="1443"
-      height="503"
-      alt="ON GO — When it's ON, you GO. Power-button brand mark."
-    />
+    <div class="brand-lockup">
+      <img
+        class="brand-mark"
+        src="/assets/on-go-power-icon.png"
+        width="44"
+        height="44"
+        alt=""
+      />
+      <div class="brand-word">
+        <p class="brand-name">ON GO</p>
+        <p class="brand-tag">When it’s ON, you GO.</p>
+      </div>
+    </div>
     <div class="mast-meta">
       <p class="support-line">Every hour. Every appetite. Something's ON.</p>
-      <div id="session-chip" class="chip">Not signed in</div>
+      <button type="button" id="session-chip" class="chip" aria-label="Open account — sign in or create account">Not signed in</button>
     </div>
   </header>
 
@@ -34,11 +53,16 @@
     <div id="map" class="map-plane" role="img" aria-label="Live map of Beaches businesses"></div>
     <div class="map-hud">
       <p id="live-hud" class="live-hud"><span class="dot"></span> <span id="live-hud-text">Scanning live offers…</span></p>
+      <div id="geo-hud" class="geo-hud" data-state="pending">
+        <span id="geo-hud-text">Finding your location…</span>
+        <button type="button" id="geo-retry" class="geo-retry" hidden>Use my location</button>
+      </div>
     </div>
   </div>
 
   <nav class="signal-switch" aria-label="App mode">
     <button type="button" class="sw active" data-view="explore" aria-current="page">Explore</button>
+    <button type="button" class="sw" data-view="scan">Scan</button>
     <button type="button" class="sw" data-view="rewards">Rewards</button>
     <button type="button" class="sw" data-view="business">Business</button>
     <button type="button" class="sw" data-view="account">Account</button>
@@ -70,30 +94,68 @@
       <div id="business-list" class="feed"></div>
     </section>
 
+    <section id="view-venue" class="view" hidden>
+      <button type="button" id="venue-back" class="btn ghost venue-back">← Back to Explore</button>
+      <div id="venue-page" class="venue-page">
+        <p class="meta">Loading venue…</p>
+      </div>
+    </section>
+
+    <section id="view-scan" class="view" hidden>
+      <header class="panel-head">
+        <h2>Scan for points</h2>
+        <p class="lede">Scan the venue’s ON GO code in-app. Location must confirm you’re there. Scanning alone never awards points.</p>
+      </header>
+      <div class="sheet stack">
+        <p class="meta points-disclaimer">Points are promotional rewards — not cash.</p>
+        <label>Venue QR payload
+          <input id="scan-payload" type="text" placeholder="ongo:venue:… or paste from QR" autocomplete="off" />
+        </label>
+        <p id="scan-geo-status" class="meta" aria-live="polite">Location required to earn.</p>
+        <div class="split">
+          <button type="button" id="scan-geo-btn" class="btn ghost">Refresh location</button>
+          <button type="button" id="scan-submit" class="btn primary">Check in</button>
+        </div>
+        <p id="scan-result" class="meta" aria-live="polite"></p>
+        <p class="meta">Tip: print the venue window cling / counter sign from Business → Venue QR.</p>
+      </div>
+    </section>
+
     <section id="view-rewards" class="view" hidden>
       <header class="panel-head">
         <h2>Your signal score</h2>
-        <p class="lede">Points fire only after a venue verifies your QR — not when you open a deal.</p>
+        <p class="lede">Earn points with a qualifying visit at a live campaign. Redeem vendor rewards — points are not cash.</p>
       </header>
       <div class="score-ring">
         <p id="points-value" class="score-num">0</p>
         <p class="score-label">points</p>
       </div>
+      <p class="meta points-disclaimer">Rewards, not cash payouts. Vendor-funded catalog below.</p>
       <div id="active-claim" class="sheet" hidden></div>
-      <h3 class="label">History</h3>
+      <h3 class="label">Reward catalog</h3>
+      <div id="rewards-catalog" class="feed"></div>
+      <h3 class="label">Your reward codes</h3>
+      <div id="reward-codes" class="feed"></div>
+      <h3 class="label">Activity ledger</h3>
       <div id="loyalty-history" class="feed"></div>
       <h3 class="label">Favorites</h3>
       <div id="favorites-list" class="feed"></div>
+      <details class="sheet legacy-sim">
+        <summary>Legacy claim→staff verify (simulated / outside live beta)</summary>
+        <p class="meta">Kept for reference. Live beta awards points via Scan + GPS, not staff purchase verify.</p>
+      </details>
     </section>
 
     <section id="view-business" class="view" hidden>
       <header class="panel-head">
         <h2>Flip the switch</h2>
-        <p class="lede">Turn a BOGO ON for the Beaches. Verify QR codes when customers arrive.</p>
+        <p class="lede">Launch a timed campaign. Members scan your venue QR in ON GO for qualifying visits — not purchase scans.</p>
       </header>
 
-      <div id="biz-gate" class="sheet">
-        <p>Business accounts run the power switch. Demo: <code>business@ongo.demo</code> / <code>demo1234</code></p>
+        <div id="biz-gate" class="sheet">
+        <p>Business accounts run the power switch.</p>
+        <p class="meta">Pete's Bar: <code>business@ongo.demo</code> / <code>demo1234</code></p>
+        <p class="meta">European Street Cafe: <code>european@ongo.demo</code> / <code>demo1234</code></p>
         <button type="button" class="btn primary" data-goto="account">Sign in</button>
       </div>
 
@@ -103,46 +165,158 @@
             <span class="power-glyph">⏻</span>
             <span class="power-caption">TAP TO GO ON</span>
           </button>
+          <div class="boost-switch-row">
+            <label class="boost-switch" for="boost-toggle">
+              <input type="checkbox" id="boost-toggle" />
+              <span class="boost-track" aria-hidden="true"></span>
+              <span class="boost-copy">
+                <strong id="boost-label">Boost OFF</strong>
+                <span class="meta">Flip anytime — live on Explore + your venue page</span>
+              </span>
+            </label>
+            <p id="boost-result" class="meta" aria-live="polite"></p>
+          </div>
           <form id="offer-form" class="stack power-form">
             <label>Venue <select id="offer-business" required></select></label>
-            <label>Offer title <input id="offer-title" value="BOGO draft beer" required maxlength="120" /></label>
-            <label>Product <input id="offer-product" value="Any draft beer" maxlength="120" /></label>
-            <div class="split">
-              <label>Minutes <input id="offer-duration" type="number" min="5" max="1440" value="60" /></label>
-              <label>Limit <input id="offer-limit" type="number" min="1" placeholder="∞" /></label>
+            <label>Offer title <input id="offer-title" type="text" value="Happy hour special" required maxlength="120" /></label>
+            <label>Description <textarea id="offer-description" rows="2" maxlength="500" placeholder="What’s ON"></textarea></label>
+            <label>Terms <textarea id="offer-terms" rows="2" maxlength="800" placeholder="While supplies last · dine-in only…"></textarea></label>
+            <label>Photo URL <input id="offer-photo" type="url" placeholder="https://…" maxlength="500" /></label>
+            <label>Product <input id="offer-product" type="text" value="Any draft beer" maxlength="120" /></label>
+            <div class="quick-durations" role="group" aria-label="Campaign length (1–2 hours only)">
+              <button type="button" class="btn ghost" data-duration="60">1 hour</button>
+              <button type="button" class="btn ghost" data-duration="120">2 hours</button>
             </div>
-            <button type="submit" class="btn primary">Confirm — go live</button>
+            <div class="split">
+              <label>Duration
+                <select id="offer-duration" required>
+                  <option value="60" selected>1 hour</option>
+                  <option value="120">2 hours</option>
+                </select>
+              </label>
+              <label>Visit limit (max 100) <input id="offer-limit" type="number" min="1" max="100" value="100" /></label>
+            </div>
+            <p class="meta">50 points per qualifying visit (locked). Points ≠ cash. One active campaign per venue.</p>
+            <input id="offer-points" type="hidden" value="50" />
+            <div class="split">
+              <button type="button" id="offer-preview-btn" class="btn ghost">Customer preview</button>
+              <button type="submit" class="btn primary">GO LIVE</button>
+            </div>
+            <div id="offer-preview" class="offer-preview sheet" hidden></div>
           </form>
         </div>
 
         <div class="sheet">
-          <h3 class="label">Verify QR</h3>
+          <h3 class="label">Venue QR &amp; print</h3>
+          <p class="meta">Members scan this code in ON GO. “Redeem in app. Scan for points.”</p>
+          <label>Venue <select id="venue-qr-business"></select></label>
+          <div class="split">
+            <button type="button" id="venue-qr-btn" class="btn primary">Show QR</button>
+            <button type="button" id="venue-print-cling" class="btn ghost">Window cling</button>
+            <button type="button" id="venue-print-counter" class="btn ghost">Counter sign</button>
+          </div>
+          <div id="venue-qr-panel" class="venue-qr-panel" hidden>
+            <img id="venue-qr-img" alt="Venue QR" width="240" height="240" />
+            <p id="venue-qr-payload" class="mono"></p>
+            <a id="venue-qr-download" class="btn ghost" download="ongo-venue-qr.png">Download PNG</a>
+          </div>
+        </div>
+
+        <div class="sheet">
+          <h3 class="label">Vendor rewards</h3>
+          <p class="meta">You fund and fulfill. ON GO only manages the points ledger. Points ≠ cash and do not expire in beta. Claimed codes: 30-day redemption window.</p>
+          <form id="reward-create-form" class="stack">
+            <label>Venue <select id="reward-business" required></select></label>
+            <label>Title <input id="reward-title" type="text" required maxlength="120" placeholder="Free appetizer" /></label>
+            <label>Terms <input id="reward-terms" type="text" maxlength="800" /></label>
+            <div class="split">
+              <label>Points cost <input id="reward-cost" type="number" min="1" value="100" required /></label>
+              <label>Quantity <input id="reward-qty" type="number" min="1" value="20" required /></label>
+            </div>
+            <label>Listing end date <input id="reward-expires" type="datetime-local" required /></label>
+            <button type="submit" class="btn primary">List reward</button>
+          </form>
+          <form id="reward-fulfill-form" class="stack" style="margin-top:0.75rem">
+            <h4 class="label">Confirm redemption</h4>
+            <label>Code <input id="reward-fulfill-code" type="text" placeholder="ABCD2345" autocomplete="off" /></label>
+            <button type="submit" class="btn primary">Fulfill once</button>
+            <p id="reward-fulfill-result" class="meta" aria-live="polite"></p>
+          </form>
+        </div>
+
+        <div class="sheet legacy-sim">
+          <h3 class="label">Legacy staff verify (simulated)</h3>
+          <p class="warn">Outside live beta — purchase claim tokens only. Live path is Scan + GPS.</p>
           <form id="verify-form" class="stack">
-            <label>Token <input id="verify-token" placeholder="ongo:… or paste token" autocomplete="off" /></label>
-            <button type="submit" class="btn primary">Verify &amp; award</button>
+            <label>Token <input id="verify-token" type="text" placeholder="ongo:… or paste token" autocomplete="off" /></label>
+            <button type="submit" class="btn ghost">Verify (sim)</button>
           </form>
           <p id="verify-result" class="meta" aria-live="polite"></p>
           <div id="verify-next" class="feed"></div>
         </div>
 
         <div class="sheet">
-          <h3 class="label">Analytics preview</h3>
+          <h3 class="label">Campaign results</h3>
+          <p class="meta">Views · qualifying visits · points awarded · rewards redeemed — never sales/revenue.</p>
           <div id="biz-analytics" class="feed"></div>
+          <div id="biz-results" class="feed"></div>
         </div>
 
         <div class="sheet">
-          <h3 class="label">Your offers</h3>
+          <h3 class="label">Your campaigns</h3>
           <div id="biz-offers" class="feed"></div>
         </div>
 
         <div class="sheet">
-          <h3 class="label">Plans (scaffold)</h3>
+          <h3 class="label">Plan</h3>
           <div id="biz-plans" class="feed"></div>
         </div>
 
         <div class="sheet">
+          <h3 class="label">Add venue</h3>
+          <p class="meta">We’ll search the web for a logo from the website. Replace it if it’s wrong.</p>
+          <form id="add-business-form" class="stack">
+            <label>Name <input id="add-biz-name" type="text" required maxlength="120" placeholder="Venue name" /></label>
+            <label>Website <input id="add-biz-website" type="url" placeholder="https://…" /></label>
+            <label>Address <input id="add-biz-address" type="text" maxlength="200" placeholder="Street, city" /></label>
+            <div class="split">
+              <label>Area
+                <select id="add-biz-area" required>
+                  <option value="Atlantic Beach">Atlantic Beach</option>
+                  <option value="Neptune Beach">Neptune Beach</option>
+                  <option value="Jacksonville Beach" selected>Jacksonville Beach</option>
+                  <option value="Ponte Vedra Beach">Ponte Vedra Beach</option>
+                </select>
+              </label>
+              <label>Category
+                <select id="add-biz-category">
+                  <option>Coffee</option>
+                  <option>Breakfast</option>
+                  <option>Lunch</option>
+                  <option>Bar</option>
+                  <option selected>Dinner</option>
+                </select>
+              </label>
+            </div>
+            <div id="add-biz-logo-preview" class="add-biz-logo-preview" hidden>
+              <img id="add-biz-logo-img" alt="Logo preview" width="64" height="64" />
+              <p id="add-biz-logo-meta" class="meta"></p>
+            </div>
+            <div id="add-biz-logo-empty" class="ad-logo-empty" hidden>
+              <p>No logo found yet — upload one or save and we’ll keep trying.</p>
+              <label class="btn ghost ad-upload-btn">Upload logo
+                <input id="add-biz-logo-file" type="file" accept="image/*" hidden />
+              </label>
+            </div>
+            <button type="button" id="add-biz-lookup" class="btn ghost">Find logo</button>
+            <button type="submit" class="btn primary">Save venue</button>
+          </form>
+          <p id="add-biz-result" class="meta" aria-live="polite"></p>
+        </div>
+
+        <div class="sheet">
           <h3 class="label">Featured placement sim</h3>
-          <p class="warn">Simulation only — no charge.</p>
+          <p class="warn">Simulation only — no charge. Preview the ad space ON GO would sell.</p>
           <form id="bid-form" class="stack">
             <label>Slot <select id="bid-slot" required></select></label>
             <label>Venue <select id="bid-business" required></select></label>
@@ -150,6 +324,18 @@
             <button type="submit" class="btn ghost">Simulate bid</button>
           </form>
           <p id="bid-result" class="meta" aria-live="polite"></p>
+
+          <div id="ad-preview" class="ad-preview" hidden>
+            <h4 class="ad-preview-title">Ad creative preview</h4>
+            <p id="ad-preview-meta" class="meta"></p>
+            <div id="ad-creatives" class="ad-creatives"></div>
+            <div id="ad-logo-empty" class="ad-logo-empty" hidden>
+              <p>No logo found for this venue. Upload one to fill the ad.</p>
+              <label class="btn ghost ad-upload-btn">Upload logo
+                <input id="ad-logo-upload" type="file" accept="image/*" hidden />
+              </label>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -162,8 +348,32 @@
 
       <div id="account-signed-in" class="sheet" hidden>
         <p id="account-summary"></p>
+        <p id="account-verify-banner" class="meta" hidden></p>
+        <button type="button" id="resend-verify-btn" class="btn ghost" hidden>Resend verification email</button>
+        <form id="account-settings-form" class="stack">
+          <h3 class="label">Account settings</h3>
+          <label>Display name <input id="settings-name" type="text" maxlength="80" required /></label>
+          <label>Current password <input id="settings-current" type="password" autocomplete="current-password" /></label>
+          <label>New password <input id="settings-password" type="password" autocomplete="new-password" minlength="8" /></label>
+          <button type="submit" class="btn primary">Save settings</button>
+          <p id="settings-result" class="meta" aria-live="polite"></p>
+        </form>
+        <div id="admin-panel" class="sheet" hidden>
+          <h3 class="label">Admin</h3>
+          <p class="meta">Approve venues, review campaigns/rewards, adjust points, suspend.</p>
+          <div id="admin-content" class="feed"></div>
+          <form id="admin-adjust-form" class="stack">
+            <label>User id <input id="admin-user-id" type="text" required /></label>
+            <label>Delta <input id="admin-delta" type="number" required /></label>
+            <label>Reason <input id="admin-reason" type="text" required minlength="3" /></label>
+            <button type="submit" class="btn ghost">Adjust points</button>
+            <p id="admin-adjust-result" class="meta" aria-live="polite"></p>
+          </form>
+        </div>
         <button type="button" id="logout-btn" class="btn ghost">Sign out</button>
       </div>
+
+      <p id="auth-flash" class="meta" aria-live="polite" hidden></p>
 
       <div id="account-forms" class="auth-split">
         <form id="login-form" class="sheet stack">
@@ -171,13 +381,28 @@
           <label>Email <input name="email" type="email" required autocomplete="username" /></label>
           <label>Password <input name="password" type="password" required autocomplete="current-password" /></label>
           <button type="submit" class="btn primary">Sign in</button>
+          <button type="button" id="forgot-toggle" class="btn ghost">Forgot password?</button>
           <p class="meta">Demo customer: customer@ongo.demo / demo1234</p>
+        </form>
+        <form id="forgot-form" class="sheet stack" hidden>
+          <h3 class="label">Reset password</h3>
+          <label>Email <input name="email" type="email" required autocomplete="username" /></label>
+          <button type="submit" class="btn primary">Email reset link</button>
+          <button type="button" id="forgot-cancel" class="btn ghost">Back to sign in</button>
+          <p id="forgot-result" class="meta" aria-live="polite"></p>
+        </form>
+        <form id="reset-form" class="sheet stack" hidden>
+          <h3 class="label">Choose a new password</h3>
+          <input type="hidden" name="token" id="reset-token" />
+          <label>New password <input name="password" type="password" required minlength="6" autocomplete="new-password" /></label>
+          <button type="submit" class="btn primary">Update password</button>
+          <p id="reset-result" class="meta" aria-live="polite"></p>
         </form>
         <form id="register-form" class="sheet stack">
           <h3 class="label">Create account</h3>
-          <label>Name <input name="display_name" required maxlength="80" /></label>
-          <label>Email <input name="email" type="email" required /></label>
-          <label>Password <input name="password" type="password" required minlength="6" /></label>
+          <label>Name <input name="display_name" type="text" required maxlength="80" autocomplete="name" /></label>
+          <label>Email <input name="email" type="email" required autocomplete="username" /></label>
+          <label>Password <input name="password" type="password" required minlength="6" autocomplete="new-password" /></label>
           <label>I am a
             <select name="role" id="register-role">
               <option value="customer">Customer</option>
@@ -205,5 +430,12 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>

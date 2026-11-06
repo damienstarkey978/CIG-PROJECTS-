@@ -414,15 +414,6 @@
     "addr": ""
   },
   {
-    "id": 4544937950,
-    "type": "node",
-    "lat": 30.3257705,
-    "lng": -81.4068543,
-    "name": "Fly's Tie Irish Pub",
-    "amenity": "bar",
-    "addr": "177 Sailfish Drive East Atlantic Beach"
-  },
-  {
     "id": 4532620825,
     "type": "node",
     "lat": 30.324432,
