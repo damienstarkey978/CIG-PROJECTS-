@@ -1058,7 +1058,15 @@ function ingredientChecks(facts, evidence = "winery") {
   const out = [];
   if (!list.length && !allergens) return out;
   const addedSugar = list.filter((x) => /sucrose|sugar|saccharose|zucchero|sucre|azúcar|concentrated (grape )?must|mosto concentrato|moût concentré|dosage|liqueur|tirage|expedition/i.test(x));
-  if (addedSugar.length) out.push({ ...base, id: "no_added_sugar", status: "fail", evidence, detail: `EU label lists ${addedSugar.join(", ")}.` });
+  // Sparkling wine: plain "sugar" on the list is usually tirage sugar for the
+  // second fermentation (consumed by the yeast), not sweetening. With a zero
+  // dosage label it is not counted as a failure; the detail explains why.
+  const tirageOnly = facts.sparkling && addedSugar.length && addedSugar.every((x) => /^(sugar|sucrose|saccharose|zucchero|sucre|az[uú]car)$/i.test(x.replace(/^[^:]*:\s*/, "").trim()));
+  if (tirageOnly && facts.zeroDosage) {
+    out.push({ ...base, id: "no_added_sugar", status: "unknown", evidence: "none", detail: `EU label lists ${addedSugar.join(", ")}: in a zero dosage sparkling wine this is normally tirage sugar used up by the yeast in the second fermentation, not sweetening. Not counted as a fail; not verified as a pass.` });
+  } else if (addedSugar.length) {
+    out.push({ ...base, id: "no_added_sugar", status: "fail", evidence, detail: `EU label lists ${addedSugar.join(", ")}${facts.sparkling ? " (may include tirage sugar for the second fermentation)" : ""}.` });
+  }
   const concentrate = list.filter((x) => /concentrated (grape )?must|mosto concentrato|moût concentré|mosto concentrado/i.test(x));
   if (concentrate.length) out.push({ ...base, id: "no_concentrates", status: "fail", evidence, detail: `EU label lists ${concentrate.join(", ")}.` });
   const basic = /^(grapes?|uve|raisins?|uva|wine|organic grapes|sulph|sulfi|preservative: (sulph|sulfi)|antioxidant: (sulph|sulfi)|acidity regulator: tartaric|tartaric|packaging gas|nitrogen|argon|carbon dioxide|protective atmosphere|yeast)/i;
@@ -1259,7 +1267,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v50";
+const ENGINE_VERSION = "v51";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1546,7 +1554,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
         ];
     const read = await runAgent({ diag,
       name: "tech", system: sheetPrompt(wine), schema: agentSchema(SHEET_IDS, true), send, content,
-      model: READ_MODEL, deadline: Math.max(deadline, Date.now() + 10000),
+      model: READ_MODEL, deadline: Math.max(deadline, Date.now() + 18000),
     });
     // Backstop: numbers read from the sheet text in code fill anything the
     // model left out (sulfites, sugar), so a lab figure is never lost.
@@ -1793,7 +1801,12 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
     // Source types: the e-label itself, the winery or its European distributor
     // (winery evidence); a European online shop repeating the label (third
     // party, accepted only for the exact vintage); anything else is an estimate.
-    const evidence = ["elabel", "winery", "consortium", "distributor"].includes(eu.kind) ? "winery" : eu.kind === "retailer" ? "third_party" : "estimate";
+    const euYear0 = String(eu.vintage || "").match(/(19|20)\d{2}/)?.[0] || "";
+    const wineYear0 = String(wine.vintage || "").match(/(19|20)\d{2}/)?.[0] || "";
+    // A shop's copy only counts as verified when both the bottle and the page
+    // name the same vintage; non vintage shop listings stay estimates.
+    const evidence = ["elabel", "winery", "consortium", "distributor"].includes(eu.kind) ? "winery"
+      : eu.kind === "retailer" && wineYear0 && euYear0 === wineYear0 ? "third_party" : "estimate";
     const sourceType = eu.kind === "elabel" ? "Verified European E-Label" : eu.kind === "winery" ? "Winery" : eu.kind === "consortium" ? "Official consortium" : eu.kind === "distributor" ? "European distributor" : "Third party (European shop)";
     let host = "";
     try { host = new URL(eu.source_url).hostname.replace(/^www\./, ""); } catch {}
@@ -1878,9 +1891,13 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
       euDisclosure.additives = list.filter((x) => !basicRe.test(x.trim()));
     }
     if (listOk && evidence !== "estimate") {
-      for (const c of ingredientChecks({ ...eu, ingredients: list }, evidence)) {
+      const styleText = `${wine.name} ${wine.style}`;
+      const sparkling = /sparkl|spumante|champagne|cava|cr[eé]mant|prosecco|franciacorta|sekt|brut|frizzante|mousseux|espumoso/i.test(styleText);
+      const zeroDosage = /brut nature|pas dos|dosaggio zero|zero dosage|non dos|brut zero|dosage zero/i.test(styleText);
+      for (const c of ingredientChecks({ ...eu, ingredients: list, sparkling, zeroDosage }, evidence)) {
         if (otherVintage) c.scope = "related_wine";
         if (via) c.detail = `${c.detail.replace(/\.$/, "")}${via}.`;
+        if (c.status === "unknown" && best[c.id] && best[c.id].status !== "unknown") continue;
         if (!strong(best[c.id]) && !(best[c.id]?.evidence === "winery" && evidence !== "winery")) best[c.id] = c;
       }
     } else {
