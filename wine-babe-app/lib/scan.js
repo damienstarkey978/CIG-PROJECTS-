@@ -1081,6 +1081,54 @@ function qrType(text) {
   return t ? "marketing" : "unreadable";
 }
 
+// Reads total / free SO2 and sugar from tech sheet text without the model.
+// Handles "Label .... value" on one line and the two-column layout where a
+// block of labels is followed by a block of values in the same order.
+const SHEET_LABELS = [
+  { key: "so2_total", re: /total\s+(sulphur|sulfur)\s+dioxide|total\s+so2|so2\s+tot|anidride\s+solforosa\s+totale|solforosa\s+totale|so2\s+totale|anhydride\s+sulfureux\s+total|so2\s+total|gesamte\s+schweflige|schwefeldioxid\s+gesamt|anh[ií]drido\s+sulfuroso\s+total/i },
+  { key: "so2_free", re: /free\s+(sulphur|sulfur)\s+dioxide|free\s+so2|solforosa\s+libera|so2\s+libera|so2\s+libre|anhydride\s+sulfureux\s+libre|freie\s+schweflige|sulfuroso\s+libre/i },
+  { key: "rs", re: /residual\s+sugar|sugars?\s*\(glucose|^sugars?\b|zuccheri(\s+residui)?|sucres?\s+r[eé]siduels?|restzucker|az[uú]car\s+residual/i },
+  { key: "other", re: /^(ph|total\s+acidity|volatile\s+acidity|acidit[aà]|net\s+dry\s+extract|estratto|pressure|pressione|alcohol|alcool|density)/i },
+];
+const NUM = /^\s*(\d+(?:[.,]\d+)?)(?:\s*[-–]\s*(\d+(?:[.,]\d+)?))?\s*(mg\/l|g\/l|%|bar)?\s*$/i;
+const toNum = (m) => { const a = parseFloat(m[1].replace(",", ".")); const b = m[2] ? parseFloat(m[2].replace(",", ".")) : null; return { value: b != null ? Math.max(a, b) : a, text: m[0].trim() }; };
+
+function sheetNumbers(text) {
+  const lines = String(text || "").split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const out = {};
+  const keyOf = (l) => (SHEET_LABELS.find((x) => x.re.test(l)) || {}).key;
+  // 1. same line: "Total sulphur dioxide mg/l 145" or "SO2 totale: 130-145 mg/l"
+  for (const l of lines) {
+    const k = keyOf(l);
+    if (!k || k === "other" || out[k]) continue;
+    const m = l.match(/(\d+(?:[.,]\d+)?)(?:\s*[-–]\s*(\d+(?:[.,]\d+)?))?\s*(mg\/l|g\/l)?\s*$/i);
+    if (m && !/\b(19|20)\d{2}\b/.test(m[0]) && /[a-z]/i.test(l.slice(0, l.length - m[0].length))) out[k] = toNum(m);
+  }
+  // 2. label block followed by a value block of the same length
+  for (let i = 0; i < lines.length; i++) {
+    if (!keyOf(lines[i])) continue;
+    let j = i;
+    while (j < lines.length && keyOf(lines[j]) && !NUM.test(lines[j])) j++;
+    const labels = lines.slice(i, j);
+    if (labels.length < 3) { i = j; continue; }
+    // find the next run of numeric-only lines at least as long
+    for (let k = j; k < lines.length; k++) {
+      let e = k;
+      while (e < lines.length && NUM.test(lines[e])) e++;
+      if (e - k >= labels.length) {
+        labels.forEach((lab, idx) => {
+          const key = keyOf(lab);
+          if (key && key !== "other" && !out[key]) out[key] = toNum(lines[k + idx].match(NUM));
+        });
+        break;
+      }
+      k = e;
+    }
+    i = j;
+  }
+  return out;
+}
+
 // ---------- one Claude call with tools, under a deadline ----------
 // At the deadline the call is cut and, if earlier turns gathered anything, a
 // quick no-tools follow up turns what was found into the JSON answer.
@@ -1211,7 +1259,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v48";
+const ENGINE_VERSION = "v49";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1496,10 +1544,30 @@ This is a second try: you MUST run a web search for the exact wine name first. I
           { type: "document", source: { type: "base64", media_type: "application/pdf", data: sheet.data } },
           { type: "text", text: `This is the winery's tech sheet, from ${sheet.url}. Read it and fill the items. tech_sheet_url is that url.` },
         ];
-    return runAgent({ diag,
+    const read = await runAgent({ diag,
       name: "tech", system: sheetPrompt(wine), schema: agentSchema(SHEET_IDS, true), send, content,
       model: READ_MODEL, deadline: Math.max(deadline, Date.now() + 10000),
     });
+    // Backstop: numbers read from the sheet text in code fill anything the
+    // model left out (sulfites, sugar), so a lab figure is never lost.
+    const nums = sheetNumbers(text);
+    if (Object.keys(nums).length) {
+      const out = read || { checks: [], sources: [], nutrition: { ...EMPTY_NUTRITION }, tech_sheet_url: sheet.url, tech_sheet_vintage: "" };
+      out.nutrition = out.nutrition || { ...EMPTY_NUTRITION };
+      const filled = [];
+      if (out.nutrition.total_so2_mg_l == null && nums.so2_total) { out.nutrition.total_so2_mg_l = nums.so2_total.value; filled.push(`SO2 ${nums.so2_total.text}`); }
+      if (out.nutrition.free_so2_mg_l == null && nums.so2_free) { out.nutrition.free_so2_mg_l = nums.so2_free.value; filled.push(`free SO2 ${nums.so2_free.text}`); }
+      if (out.nutrition.residual_sugar_g_l == null && nums.rs) { out.nutrition.residual_sugar_g_l = nums.rs.value; if (!out.nutrition.source || out.nutrition.source === "none") out.nutrition.source = "lab"; filled.push(`sugar ${nums.rs.text}`); }
+      if (nums.so2_total && !(out.checks || []).some((c) => c.id === "sulfites" && c.status === "pass")) {
+        out.checks = (out.checks || []).filter((c) => c.id !== "sulfites");
+        out.checks.push({ id: "sulfites", status: "pass", evidence: "lab", scope: "this_wine", as_of: "", detail: `Tech sheet: total SO2 ${nums.so2_total.text} mg/L${nums.so2_free ? `, free ${nums.so2_free.text} mg/L` : ""}.`, source_url: sheet.url });
+        filled.push("sulfites check");
+      }
+      if (!out.tech_sheet_url) out.tech_sheet_url = sheet.url;
+      diag.push({ name: "sheet-numbers", outcome: `${JSON.stringify(Object.fromEntries(Object.entries(nums).map(([k, v]) => [k, v.text])))}${filled.length ? `; filled ${filled.join(", ")}` : ""}`.slice(0, 300) });
+      return out;
+    }
+    return read;
   };
 
   const barnivoreLookup = async () => {
