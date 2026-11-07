@@ -651,6 +651,28 @@ async function fetchImage(url, ms = 6000) {
   }
 }
 
+// How well a tech sheet matches the wine: >0 means it is this wine.
+const VARIETIES = ["pinot noir", "pinot grigio", "pinot gris", "pinot blanc", "cabernet sauvignon", "cabernet franc", "sauvignon blanc", "chardonnay", "merlot", "malbec",
+  "zinfandel", "syrah", "shiraz", "grenache", "garnacha", "tempranillo", "sangiovese", "nebbiolo", "barbera", "riesling", "moscato", "muscat", "prosecco", "glera",
+  "chenin blanc", "viognier", "gewurztraminer", "albarino", "verdejo", "rose", "rosato", "red blend", "white blend", "petite sirah", "carmenere", "primitivo", "montepulciano", "lambrusco", "champagne", "cava"];
+function sheetFits(text, url, wine) {
+  const t = norm(`${text.slice(0, 4000)} ${decodeURIComponent(String(url).split("/").pop() || "")}`);
+  const target = norm(`${wine.name} ${wine.grapes} ${wine.style}`);
+  const mine = VARIETIES.filter((v) => target.includes(v));
+  const named = VARIETIES.filter((v) => t.includes(v));
+  if (mine.length && !mine.some((v) => t.includes(v))) return 0; // not this variety
+  const other = named.filter((v) => !mine.includes(v) && !target.includes(v));
+  let score = mine.filter((v) => t.includes(v)).length * 3;
+  const words = norm(wine.name).split(" ").filter((w) => w.length > 2 && !VARIETIES.some((v) => v.split(" ").includes(w)));
+  score += words.filter((w) => t.includes(w)).length;
+  // A sheet that is mainly about another variety (only mentions ours in passing) loses.
+  if (other.length && !mine.length) return 0;
+  score -= other.length;
+  const y = String(wine.vintage || "");
+  if (/^\d{4}$/.test(y) && t.includes(y)) score += 1;
+  return Math.max(0, score);
+}
+
 const LABEL_PAGES_SCHEMA = {
   type: "object", additionalProperties: false, required: ["pages", "image_urls"],
   properties: {
@@ -1343,6 +1365,62 @@ function sheetNumbers(text) {
     }
     i = j;
   }
+  // 3. a run of "Label:" lines with the values as a run of the same length
+  //    just before or after it (e.g. Varietal: / Alcohol: / RS: / TA:).
+  const colonKey = (l) => (/^(rs|r\.s\.)\s*:?$/i.test(l) ? "rs" : keyOf(l.replace(/:\s*$/, "")));
+  const per100 = (v) => {
+    const m = String(v).match(/(\d+(?:[.,]\d+)?)\s*(?:g|mg)?\s*(\/\s*100\s*m?l|g\/l|mg\/l)?/i);
+    if (!m) return null;
+    let val = Number(m[1].replace(",", "."));
+    if (m[2] && /100/.test(m[2])) val *= 10;
+    return { value: Math.round(val * 100) / 100, text: String(v).trim() };
+  };
+  for (let i = 0; i < lines.length; i++) {
+    if (!/:\s*$/.test(lines[i])) continue;
+    let j = i;
+    while (j < lines.length && /:\s*$/.test(lines[j]) && lines[j].length < 40) j++;
+    const labels = lines.slice(i, j);
+    if (labels.length >= 3) {
+      // Only labels up to the last one we read matter (long wrapped text
+      // values like Aromas come later and would shift the count).
+      const want = labels.map((l) => colonKey(l)).map((k, idx) => ({ k, idx, lab: labels[idx] }));
+      const lastNum = Math.max(...want.filter((w) => (w.k && w.k !== "other") || /alcohol|abv|ph\b|ta\b|acid/i.test(w.lab)).map((w) => w.idx), -1);
+      if (lastNum >= 0) {
+        const L = lastNum + 1;
+        const fits = (start) => {
+          if (start < 0 || start + L > lines.length) return -1;
+          const vals = lines.slice(start, start + L);
+          if (vals.some((v) => /:\s*$/.test(v))) return -1;
+          let sc = 0;
+          for (let x = 0; x < L; x++) {
+            const lab = labels[x], v = vals[x];
+            if (/alcohol|abv/i.test(lab)) sc += /%/.test(v) ? 2 : -2;
+            else if ((want[x].k && want[x].k !== "other") || /\bph\b|\bta\b|acid/i.test(lab)) sc += /\d/.test(v) ? 1 : -2;
+            else sc += /\d/.test(v) ? -1 : 0.5;
+          }
+          return sc;
+        };
+        const starts = [];
+        for (let st = i - labels.length - 8; st <= i - L; st++) starts.push(st);
+        for (let st = j; st <= j + 3; st++) starts.push(st);
+        const best = starts.map((st) => ({ st, sc: fits(st) })).sort((a, b) => b.sc - a.sc)[0];
+        if (best && best.sc >= 2) {
+          for (let x = 0; x < L; x++) {
+            const key = want[x].k;
+            if (!key || key === "other" || out[key]) continue;
+            const v = per100(lines[best.st + x]);
+            if (v) out[key] = v;
+          }
+        }
+      }
+    }
+    i = j;
+  }
+  // Sugar written per 100 ml ("RS 0.93g/100mL"): convert to g/L.
+  if (!out.rs) {
+    const m = String(text || "").match(/(?:\bRS\b|residual\s+sugar)\s*:?\s*([\d]+(?:[.,]\d+)?)\s*g\s*\/\s*100\s*m?l/i);
+    if (m) { const v = Number(m[1].replace(",", ".")) * 10; if (v >= 0 && v < 300) out.rs = { value: Math.round(v * 10) / 10, text: `${m[1]} g/100 ml (${Math.round(v * 10) / 10} g/L)` }; }
+  }
   return out;
 }
 
@@ -1564,7 +1642,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v65";
+const ENGINE_VERSION = "v68";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1604,7 +1682,7 @@ async function runScan({ image, image2, mediaType, query, fresh }, send, cache) 
   if (!id) throw new Error("Could not read that label. Try a clearer photo or type the wine name.");
   // Second try when it gave up without a producer: force a web search and
   // accept a brand (store and private label wines like "Terracotta") as producer.
-  if (!id.identified && !(id.wine?.producer || "").trim()) {
+  if (!(id.wine?.producer || "").trim()) {
     const retry = await runAgent({ diag,
       name: "identify-retry",
       system: IDENTIFY_SYSTEM + `
@@ -1890,6 +1968,9 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     if (!found?.url) return null;
     const bv = await readBarnivore(found.url);
     diag.push({ name: "barnivore", outcome: bv.error ? `${bv.error}: ${found.url}` : `${bv.status} (${bv.as_of}): ${found.url}` });
+    // Only Barnivore's wine entries count (its beer or liquor entry for a
+    // store brand says nothing about this wine).
+    if (/barnivore\.com\/(beer|liquor)\//i.test(found.url)) { diag.push({ name: "barnivore-skipped", outcome: `not a wine entry: ${found.url}` }); return null; }
     return bv.error || bv.status === "unknown" ? null : bv;
   };
 
@@ -1924,10 +2005,14 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       ...lists.flatMap((l) => l.images),
     ];
     // Tech sheets linked from those pages: read their text.
-    const pdfCands = [...new Map(lists.flatMap((l) => l.pdfs).map((p) => [p.url, p])).values()].slice(0, 2);
-    const sheets = (await Promise.all(pdfCands.map(async (p) => { const got = await fetchPdf(p.url, 8000); return got.data ? { ...p, text: await pdfText(got.data) } : null; })))
+    const pdfAll = [...new Map(lists.flatMap((l) => l.pdfs).map((p) => [p.url, p])).values()].slice(0, 4);
+    const read4 = (await Promise.all(pdfAll.map(async (p) => { const got = await fetchPdf(p.url, 8000); return got.data ? { ...p, text: await pdfText(got.data) } : null; })))
       .filter((x) => x && x.text && x.text.length > 200);
-    if (pdfCands.length) diag.push({ name: "store-sheets", outcome: `${sheets.length}/${pdfCands.length}: ${pdfCands.map((p) => p.url).join(" , ")}`.slice(0, 300) });
+    // Keep only sheets for THIS wine: the grape or wine name must appear in
+    // the sheet, and a sheet naming a different variety or style is dropped
+    // (a brand's Red Blend sheet is not its Pinot Noir).
+    const sheets = read4.map((x) => ({ ...x, fit: sheetFits(x.text, x.url, wine) })).filter((x) => x.fit > 0).sort((a, b) => b.fit - a.fit).slice(0, 1);
+    if (pdfAll.length) diag.push({ name: "store-sheets", outcome: `kept ${sheets.map((x) => x.url).join(" , ") || "none"} of ${read4.length} read (${read4.map((x) => `${x.url.split("/").pop()}=${sheetFits(x.text, x.url, wine)}`).join(", ")})`.slice(0, 400) });
     const seenImg = new Set();
     const picked = cands.sort((a, b) => b.score - a.score).filter((c) => !seenImg.has(c.url) && seenImg.add(c.url)).slice(0, 6);
     const imgs = (await Promise.all(picked.map(async (c) => ({ ...c, img: await fetchImage(c.url) })))).filter((c) => c.img).slice(0, 3);
@@ -2657,7 +2742,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
       if (n.residual_sugar_g_l == null && sn.rs) {
         n.residual_sugar_g_l = sn.rs.value; n.source = "lab";
         const per5 = sn.rs.value * 0.14787;
-        set("sugar_under_1g", { id: "sugar_under_1g", status: per5 < 1 ? "pass" : "fail", evidence: "lab", scope: "this_wine", as_of: "", detail: `Tech sheet: ${sn.rs.text} g/L residual sugar, about ${per5.toFixed(2)} g per 5 oz.`, source_url: sn.url, origin: `Tech sheet on ${sh}` });
+        set("sugar_under_1g", { id: "sugar_under_1g", status: per5 < 1 ? "pass" : "fail", evidence: "lab", scope: "this_wine", as_of: "", detail: `Tech sheet: ${sn.rs.value} g/L residual sugar${/100/.test(sn.rs.text) ? ` (printed as ${sn.rs.text})` : ""}, about ${per5.toFixed(2)} g per 5 oz.`, source_url: sn.url, origin: `Tech sheet on ${sh}` });
       }
       if (!result.wine.tech_sheet_url) result.wine = { ...result.wine, tech_sheet_url: sn.url };
     }
