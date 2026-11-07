@@ -835,9 +835,9 @@ function htmlToText(html) {
 // Unlocker key set (BRIGHTDATA_API_KEY, optional BRIGHTDATA_ZONE), these pages
 // are read through it; without a key they are skipped as before.
 // Grocers and liquor stores read through Bright Data (they block plain fetches).
-const GROCER_HOSTS = "walmart\\.com|target\\.com|kroger\\.com|totalwine\\.com|wegmans\\.com|albertsons\\.com|safeway\\.com|publix\\.com|meijer\\.com|heb\\.com|instacart\\.com|thrivemarket\\.com|freshdirect\\.com|bevmo\\.com|wholefoodsmarket\\.com|amazon\\.(com|de|co\\.uk|it|fr)";
+const GROCER_HOSTS = "walmart\\.com|target\\.com|kroger\\.com|totalwine\\.com|wegmans\\.com|albertsons\\.com|safeway\\.com|publix\\.com|meijer\\.com|heb\\.com|instacart\\.com|thrivemarket\\.com|freshdirect\\.com|bevmo\\.com|traderjoes\\.com|sprouts\\.com|wholefoodsmarket\\.com|amazon\\.(com|de|co\\.uk|it|fr)";
 const HARD_SHOPS = new RegExp(`(^|\\.)(${GROCER_HOSTS})$`, "i");
-const GROCER_NAMES = "Walmart, Target, Kroger, Total Wine & More, Wegmans, Albertsons, Safeway, Publix, Meijer, H-E-B, Instacart, Thrive Market, FreshDirect, BevMo!, Whole Foods";
+const GROCER_NAMES = "Walmart, Target, Kroger, Total Wine & More, Wegmans, Albertsons, Safeway, Publix, Meijer, H-E-B, Instacart, Thrive Market, FreshDirect, BevMo!, Trader Joe's, Sprouts, Whole Foods";
 const HAS_UNLOCKER = Boolean(process.env.BRIGHTDATA_API_KEY);
 // Last Bright Data error, for the scan diagnostics (never includes the key).
 let unlockerLastError = "";
@@ -1556,7 +1556,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v63";
+const ENGINE_VERSION = "v64";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1939,8 +1939,8 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     name: "ingredients-grocers", model: SMART_MODEL, system: INGREDIENTS_SYSTEM + `
 This run is for big grocers and liquor stores: ${GROCER_NAMES}. Look for this exact wine's product page on those stores and its Ingredients section. Fetch the product page to read the panel. Source is "retailer" with that page as source_url. Always put the product page URL you found in source_url, even when you could not read its ingredient list (then found false).`,
     schema: INGREDIENTS_SCHEMA, send, deadline,
-    content: ask(`Wine: ${wineLine(wine)}. Search exactly:\n1. ${brandAndName(wine)} ingredients walmart target kroger\n2. ${brandAndName(wine)} total wine bevmo instacart\n3. ${brandAndName(wine)} whole foods thrive market wegmans publix`),
-    tools: webTools(3, 3),
+    content: ask(`Wine: ${wineLine(wine)}. Search exactly:\n1. ${brandAndName(wine)} ingredients walmart target kroger\n2. ${brandAndName(wine)} total wine bevmo instacart\n3. ${brandAndName(wine)} whole foods thrive market wegmans publix\n4. ${brandAndName(wine)} trader joes sprouts`),
+    tools: webTools(4, 3),
   }).catch(() => null).then(async (g) => {
     // Grocers block plain fetches: read the product page through Bright Data
     // and pull the ingredient panel from it.
