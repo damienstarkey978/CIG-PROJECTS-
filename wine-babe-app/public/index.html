@@ -38,10 +38,12 @@
         </span>
       </label>
       <input id="photo" type="file" accept="image/*" capture="environment" hidden />
+      <input id="photoLib" type="file" accept="image/*" hidden />
       <p class="hint">Point at the front label. Good light helps.</p>
+      <label class="upload-link" for="photoLib">Or upload a photo of the label</label>
 
       <form id="searchForm" class="search" autocomplete="off">
-        <input id="query" type="search" placeholder="Or type a wine name" aria-label="Wine name" />
+        <input id="query" type="search" placeholder="Or type brand + wine name" aria-label="Wine name" />
         <button type="submit" aria-label="Search">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.2-4.2" /></svg>
         </button>
@@ -59,14 +61,16 @@
     <section id="scanning" class="screen" aria-label="Scanning" aria-live="polite">
       <div class="scanning__photo"><img id="preview" alt="" hidden /><img class="scanning__heart" src="/images/heart.png" alt="" /></div>
       <h2 id="scanTitle">Reading the label</h2>
-      <p class="muted">Finding the tech sheet and checking every claim. This takes about a minute.</p>
+      <p class="muted">Finding the tech sheet and checking every claim. This takes under a minute.</p>
       <ol id="feed" class="feed"></ol>
     </section>
 
     <!-- RESULT -->
     <section id="result" class="screen" aria-label="Result"></section>
   </main>
+  <p id="appVersion" class="app-version"></p>
 
+  <script src="/version.js"></script>
   <script src="/checklist.js"></script>
   <script src="/app.js"></script>
 </body>

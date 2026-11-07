@@ -39,6 +39,8 @@ function readBody(req, limit = 12 * 1024 * 1024) {
 
 // Jobs live in memory here; on Netlify they live in Blobs (see netlify/functions).
 const JOBS = new Map();
+const RESULTS = new Map(); // scan cache, in memory
+const cache = { get: async (k) => RESULTS.get(k) || null, set: async (k, v) => { RESULTS.set(k, v); } };
 const json = (res, code, obj) => res.writeHead(code, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify(obj));
 
 async function handleStart(req, res) {
@@ -50,7 +52,7 @@ async function handleStart(req, res) {
   }
   const id = jobs.newId();
   JOBS.set(id, { events: [], done: false });
-  jobs.runJob(input, (job) => { JOBS.set(id, job); }, engine);
+  jobs.runJob(input, (job) => { JOBS.set(id, job); }, engine, cache);
   setTimeout(() => JOBS.delete(id), 30 * 60 * 1000).unref();
   json(res, 200, { id });
 }
@@ -80,7 +82,17 @@ function serveStatic(req, res) {
 }
 
 http
-  .createServer((req, res) => {
+  .createServer(async (req, res) => {
+    // Password gate (same rules as the Netlify edge function).
+    const { gate } = await import("./lib/auth.mjs");
+    const isLogin = req.url.split("?")[0] === "/login";
+    const body = isLogin && req.method === "POST" ? await readBody(req) : undefined;
+    const r = await gate(new Request(`http://${req.headers.host || "localhost"}${req.url}`, { method: req.method, headers: req.headers, body }), process.env.AUTH_SECRET);
+    if (r) {
+      // Local http: drop Secure so the cookie works on localhost.
+      const headers = Object.fromEntries([...r.headers].map(([k, v]) => [k, k === "set-cookie" ? v.replace("; Secure", "") : v]));
+      return void res.writeHead(r.status, headers).end(Buffer.from(await r.arrayBuffer()));
+    }
     if (req.method === "POST" && req.url === "/api/scan-start") return void handleStart(req, res);
     const m = req.url.match(/^\/api\/scan-status\/([^/?]+)/);
     if (m) return handleStatus(res, m[1]);
