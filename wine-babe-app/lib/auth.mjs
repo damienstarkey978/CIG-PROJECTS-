@@ -4,7 +4,7 @@
 // the printed line into USERS.
 
 export const USERS = {
-  mindy: { name: "Mindy", salt: "3422363df17aa308422740ddcec5fe63", hash: "ecd982c29bbaede635ed0722bc7d59f055ccc95a85ff1b421bfaca2ed61a7f59" },
+  mindy: { name: "Mindy", salt: "0f7fca9e8484123efc9fbc2b783f2aef", hash: "8f2608888caec437e5edcaafbecc7c021f18196410029c4066222ae90bc625f4" },
 };
 
 const COOKIE = "wb_session";
