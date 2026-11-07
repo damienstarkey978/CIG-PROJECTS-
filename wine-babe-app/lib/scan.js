@@ -577,6 +577,83 @@ async function findPageLinks(url) {
   }
 }
 
+// ---------- label photos online ----------
+// Distributors, importers and shops often post photos of the front and back
+// labels. These helpers pull label image URLs from a page and download them.
+const LABEL_IMG_WORDS = /back|retro|rear|label|etichett|etiquet|etikett|front|fronte|bottle|shot|product|wine/i;
+async function pageLabelImages(url, ms = 6000) {
+  let u;
+  try { u = new URL(url); } catch { return []; }
+  if (!/^https?:$/.test(u.protocol) || !isPublicHost(u)) return [];
+  try {
+    const res = await fetch(u, { signal: AbortSignal.timeout(ms), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
+    if (!res.ok) return [];
+    const html = (await res.text()).slice(0, 3_000_000);
+    const found = new Map();
+    const add = (raw, ctx) => {
+      if (!raw || raw.startsWith("data:")) return;
+      let abs;
+      try { abs = new URL(raw.replace(/&amp;/g, "&"), u).href; } catch { return; }
+      if (!/\.(jpe?g|png|webp)(\?|$)/i.test(abs)) return;
+      if (/logo|icon|sprite|favicon|banner|payment|flag|avatar|placeholder/i.test(abs)) return;
+      const text = `${abs} ${ctx}`;
+      let score = 0;
+      if (/back|retro|rear|contro/i.test(text)) score += 3;
+      if (/label|etichett|etiquet|etikett/i.test(text)) score += 2;
+      if (/front|fronte/i.test(text)) score += 1;
+      if (/bottle|shot|product|wine|gallery|zoom|large|full/i.test(text)) score += 0.5;
+      if (score > 0) found.set(abs, Math.max(found.get(abs) || 0, score));
+    };
+    for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
+      const tag = m[0];
+      const alt = (tag.match(/\balt=["']([^"']*)/i) || [])[1] || "";
+      for (const a of ["data-zoom-image", "data-large_image", "data-src", "src"]) {
+        const v = (tag.match(new RegExp(`\\b${a}=["']([^"']+)`, "i")) || [])[1];
+        if (v) { add(v, alt); break; }
+      }
+      const srcset = (tag.match(/\bsrcset=["']([^"']+)/i) || [])[1];
+      if (srcset) add(srcset.split(",").pop().trim().split(/\s+/)[0], alt);
+    }
+    for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["'][^>]*>([\s\S]{0,200}?)<\/a>/gi)) add(m[1], m[2].replace(/<[^>]+>/g, " "));
+    for (const m of html.matchAll(/<meta\b[^>]*property=["']og:image["'][^>]*content=["']([^"']+)/gi)) add(m[1], "product");
+    return [...found.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([url, score]) => ({ url, score, page: u.href }));
+  } catch {
+    return [];
+  }
+}
+
+async function fetchImage(url, ms = 6000) {
+  let u;
+  try { u = new URL(url); } catch { return null; }
+  if (!/^https?:$/.test(u.protocol) || !isPublicHost(u)) return null;
+  try {
+    const res = await fetch(u, { signal: AbortSignal.timeout(ms), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 8000 || buf.length > 4.5 * 1024 * 1024) return null; // skip thumbnails and huge files
+    const type = buf[0] === 0xff && buf[1] === 0xd8 ? "image/jpeg" : buf.subarray(1, 4).toString() === "PNG" ? "image/png" : buf.subarray(8, 12).toString() === "WEBP" ? "image/webp" : "";
+    return type ? { media_type: type, data: buf.toString("base64") } : null;
+  } catch {
+    return null;
+  }
+}
+
+const LABEL_PAGES_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["pages", "image_urls"],
+  properties: {
+    pages: { type: "array", items: { type: "object", additionalProperties: false, required: ["url", "kind"], properties: { url: { type: "string" }, kind: { type: "string", enum: ["brand", "winery", "importer", "distributor", "retailer", "other"] } } } },
+    image_urls: { type: "array", items: { type: "string" } },
+  },
+};
+const LABEL_PAGES_SYSTEM = `You find photos of one wine's bottle labels (front and especially back) for the Wine Babe app.
+Distributors and importers usually post label images or label downloads (front label, back label, bottle shot, shelf talker) on the wine's page; retailers often have a photo gallery with the back label. Run the searches you are given and return up to 5 pages for this exact wine that likely show its labels (distributor and importer first, then the brand's site, then retailers), and any direct image URLs (.jpg, .png, .webp) of its labels you see in the results. Only this wine.`;
+
+const LABEL_READ_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["this_wine", "label_claims"],
+  properties: { this_wine: { type: "boolean" }, label_claims: null },
+};
+const LABEL_READ_SYSTEM = `You read photos of a wine bottle's labels found online, for the Wine Babe app. First check they show the wine named (this_wine false if it is a different wine or not a label). Then fill label_claims with what is printed on these labels, exactly as on a bottle: alcohol, calories per 5 oz serving (US labels give it per serving; convert per 100 ml x 1.4787), sugar per 5 oz, sugar_under_1g for "<1g sugar", carbs per 5 oz, and every claim printed (vegan, gluten free, sustainable, organic, non GMO, hand harvested, no added sugar, no added flavors...). printed_text: the claim lines word for word. Only what is printed and readable; never guess.`;
+
 const FIND_LINKS_TOOL = {
   name: "find_page_links",
   description:
@@ -1405,7 +1482,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v57";
+const ENGINE_VERSION = "v58";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1417,6 +1494,8 @@ const cacheKey = (w) => {
 };
 
 // ---------- main ----------
+
+LABEL_READ_SCHEMA.properties.label_claims = IDENTIFY_SCHEMA.properties.label_claims;
 
 async function runScan({ image, image2, mediaType, query, fresh }, send, cache) {
   // QR code on the label (usually the EU e-label): read it from the photos
@@ -1746,6 +1825,37 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} non GMO vegan gluten free\n2. ${brandAndName(wine)} organic sustainable no added sugar flavors`),
     tools: webTools(2, 3),
   }).catch(() => null);
+
+  // Label photos posted online (distributors, importers, shops): find the
+  // pages, pull the label images, and read them like a bottle photo.
+  const onlineLabelLookup = (async () => {
+    const found = await runAgent({ diag,
+      name: "label-pages", model: SMART_MODEL, system: LABEL_PAGES_SYSTEM, schema: LABEL_PAGES_SCHEMA, send, deadline: deadline - 9000,
+      content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} back label\n2. ${brandAndName(wine)} distributor`),
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
+    }).catch(() => null);
+    if (!found) return null;
+    const pages = (found.pages || []).filter((p) => /^https?:\/\//.test(p.url)).slice(0, 5);
+    const lists = await Promise.all(pages.map((p) => pageLabelImages(p.url)));
+    const cands = [
+      ...(found.image_urls || []).filter((x) => /^https?:\/\//.test(x)).map((url) => ({ url, score: 2.5, page: "" })),
+      ...lists.flat(),
+    ];
+    const seenImg = new Set();
+    const picked = cands.sort((a, b) => b.score - a.score).filter((c) => !seenImg.has(c.url) && seenImg.add(c.url)).slice(0, 6);
+    const imgs = (await Promise.all(picked.map(async (c) => ({ ...c, img: await fetchImage(c.url) })))).filter((c) => c.img).slice(0, 3);
+    diag.push({ name: "label-images", outcome: `${imgs.length}/${picked.length} from ${pages.length} pages: ${imgs.map((c) => c.url).join(" , ")}`.slice(0, 400) });
+    if (!imgs.length) return null;
+    const read = await runAgent({ diag,
+      name: "label-read", model: SMART_MODEL, system: LABEL_READ_SYSTEM, schema: LABEL_READ_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 12000),
+      content: [...imgs.map((c) => ({ type: "image", source: { type: "base64", ...c.img } })), { type: "text", text: `Wine: ${wineLine(wine)}. Read these label photos.` }],
+      tools: [],
+    }).catch(() => null);
+    if (!read?.this_wine) return null;
+    let host = "";
+    try { host = new URL(imgs[0].page || imgs[0].url).hostname.replace(/^www\./, ""); } catch {}
+    return { claims: read.label_claims, src: { name: `Label photo on ${host}`, url: imgs[0].page || imgs[0].url } };
+  })().catch(() => null);
 
   // EU ingredient and nutrition declaration: the e-label from the QR code,
   // plus the e-label, winery and European sellers found by search.
@@ -2363,7 +2473,14 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // A thin result (fewer than 4 of the top 10 known) is not cached: lookups
   // vary run to run, so the next scan gets a fresh try instead of a stored
   // empty answer.
-  const knownTop = ALL_ITEMS.filter((i) => i.top).filter((i) => checks.some((c) => c.id === i.id && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail"))).length;
+  {
+    const ol = await onlineLabelLookup;
+    if (ol?.claims) {
+      const applied = applyLabelClaims(result, ol.claims, true, ol.src);
+      Object.assign(result, { checks: applied.checks, nutrition: applied.nutrition, debug: applied.debug });
+    }
+  }
+  const knownTop = ALL_ITEMS.filter((i) => i.top).filter((i) => result.checks.some((c) => c.id === i.id && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail"))).length;
   diag.push({ name: "cache", outcome: knownTop >= 4 ? `stored (${knownTop}/10 known)` : `skipped, thin result (${knownTop}/10 known)` });
   if (cache && knownTop >= 4) await cache.set(key, { cached_at: Date.now(), result }).catch(() => {});
   return applyLabelClaims(result, id.label_claims, image);
@@ -2373,7 +2490,8 @@ This is a second try: you MUST run a web search for the exact wine name first. I
 // own statement. Applied last, also to saved results, so a photo scan always
 // shows what is on the label. A stronger source (lab sheet, certifier) or a
 // verified fail is kept.
-function applyLabelClaims(result, lc, image) {
+function applyLabelClaims(result, lc, image, src = { name: "Bottle label", url: "" }) {
+  const W = src.name;
   if (!image || !lc) return result;
   const out = { ...result, checks: (result.checks || []).map((c) => ({ ...c })), nutrition: { ...(result.nutrition || EMPTY_NUTRITION) } };
   const n = out.nutrition;
@@ -2384,38 +2502,38 @@ function applyLabelClaims(result, lc, image) {
     const cur = i >= 0 ? out.checks[i] : null;
     if (cur && (cur.status === "pass" || cur.status === "fail") && ["lab", "certified"].includes(cur.evidence)) return;
     if (cur && cur.status === "fail" && cur.status !== status && ["winery", "third_party"].includes(cur.evidence)) return;
-    const c = { id, status, evidence: "winery", scope: "this_wine", as_of: "", detail, source_url: "", origin: "Bottle label" };
+    const c = { id, status, evidence: "winery", scope: "this_wine", as_of: "", detail, source_url: src.url || "", origin: W };
     if (i >= 0) out.checks[i] = c; else out.checks.push(c);
     used.push(id);
   };
   const num = (v) => (typeof v === "number" && isFinite(v) ? v : null);
   const abv = num(lc.abv);
-  if (abv != null && abv > 0 && abv < 25) { n.abv = abv; put("abv", "pass", `Bottle label: ${abv}% alcohol.`); }
+  if (abv != null && abv > 0 && abv < 25) { n.abv = abv; put("abv", "pass", `${W}: ${abv}% alcohol.`); }
   const cal = num(lc.calories_per_5oz);
   if (cal != null && cal > 0) {
     n.calories_5oz = Math.round(cal);
-    put("calories", "pass", `Bottle label: ${Math.round(cal)} calories per 5 oz serving.`);
+    put("calories", "pass", `${W}: ${Math.round(cal)} calories per 5 oz serving.`);
   }
   const carbs = num(lc.carbs_g_per_5oz);
-  if (carbs != null) { n.carbs_5oz = carbs; put("carbs", "pass", `Bottle label: ${carbs} g carbs per 5 oz serving.`); }
+  if (carbs != null) { n.carbs_5oz = carbs; put("carbs", "pass", `${W}: ${carbs} g carbs per 5 oz serving.`); }
   const sugar = num(lc.sugar_g_per_5oz);
   const sugarCheck = out.checks.find((c) => c.id === "sugar_under_1g");
   const sugarStrong = sugarCheck && ["lab", "certified"].includes(sugarCheck.evidence) && sugarCheck.status !== "unknown";
   if (!sugarStrong && sugar != null) {
     n.residual_sugar_g_l = Math.round((sugar / 0.14787) * 10) / 10;
     n.source = "winery";
-    put("sugar_under_1g", sugar < 1 ? "pass" : "fail", `Bottle label: ${sugar} g sugar per 5 oz serving.`);
+    put("sugar_under_1g", sugar < 1 ? "pass" : "fail", `${W}: ${sugar} g sugar per 5 oz serving.`);
   } else if (!sugarStrong && lc.sugar_under_1g) {
     n.residual_sugar_g_l = null;
     n.sugar_below_g_l = 6.7;
     n.source = "winery";
-    put("sugar_under_1g", "pass", `Bottle label: less than 1 g sugar per 5 oz serving${quote}.`);
+    put("sugar_under_1g", "pass", `${W}: less than 1 g sugar per 5 oz serving${quote}.`);
   }
   for (const claim of lc.claims || []) {
     const id = LABEL_CLAIM_MAP[claim];
-    if (id) put(id, "pass", `Bottle label says "${CLAIM_TEXT[claim] || claim}"${quote}.`);
+    if (id) put(id, "pass", `${W} says "${CLAIM_TEXT[claim] || claim}"${quote}.`);
   }
-  out.debug = [...(out.debug || []), { name: "label-claims", outcome: `${used.join(", ") || "none"}: ${lc.printed_text || ""}`.slice(0, 300) }];
+  out.debug = [...(out.debug || []), { name: W === "Bottle label" ? "label-claims" : "online-label-claims", outcome: `${used.join(", ") || "none"}: ${lc.printed_text || ""}`.slice(0, 300) }];
   return out;
 }
 
