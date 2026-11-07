@@ -140,7 +140,7 @@ const IDENTIFY_SCHEMA = {
     },
     label_claims: {
       type: "object", additionalProperties: false,
-      required: ["printed_text", "abv", "calories_per_5oz", "sugar_g_per_5oz", "sugar_under_1g", "carbs_g_per_5oz", "claims"],
+      required: ["printed_text", "abv", "calories_per_5oz", "sugar_g_per_5oz", "sugar_under_1g", "carbs_g_per_5oz", "claims", "bottled_by", "barcode"],
       description: "Facts and claims printed on the bottle (front or back label). Null / false / empty when not printed. Never guess.",
       properties: {
         printed_text: str,
@@ -150,6 +150,8 @@ const IDENTIFY_SCHEMA = {
         sugar_under_1g: { type: "boolean" },
         carbs_g_per_5oz: { type: ["number", "null"] },
         claims: { type: "array", items: { type: "string", enum: LABEL_CLAIMS } },
+        bottled_by: { type: "string", description: "The 'Produced and bottled by / Vinted and bottled by / Bottled by / Imported by / Prodotto e imbottigliato da' line as printed, with company and town. Empty if not visible." },
+        barcode: { type: "string", description: "Digits printed under the barcode (UPC / EAN), if readable. Empty otherwise." },
       },
     },
     label_marks: {
@@ -243,7 +245,7 @@ Then find the winery's official website and this wine's product page on it, with
 A name without a vintage is fine: identify the wine and leave vintage "" (non vintage or latest).
 No producer given (e.g. "Pinot Noir Rosé Single Fermentation"): use your web search on the exact name to find which winery makes it. If the results point to one producer's wine, identify it with that producer. If several fit, pick the most popular one and say so in note. Watch for different wineries sharing a family name (e.g. Ciccio Zaccagnini in Abruzzo makes the "Zeta" line; Fratelli Zaccagnini in Marche makes Rosso Piceno): match the wine line and appellation to the right producer and its own website (Ciccio Zaccagnini is cantinazaccagnini.it, Fratelli Zaccagnini is zaccagnini.it), and say in note if the name mixes them. winery_website must belong to the producer you named.
 From a label photo, also list in label_marks every certification logo, code and claim you can see: EU organic leaf (Euroleaf), AB Agriculture Biologique, Demeter, codes like IT-BIO-006 or FR-BIO-01, and words like Sans OGM, Senza OGM, Privo di OGM, Non OGM, Vino biologico, Uve biologiche, Da agricoltura biologica, Vin biologique. If the barcode is visible, put its printed digits in ean. Say whether a QR code is visible (qr_visible) and where (qr_box, fractions of the photo). Read any nutrition printed on the label into label_nutrition exactly: EU labels show energy per 100 ml (e.g. "E (100 ml) = 357 kJ / 85 kcal"); copy the printed text into printed_text, kcal per 100 ml into energy_kcal_100ml (kJ / 4.184 if only kJ), and sugars or carbohydrates per 100 ml only if printed. Never estimate these. With text input only, label_marks is [] and ean is "".
-There may be two photos: the front label and the back label of the same bottle. Read both. In label_claims, copy what the label itself prints: alcohol (ABV %), calories per serving (US labels give it per 5 oz serving; use it as calories_per_5oz when the serving is 5 oz or not stated; convert per 100 ml x 1.4787), sugar per 5 oz in grams (sugar_under_1g true for "<1g sugar", "less than 1 g sugar", "zero sugar"), carbs per 5 oz, and every claim printed (vegan, gluten free, sustainably farmed / sustainable, organic, non GMO, hand harvested, no added sugar, no added flavors, and the rest of the list). printed_text: the claim line(s) word for word. Only what is printed on this bottle; nothing from memory or the web. With text input only, label_claims is all null, false and empty.
+There may be two photos: the front label and the back label of the same bottle. Read both. In label_claims, copy what the label itself prints: alcohol (ABV %), calories per serving (US labels give it per 5 oz serving; use it as calories_per_5oz when the serving is 5 oz or not stated; convert per 100 ml x 1.4787), sugar per 5 oz in grams (sugar_under_1g true for "<1g sugar", "less than 1 g sugar", "zero sugar"), carbs per 5 oz, and every claim printed (vegan, gluten free, sustainably farmed / sustainable, organic, non GMO, hand harvested, no added sugar, no added flavors, and the rest of the list). printed_text: the claim line(s) word for word. bottled_by: the "Produced / Vinted / Bottled / Imported by" line as printed. barcode: the digits under the barcode. Only what is printed on this bottle; nothing from memory or the web. With text input only, label_claims is all null, false and empty.
 Never ask for a photo or more details. Always give your best guess for anything that looks like a wine (even just a grape or style, e.g. "Pinot Grigio"): fill what you can and leave the rest "". Only set identified false when the input is clearly not a wine at all (a person, a scene, a different product), and explain in note. Unknown text fields are "".`;
 
 const PDF_URLS_SCHEMA = {
@@ -655,7 +657,7 @@ const LABEL_READ_SCHEMA = {
   type: "object", additionalProperties: false, required: ["this_wine", "label_claims"],
   properties: { this_wine: { type: "boolean" }, label_claims: null },
 };
-const LABEL_READ_SYSTEM = `You read photos of a wine bottle's labels found online, for the Wine Babe app. First check they show the wine named: same brand, same wine and same style or dosage (Brut is not Extra Brut, Brut Nature or Extra Dry; a Rosé is not the white). this_wine false if any label is a different wine or version, or not a label. Then fill label_claims with what is printed on these labels, exactly as on a bottle: alcohol, calories per 5 oz serving (US labels give it per serving; convert per 100 ml x 1.4787), sugar per 5 oz, sugar_under_1g for "<1g sugar", carbs per 5 oz, and every claim printed (vegan, gluten free, sustainable, organic, non GMO, hand harvested, no added sugar, no added flavors...). printed_text: the claim lines word for word. Only what is printed and readable; never guess.`;
+const LABEL_READ_SYSTEM = `You read photos of a wine bottle's labels found online, for the Wine Babe app. First check they show the wine named: same brand, same wine and same style or dosage (Brut is not Extra Brut, Brut Nature or Extra Dry; a Rosé is not the white). this_wine false if any label is a different wine or version, or not a label. Then fill label_claims with what is printed on these labels, exactly as on a bottle: alcohol, calories per 5 oz serving (US labels give it per serving; convert per 100 ml x 1.4787), sugar per 5 oz, sugar_under_1g for "<1g sugar", carbs per 5 oz, and every claim printed (vegan, gluten free, sustainable, organic, non GMO, hand harvested, no added sugar, no added flavors...). printed_text: the claim lines word for word. bottled_by: the "Produced / Vinted / Bottled / Imported by" line as printed. barcode: the digits under the barcode if readable. Only what is printed and readable; never guess.`;
 
 const FIND_LINKS_TOOL = {
   name: "find_page_links",
@@ -1059,10 +1061,20 @@ function marksToChecks(marks, source) {
 // Decode a QR code from a JPEG photo. Tries the whole photo, then the area
 // the vision step pointed at (enlarged), then overlapping tiles, since a QR
 // code on a back label is often small in a phone photo.
-function decodeQr(base64, box) {
+let qrLastError = "";
+// Loaded with import() like the SDK: plain require() is not bundled on Netlify.
+let qrLibs = null;
+async function loadQrLibs() {
+  if (!qrLibs) {
+    const [jpegMod, jsqrMod] = await Promise.all([import("jpeg-js"), import("jsqr")]);
+    qrLibs = { jpeg: jpegMod.default || jpegMod, jsqr: jsqrMod.default || jsqrMod };
+  }
+  return qrLibs;
+}
+
+async function decodeQr(base64, box) {
   try {
-    const jpeg = require("jpeg-js");
-    const jsqrMod = require("jsqr");
+    const { jpeg, jsqr: jsqrMod } = await loadQrLibs();
     const jsQR = jsqrMod.default || jsqrMod;
     const img = jpeg.decode(Buffer.from(base64, "base64"), { useTArray: true, maxMemoryUsageInMB: 1024 });
     const crop = (x0, y0, w0, h0, scale = 1) => {
@@ -1104,7 +1116,8 @@ function decodeQr(base64, box) {
       if (data) return data;
     }
     return "";
-  } catch {
+  } catch (err) {
+    qrLastError = String(err?.message || err).slice(0, 120);
     return "";
   }
 }
@@ -1540,7 +1553,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v61";
+const ENGINE_VERSION = "v62";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1558,7 +1571,7 @@ LABEL_READ_SCHEMA.properties.label_claims = IDENTIFY_SCHEMA.properties.label_cla
 async function runScan({ image, image2, mediaType, query, fresh }, send, cache) {
   // QR code on the label (usually the EU e-label): read it from the photos
   // (the back label first, where it usually is).
-  let qrRaw = (image2 ? decodeQr(image2) : "") || (image ? decodeQr(image) : "");
+  let qrRaw = (image2 ? await decodeQr(image2) : "") || (image ? await decodeQr(image) : "");
   let qrUrl = /^https?:\/\//i.test(qrRaw) ? qrRaw : "";
   const t0 = Date.now();
   const diag = [];
@@ -1606,11 +1619,11 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   const wine = id.wine;
   // QR code seen by the vision step but not decoded yet: retry on its area.
   if (image && !qrRaw && id.qr_visible) {
-    qrRaw = decodeQr(image, id.qr_box) || (image2 ? decodeQr(image2, id.qr_box) : "");
+    qrRaw = (await decodeQr(image, id.qr_box)) || (image2 ? await decodeQr(image2, id.qr_box) : "");
     qrUrl = /^https?:\/\//i.test(qrRaw) ? qrRaw : "";
   }
   const qrState = !image ? "no_photo" : qrUrl ? "decoded" : qrRaw ? "not_a_link" : id.qr_visible ? "undecoded" : "none";
-  diag.push({ name: "qr-state", outcome: `${qrState}${qrRaw ? `: ${qrRaw.slice(0, 120)}` : ""}` });
+  diag.push({ name: "qr-state", outcome: `${qrState}${qrRaw ? `: ${qrRaw.slice(0, 120)}` : ""}${qrLastError ? ` (decoder error: ${qrLastError})` : ""}` });
   // Text sources scanned by the certification recognizer.
   const markSources = [];
   {
@@ -1910,9 +1923,12 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       tools: [],
     }).catch(() => null);
     if (!read?.this_wine) return null;
+    // QR codes on the label photos (JPEG only).
+    const qrUrls = (await Promise.all(imgs.filter((c) => c.img.media_type === "image/jpeg").map((c) => decodeQr(c.img.data)))).filter((q) => /^https?:\/\//i.test(q));
+    if (qrUrls.length) diag.push({ name: "label-photo-qr", outcome: qrUrls.join(" , ").slice(0, 300) });
     let host = "";
     try { host = new URL(imgs[0].page || imgs[0].url).hostname.replace(/^www\./, ""); } catch {}
-    return { claims: read.label_claims, src: { name: `Label photo on ${host}`, url: imgs[0].page || imgs[0].url } };
+    return { claims: read.label_claims, qrUrls, src: { name: `Label photo on ${host}`, url: imgs[0].page || imgs[0].url } };
   })().catch(() => null);
 
   // Walmart and Whole Foods list full ingredient panels for many wines.
@@ -1940,6 +1956,38 @@ This run is for big grocers: look on walmart.com and wholefoodsmarket.com (and A
     }).catch(() => null);
     return read?.found ? { ...read, source: "retailer", source_url: g.source_url } : g;
   });
+
+  // Anything scannable or traceable on the bottle: QR codes (from the shopper's
+  // photo or label photos found online), the barcode number and the
+  // "bottled by" line. Each is followed to look for the ingredient list.
+  const codesIngredientsLookup = (async () => {
+    const ol = await onlineLabelLookup;
+    const lcs = [id.label_claims || {}, ol?.claims || {}];
+    const bottler = lcs.map((x) => String(x.bottled_by || "").trim()).find(Boolean) || "";
+    const barcode = [id.ean, ...lcs.map((x) => x.barcode)].map((x) => String(x || "").replace(/\D/g, "")).find((x) => x.length >= 8 && x.length <= 14) || "";
+    const qrs = [...new Set([qrUrl, ...(ol?.qrUrls || [])].filter((q) => /^https?:\/\//i.test(q || "")))].slice(0, 2);
+    diag.push({ name: "codes", outcome: `qr ${qrs.length}, barcode ${barcode || "none"}, bottled by ${bottler || "none"}`.slice(0, 200) });
+    // QR pages first: they are the bottle's own information.
+    for (const q of qrs) {
+      const text = await pageText(q, 9000);
+      if (!/ingredi|zutaten|ingr[eé]dients|ingredientes/i.test(text)) continue;
+      const read = await runAgent({ diag,
+        name: "ingredients-qr", model: SMART_MODEL, system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 10000),
+        content: ask(`Wine: ${wineLine(wine)}. This page is behind the QR code on the bottle (${q}). Read its ingredient list. Source "elabel", source_url ${q}. If it is a different wine, found false.\n\n${text.slice(0, 9000)}`),
+        tools: [],
+      }).catch(() => null);
+      if (read?.found && (read.ingredients || []).length) return { ...read, source: "elabel", source_url: q };
+    }
+    if (!bottler && !barcode) return null;
+    const queries = [barcode ? `${barcode} wine ingredients` : "", bottler ? `${bottler} ${wine.name} ingredients` : ""].filter(Boolean);
+    return runAgent({ diag,
+      name: "ingredients-bottler", model: SMART_MODEL, system: INGREDIENTS_SYSTEM + `
+This run follows what is printed on the bottle: the barcode number and the company that made or bottled it${bottler ? ` ("${bottler}")` : ""}. Find that company's page or a listing for this exact wine (barcode matches) with its ingredient list.`,
+      schema: INGREDIENTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 12000),
+      content: ask(`Wine: ${wineLine(wine)}. Search exactly:\n${queries.map((x, i) => `${i + 1}. ${x}`).join("\n")}`),
+      tools: webTools(queries.length, 2),
+    }).catch(() => null);
+  })().catch(() => null);
 
   // EU ingredient and nutrition declaration: the e-label from the QR code,
   // plus the e-label, winery and European sellers found by search.
@@ -2532,7 +2580,7 @@ This run is for big grocers: look on walmart.com and wholefoodsmarket.com (and A
 
   const result = {
     identified: true,
-    wine: { ...wine, tech_sheet_url: tech?.tech_sheet_url || "", tech_sheet_vintage: tech?.tech_sheet_vintage || "" },
+    wine: { ...wine, tech_sheet_url: tech?.tech_sheet_url || "", tech_sheet_vintage: tech?.tech_sheet_vintage || "", bottled_by: String(id.label_claims?.bottled_by || "").trim() },
     nutrition,
     // Every finding names where it came from; unknowns say none was found.
     checks: checks.map((c) => ({ ...c, origin: c.origin || (c.status === "unknown" || c.evidence === "none" ? "No source found yet" : c.status === "na" ? "Not applicable" : "Scan research") })),
@@ -2545,6 +2593,9 @@ This run is for big grocers: look on walmart.com and wholefoodsmarket.com (and A
       : await (async () => {
         const own = cleanIngredients(await ingredientsLookup, wine);
         if (own.ingredients.length) return own;
+        const codes = cleanIngredients(await codesIngredientsLookup, wine);
+        diag.push({ name: "ingredients-codes-used", outcome: codes.ingredients.length ? `${codes.source} ${codes.source_url}: ${codes.ingredients.join(", ")}`.slice(0, 300) : "none" });
+        if (codes.ingredients.length) return codes;
         const gRaw = await grocerIngredientsLookup;
         diag.push({ name: "ingredients-grocer-raw", outcome: gRaw ? `${gRaw.found} ${gRaw.source} ${gRaw.source_url} [${(gRaw.ingredients || []).join(", ")}]`.slice(0, 300) : "no answer" });
         const g = cleanIngredients(gRaw, wine);
