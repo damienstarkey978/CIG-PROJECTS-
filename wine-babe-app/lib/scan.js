@@ -832,7 +832,7 @@ function htmlToText(html) {
 // Sites that block automated visits (big grocers). With a Bright Data Web
 // Unlocker key set (BRIGHTDATA_API_KEY, optional BRIGHTDATA_ZONE), these pages
 // are read through it; without a key they are skipped as before.
-const HARD_SHOPS = /(^|\.)(walmart\.com|wholefoodsmarket\.com|amazon\.com|target\.com|totalwine\.com|instacart\.com|kroger\.com|safeway\.com)$/i;
+const HARD_SHOPS = /(^|\.)(walmart\.com|wholefoodsmarket\.com|amazon\.(com|de|co\.uk|it|fr)|target\.com|totalwine\.com|instacart\.com|kroger\.com|safeway\.com)$/i;
 const HAS_UNLOCKER = Boolean(process.env.BRIGHTDATA_API_KEY);
 // Last Bright Data error, for the scan diagnostics (never includes the key).
 let unlockerLastError = "";
@@ -1929,7 +1929,8 @@ This run is for big grocers: look on walmart.com and wholefoodsmarket.com (and A
     let host = "";
     try { host = new URL(g.source_url).hostname; } catch { return g; }
     if (!HARD_SHOPS.test(host)) return g;
-    const text = await pageText(g.source_url, 20000);
+    // Bright Data takes 20 to 35 s on Walmart pages.
+    const text = await pageText(g.source_url, 40000);
     diag.push({ name: "grocer-unlocked", outcome: `${text.length}c ${/ingredients?:/i.test(text) ? "with ingredients" : "no ingredients"}: ${g.source_url}`.slice(0, 200) });
     if (!/ingredient/i.test(text)) return g;
     const read = await runAgent({ diag,
