@@ -449,6 +449,7 @@ const INGREDIENTS_SCHEMA = {
     source_url: str,
   },
 };
+const URL_LIST_SCHEMA = { type: "object", additionalProperties: false, required: ["urls"], properties: { urls: { type: "array", items: str } } };
 const GROCER_INGREDIENTS_SCHEMA = {
   ...INGREDIENTS_SCHEMA,
   required: [...INGREDIENTS_SCHEMA.required, "product_urls"],
@@ -1647,7 +1648,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v69";
+const ENGINE_VERSION = "v70";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -2041,13 +2042,25 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   })().catch(() => null);
 
   // Walmart and Whole Foods list full ingredient panels for many wines.
+  const wfLookup = runAgent({ diag,
+    name: "wholefoods-find", model: SMART_MODEL, schema: URL_LIST_SCHEMA, send, deadline,
+    system: `Find this exact wine's product page on Whole Foods Market (wholefoodsmarket.com/grocery/product/...). Same brand, same wine and variety (a brand's Chardonnay page is not its Pinot Noir). Return up to 2 urls, best first; empty if none.`,
+    content: ask(`Wine: ${wineLine(wine)}. Search: ${brandAndName(wine)}`),
+    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2, allowed_domains: ["wholefoodsmarket.com"] }],
+  }).then((r) => (r?.urls || []).filter((u) => /wholefoodsmarket\.com\/(grocery\/)?product\//.test(u)).slice(0, 2)).catch(() => []);
+
   const grocerIngredientsLookup = runAgent({ diag,
     name: "ingredients-grocers", model: SMART_MODEL, system: INGREDIENTS_SYSTEM + `
 This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and Thrive Market usually show the full ingredient panel, so look there first. Find this exact wine's product pages on those stores and their Ingredients section; fetch a page to read the panel. Source is "retailer" with that page as source_url. In product_urls list every product page for this exact wine you found on those stores (best ingredient panel first, Whole Foods first), even when you could not read them.`,
     schema: GROCER_INGREDIENTS_SCHEMA, send, deadline,
     content: ask(`Wine: ${wineLine(wine)}. Search exactly:\n1. ${brandAndName(wine)} whole foods market ingredients\n2. ${brandAndName(wine)} ingredients walmart target kroger\n3. ${brandAndName(wine)} thrive market total wine instacart\n4. ${brandAndName(wine)} trader joes sprouts wegmans publix`),
     tools: webTools(4, 3),
-  }).catch(() => null).then(async (g) => {
+  }).catch(() => null).then(async (g0) => {
+    // A search limited to Whole Foods' own site finds its page far more
+    // reliably than a general search; add what it finds first.
+    const wf = await wfLookup;
+    const g = g0 || { found: false, ingredients: [], source: "none", source_url: "", product_urls: [] };
+    if (wf?.length) g.product_urls = [...wf, ...(g.product_urls || [])];
     // Grocers block plain fetches: read up to 3 store pages through Bright
     // Data at once (Whole Foods first) and take the first full ingredient panel.
     if (!g || (g.found && (g.ingredients || []).length >= 2)) return g;
