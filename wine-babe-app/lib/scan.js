@@ -2473,7 +2473,9 @@ This run is for big grocers: look on walmart.com and wholefoodsmarket.com (and A
       : await (async () => {
         const own = cleanIngredients(await ingredientsLookup, wine);
         if (own.ingredients.length) return own;
-        const g = cleanIngredients(await grocerIngredientsLookup, wine);
+        const gRaw = await grocerIngredientsLookup;
+        diag.push({ name: "ingredients-grocer-raw", outcome: gRaw ? `${gRaw.found} ${gRaw.source} ${gRaw.source_url} [${(gRaw.ingredients || []).join(", ")}]`.slice(0, 300) : "no answer" });
+        const g = cleanIngredients(gRaw, wine);
         diag.push({ name: "ingredients-grocer-used", outcome: g.ingredients.length ? `${g.source_url}: ${g.ingredients.join(", ")}`.slice(0, 300) : "none" });
         return g;
       })(),
