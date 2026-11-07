@@ -480,7 +480,7 @@ function cleanIngredients(raw, wine) {
   // them only with at least two items including the sulphites line.
   // Walmart and Whole Foods publish full ingredient panels, so they are not
   // treated as an unreliable grocer here.
-  const bigGrocer = /(^|\.)(walmart\.com|wholefoodsmarket\.com|amazon\.com)$/i.test((() => { try { return new URL(raw?.source_url || "").hostname; } catch { return ""; } })());
+  const bigGrocer = HARD_SHOPS.test((() => { try { return new URL(raw?.source_url || "").hostname; } catch { return ""; } })());
   if (raw?.source === "retailer" && (list.length < 2 || !list.some((x) => /sulph|sulfi|solfit/i.test(x)) || (!bigGrocer && wrongShopPage(raw.source_url, wine)))) return typicalIngredients(wine);
   if (raw?.found && list.length && /^https?:\/\//.test(raw.source_url || "") && raw.source !== "none") {
     return { ingredients: list, source: raw.source, source_url: raw.source_url };
@@ -834,7 +834,10 @@ function htmlToText(html) {
 // Sites that block automated visits (big grocers). With a Bright Data Web
 // Unlocker key set (BRIGHTDATA_API_KEY, optional BRIGHTDATA_ZONE), these pages
 // are read through it; without a key they are skipped as before.
-const HARD_SHOPS = /(^|\.)(walmart\.com|wholefoodsmarket\.com|amazon\.(com|de|co\.uk|it|fr)|target\.com|totalwine\.com|instacart\.com|kroger\.com|safeway\.com)$/i;
+// Grocers and liquor stores read through Bright Data (they block plain fetches).
+const GROCER_HOSTS = "walmart\\.com|target\\.com|kroger\\.com|totalwine\\.com|wegmans\\.com|albertsons\\.com|safeway\\.com|publix\\.com|meijer\\.com|heb\\.com|instacart\\.com|thrivemarket\\.com|freshdirect\\.com|bevmo\\.com|wholefoodsmarket\\.com|amazon\\.(com|de|co\\.uk|it|fr)";
+const HARD_SHOPS = new RegExp(`(^|\\.)(${GROCER_HOSTS})$`, "i");
+const GROCER_NAMES = "Walmart, Target, Kroger, Total Wine & More, Wegmans, Albertsons, Safeway, Publix, Meijer, H-E-B, Instacart, Thrive Market, FreshDirect, BevMo!, Whole Foods";
 const HAS_UNLOCKER = Boolean(process.env.BRIGHTDATA_API_KEY);
 // Last Bright Data error, for the scan diagnostics (never includes the key).
 let unlockerLastError = "";
@@ -1553,7 +1556,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v62";
+const ENGINE_VERSION = "v63";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1934,10 +1937,10 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // Walmart and Whole Foods list full ingredient panels for many wines.
   const grocerIngredientsLookup = runAgent({ diag,
     name: "ingredients-grocers", model: SMART_MODEL, system: INGREDIENTS_SYSTEM + `
-This run is for big grocers: look on walmart.com and wholefoodsmarket.com (and Amazon / Whole Foods listings) for this exact wine's product page and its Ingredients section. Fetch the product page to read the panel. Source is "retailer" with that page as source_url. Always put the product page URL you found in source_url, even when you could not read its ingredient list (then found false).`,
+This run is for big grocers and liquor stores: ${GROCER_NAMES}. Look for this exact wine's product page on those stores and its Ingredients section. Fetch the product page to read the panel. Source is "retailer" with that page as source_url. Always put the product page URL you found in source_url, even when you could not read its ingredient list (then found false).`,
     schema: INGREDIENTS_SCHEMA, send, deadline,
-    content: ask(`Wine: ${wineLine(wine)}. Search exactly:\n1. ${brandAndName(wine)} ingredients walmart\n2. ${brandAndName(wine)} whole foods market`),
-    tools: webTools(2, 2),
+    content: ask(`Wine: ${wineLine(wine)}. Search exactly:\n1. ${brandAndName(wine)} ingredients walmart target kroger\n2. ${brandAndName(wine)} total wine bevmo instacart\n3. ${brandAndName(wine)} whole foods thrive market wegmans publix`),
+    tools: webTools(3, 3),
   }).catch(() => null).then(async (g) => {
     // Grocers block plain fetches: read the product page through Bright Data
     // and pull the ingredient panel from it.
