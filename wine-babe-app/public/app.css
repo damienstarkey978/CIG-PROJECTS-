@@ -455,3 +455,12 @@ button.ring { border: 0; background: none; padding: 0; cursor: pointer; }
 .sp__foot { margin: 0.4rem 0 0; font-size: 0.72rem; color: var(--unk); }
 
 .sp--reported .sp__val { color: var(--unk); font-style: italic; }
+
+/* Back label prompt */
+.back-ask { position: fixed; inset: 0; background: rgba(43, 29, 31, 0.45); display: grid; place-items: end center; z-index: 50; padding: 16px; }
+.back-ask__card { width: 100%; max-width: 440px; background: var(--card, #fffaf6); border-radius: 22px; padding: 22px 20px 14px; display: grid; gap: 10px; text-align: center; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2); }
+.back-ask__title { font-family: "Cormorant Garamond", serif; font-size: 1.5rem; font-weight: 600; margin: 0; }
+.back-ask__text { margin: 0 0 6px; color: var(--muted, #8b7b78); }
+.back-ask .btn { width: 100%; }
+.back-ask .btn.ghost { background: transparent; border: 1px solid currentColor; color: inherit; }
+.back-ask .btn.link { background: transparent; border: 0; color: var(--muted, #8b7b78); text-decoration: underline; }

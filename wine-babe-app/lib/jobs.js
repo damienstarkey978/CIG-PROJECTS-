@@ -10,7 +10,9 @@ function parseInput(body) {
   const query = typeof body.query === "string" ? body.query.trim().slice(0, 300) : "";
   if (!image && !query) throw new Error("Send a photo or a wine name.");
   if (image && image.length > MAX_IMAGE) throw new Error("Photo is too large.");
-  return { image, query, fresh: body.fresh === true, mediaType: body.mediaType === "image/png" ? "image/png" : "image/jpeg" };
+  const image2 = image && typeof body.image2 === "string" ? body.image2.replace(/^data:[^,]+,/, "") : null;
+  if (image2 && image2.length > MAX_IMAGE) throw new Error("Photo is too large.");
+  return { image, image2, query, fresh: body.fresh === true, mediaType: body.mediaType === "image/png" ? "image/png" : "image/jpeg" };
 }
 
 const newId = () => crypto.randomBytes(12).toString("hex");

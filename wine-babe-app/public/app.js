@@ -122,13 +122,41 @@
     }
   }
 
+  // Front photo first, then offer the back label (ingredients, nutrition,
+  // claims and the QR code are often there).
+  const pickFile = (capture) => new Promise((resolve) => {
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = "image/*";
+    if (capture) inp.setAttribute("capture", "environment");
+    inp.onchange = () => resolve(inp.files[0] || null);
+    inp.click();
+  });
+  const askBack = () => new Promise((resolve) => {
+    const d = document.createElement("div");
+    d.className = "back-ask";
+    d.innerHTML = `<div class="back-ask__card" role="dialog" aria-modal="true" aria-label="Add the back label">
+      <p class="back-ask__title">Got the front label</p>
+      <p class="back-ask__text">Add the back label too? Nutrition, ingredients, claims and the QR code are usually there.</p>
+      <button type="button" class="btn" data-a="camera">Take back label photo</button>
+      <button type="button" class="btn ghost" data-a="library">Choose from photos</button>
+      <button type="button" class="btn link" data-a="skip">Skip, scan the front only</button></div>`;
+    document.body.appendChild(d);
+    d.addEventListener("click", async (e) => {
+      const a = e.target.closest("button")?.dataset.a;
+      if (!a) return;
+      d.remove();
+      resolve(a === "skip" ? null : await pickFile(a === "camera"));
+    });
+  });
   const onPhoto = async (ev) => {
     const file = ev.target.files[0];
     ev.target.value = "";
     if (!file) return;
     try {
-      const dataUrl = await shrink(file);
-      scan({ image: dataUrl, mediaType: "image/jpeg" }, dataUrl);
+      const front = await shrink(file, 2000);
+      const backFile = await askBack();
+      const back = backFile ? await shrink(backFile, 2000) : null;
+      scan(back ? { image: front, image2: back, mediaType: "image/jpeg" } : { image: front, mediaType: "image/jpeg" }, front);
     } catch (err) {
       alert(err.message);
     }

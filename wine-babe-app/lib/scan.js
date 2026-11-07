@@ -71,10 +71,25 @@ const SOURCES = {
   items: { type: "object", additionalProperties: false, required: ["title", "url"], properties: { title: str, url: str } },
 };
 
+// Claims a label can print, mapped to checklist items.
+const LABEL_CLAIM_MAP = {
+  vegan: "vegan", gluten_free: "gluten_free", sustainable: "sustainable", organic: "organic", non_gmo: "non_gmo",
+  hand_harvested: "hand_harvested", no_added_sugar: "no_added_sugar", no_added_flavors: "no_artificial_flavors",
+  no_artificial_colors: "no_artificial_colors", no_artificial_sweeteners: "no_artificial_sweeteners", estate_grown: "estate_grown",
+  family_owned: "family_owned", single_vineyard: "single_vineyard", native_yeast: "yeast", no_added_water: "no_added_water",
+};
+const LABEL_CLAIMS = Object.keys(LABEL_CLAIM_MAP);
+const CLAIM_TEXT = {
+  vegan: "Vegan friendly", gluten_free: "Gluten free", sustainable: "Sustainably farmed", organic: "Organic", non_gmo: "Non GMO",
+  hand_harvested: "Hand harvested", no_added_sugar: "No added sugar", no_added_flavors: "No added flavors", no_artificial_colors: "No artificial colors",
+  no_artificial_sweeteners: "No artificial sweeteners", estate_grown: "Estate grown", family_owned: "Family owned", single_vineyard: "Single vineyard",
+  native_yeast: "Native yeast", no_added_water: "No added water",
+};
+
 const IDENTIFY_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["identified", "wine", "winery_website", "product_page_url", "note", "label_marks", "ean", "bottle_size", "qr_visible", "qr_box", "label_nutrition"],
+  required: ["identified", "wine", "winery_website", "product_page_url", "note", "label_marks", "ean", "bottle_size", "qr_visible", "qr_box", "label_nutrition", "label_claims"],
   properties: {
     identified: { type: "boolean" },
     ean: { type: "string", description: "Barcode digits (EAN / GTIN) printed under the barcode, if visible in the photo, else empty." },
@@ -95,6 +110,20 @@ const IDENTIFY_SCHEMA = {
         sugars_100ml: { type: ["number", "null"] },
         carbs_100ml: { type: ["number", "null"] },
         printed_text: str,
+      },
+    },
+    label_claims: {
+      type: "object", additionalProperties: false,
+      required: ["printed_text", "abv", "calories_per_5oz", "sugar_g_per_5oz", "sugar_under_1g", "carbs_g_per_5oz", "claims"],
+      description: "Facts and claims printed on the bottle (front or back label). Null / false / empty when not printed. Never guess.",
+      properties: {
+        printed_text: str,
+        abv: { type: ["number", "null"] },
+        calories_per_5oz: { type: ["number", "null"] },
+        sugar_g_per_5oz: { type: ["number", "null"] },
+        sugar_under_1g: { type: "boolean" },
+        carbs_g_per_5oz: { type: ["number", "null"] },
+        claims: { type: "array", items: { type: "string", enum: LABEL_CLAIMS } },
       },
     },
     label_marks: {
@@ -188,6 +217,7 @@ Then find the winery's official website and this wine's product page on it, with
 A name without a vintage is fine: identify the wine and leave vintage "" (non vintage or latest).
 No producer given (e.g. "Pinot Noir Rosé Single Fermentation"): use your web search on the exact name to find which winery makes it. If the results point to one producer's wine, identify it with that producer. If several fit, pick the most popular one and say so in note. Watch for different wineries sharing a family name (e.g. Ciccio Zaccagnini in Abruzzo makes the "Zeta" line; Fratelli Zaccagnini in Marche makes Rosso Piceno): match the wine line and appellation to the right producer and its own website (Ciccio Zaccagnini is cantinazaccagnini.it, Fratelli Zaccagnini is zaccagnini.it), and say in note if the name mixes them. winery_website must belong to the producer you named.
 From a label photo, also list in label_marks every certification logo, code and claim you can see: EU organic leaf (Euroleaf), AB Agriculture Biologique, Demeter, codes like IT-BIO-006 or FR-BIO-01, and words like Sans OGM, Senza OGM, Privo di OGM, Non OGM, Vino biologico, Uve biologiche, Da agricoltura biologica, Vin biologique. If the barcode is visible, put its printed digits in ean. Say whether a QR code is visible (qr_visible) and where (qr_box, fractions of the photo). Read any nutrition printed on the label into label_nutrition exactly: EU labels show energy per 100 ml (e.g. "E (100 ml) = 357 kJ / 85 kcal"); copy the printed text into printed_text, kcal per 100 ml into energy_kcal_100ml (kJ / 4.184 if only kJ), and sugars or carbohydrates per 100 ml only if printed. Never estimate these. With text input only, label_marks is [] and ean is "".
+There may be two photos: the front label and the back label of the same bottle. Read both. In label_claims, copy what the label itself prints: alcohol (ABV %), calories per serving (US labels give it per 5 oz serving; use it as calories_per_5oz when the serving is 5 oz or not stated; convert per 100 ml x 1.4787), sugar per 5 oz in grams (sugar_under_1g true for "<1g sugar", "less than 1 g sugar", "zero sugar"), carbs per 5 oz, and every claim printed (vegan, gluten free, sustainably farmed / sustainable, organic, non GMO, hand harvested, no added sugar, no added flavors, and the rest of the list). printed_text: the claim line(s) word for word. Only what is printed on this bottle; nothing from memory or the web. With text input only, label_claims is all null, false and empty.
 Never ask for a photo or more details. Always give your best guess for anything that looks like a wine (even just a grape or style, e.g. "Pinot Grigio"): fill what you can and leave the rest "". Only set identified false when the input is clearly not a wine at all (a person, a scene, a different product), and explain in note. Unknown text fields are "".`;
 
 const PDF_URLS_SCHEMA = {
@@ -1349,7 +1379,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v55";
+const ENGINE_VERSION = "v56";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1362,9 +1392,10 @@ const cacheKey = (w) => {
 
 // ---------- main ----------
 
-async function runScan({ image, mediaType, query, fresh }, send, cache) {
-  // QR code on the label (usually the EU e-label): read it from the photo.
-  let qrRaw = image ? decodeQr(image) : "";
+async function runScan({ image, image2, mediaType, query, fresh }, send, cache) {
+  // QR code on the label (usually the EU e-label): read it from the photos
+  // (the back label first, where it usually is).
+  let qrRaw = (image2 ? decodeQr(image2) : "") || (image ? decodeQr(image) : "");
   let qrUrl = /^https?:\/\//i.test(qrRaw) ? qrRaw : "";
   const t0 = Date.now();
   const diag = [];
@@ -1372,7 +1403,8 @@ async function runScan({ image, mediaType, query, fresh }, send, cache) {
   // 1. Identify.
   const idContent = [];
   if (image) idContent.push({ type: "image", source: { type: "base64", media_type: mediaType || "image/jpeg", data: image } });
-  idContent.push({ type: "text", text: image ? `Identify this wine.${query ? ` Shopper note: ${query}` : ""}` : `Identify this wine: ${query}` });
+  if (image2) idContent.push({ type: "image", source: { type: "base64", media_type: mediaType || "image/jpeg", data: image2 } });
+  idContent.push({ type: "text", text: image ? `Identify this wine.${image2 ? " Photo 1 is the front label, photo 2 the back label." : ""}${query ? ` Shopper note: ${query}` : ""}` : `Identify this wine: ${query}` });
   const id = await runAgent({ diag,
     name: "identify",
     system: IDENTIFY_SYSTEM,
@@ -1411,7 +1443,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   const wine = id.wine;
   // QR code seen by the vision step but not decoded yet: retry on its area.
   if (image && !qrRaw && id.qr_visible) {
-    qrRaw = decodeQr(image, id.qr_box);
+    qrRaw = decodeQr(image, id.qr_box) || (image2 ? decodeQr(image2, id.qr_box) : "");
     qrUrl = /^https?:\/\//i.test(qrRaw) ? qrRaw : "";
   }
   const qrState = !image ? "no_photo" : qrUrl ? "decoded" : qrRaw ? "not_a_link" : id.qr_visible ? "undecoded" : "none";
@@ -1432,7 +1464,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     const ttlDays = hit?.result?.partial ? 1 : CACHE_DAYS;
     if (hit && Date.now() - (hit.cached_at || 0) < ttlDays * 864e5) {
       send({ type: "status", text: "Already checked this wine" });
-      return { ...hit.result, cached: true };
+      return applyLabelClaims({ ...hit.result, cached: true }, id.label_claims, image);
     }
   }
 
@@ -2279,7 +2311,57 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   const knownTop = ALL_ITEMS.filter((i) => i.top).filter((i) => checks.some((c) => c.id === i.id && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail"))).length;
   diag.push({ name: "cache", outcome: knownTop >= 4 ? `stored (${knownTop}/10 known)` : `skipped, thin result (${knownTop}/10 known)` });
   if (cache && knownTop >= 4) await cache.set(key, { cached_at: Date.now(), result }).catch(() => {});
-  return result;
+  return applyLabelClaims(result, id.label_claims, image);
+}
+
+// What the bottle itself prints (front and back label) counts as the winery's
+// own statement. Applied last, also to saved results, so a photo scan always
+// shows what is on the label. A stronger source (lab sheet, certifier) or a
+// verified fail is kept.
+function applyLabelClaims(result, lc, image) {
+  if (!image || !lc) return result;
+  const out = { ...result, checks: (result.checks || []).map((c) => ({ ...c })), nutrition: { ...(result.nutrition || EMPTY_NUTRITION) } };
+  const n = out.nutrition;
+  const quote = lc.printed_text ? ` ("${String(lc.printed_text).slice(0, 80)}")` : "";
+  const used = [];
+  const put = (id, status, detail) => {
+    const i = out.checks.findIndex((c) => c.id === id);
+    const cur = i >= 0 ? out.checks[i] : null;
+    if (cur && (cur.status === "pass" || cur.status === "fail") && ["lab", "certified"].includes(cur.evidence)) return;
+    if (cur && cur.status === "fail" && cur.status !== status && ["winery", "third_party"].includes(cur.evidence)) return;
+    const c = { id, status, evidence: "winery", scope: "this_wine", as_of: "", detail, source_url: "", origin: "Bottle label" };
+    if (i >= 0) out.checks[i] = c; else out.checks.push(c);
+    used.push(id);
+  };
+  const num = (v) => (typeof v === "number" && isFinite(v) ? v : null);
+  const abv = num(lc.abv);
+  if (abv != null && abv > 0 && abv < 25) { n.abv = abv; put("abv", "pass", `Bottle label: ${abv}% alcohol.`); }
+  const cal = num(lc.calories_per_5oz);
+  if (cal != null && cal > 0) {
+    n.calories_5oz = Math.round(cal);
+    put("calories", "pass", `Bottle label: ${Math.round(cal)} calories per 5 oz serving.`);
+  }
+  const carbs = num(lc.carbs_g_per_5oz);
+  if (carbs != null) { n.carbs_5oz = carbs; put("carbs", "pass", `Bottle label: ${carbs} g carbs per 5 oz serving.`); }
+  const sugar = num(lc.sugar_g_per_5oz);
+  const sugarCheck = out.checks.find((c) => c.id === "sugar_under_1g");
+  const sugarStrong = sugarCheck && ["lab", "certified"].includes(sugarCheck.evidence) && sugarCheck.status !== "unknown";
+  if (!sugarStrong && sugar != null) {
+    n.residual_sugar_g_l = Math.round((sugar / 0.14787) * 10) / 10;
+    n.source = "winery";
+    put("sugar_under_1g", sugar < 1 ? "pass" : "fail", `Bottle label: ${sugar} g sugar per 5 oz serving.`);
+  } else if (!sugarStrong && lc.sugar_under_1g) {
+    n.residual_sugar_g_l = null;
+    n.sugar_below_g_l = 6.7;
+    n.source = "winery";
+    put("sugar_under_1g", "pass", `Bottle label: less than 1 g sugar per 5 oz serving${quote}.`);
+  }
+  for (const claim of lc.claims || []) {
+    const id = LABEL_CLAIM_MAP[claim];
+    if (id) put(id, "pass", `Bottle label says "${CLAIM_TEXT[claim] || claim}"${quote}.`);
+  }
+  out.debug = [...(out.debug || []), { name: "label-claims", outcome: `${used.join(", ") || "none"}: ${lc.printed_text || ""}`.slice(0, 300) }];
+  return out;
 }
 
 // ---------- demo mode (no API key) ----------
