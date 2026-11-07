@@ -221,16 +221,23 @@
     // EU labels round small amounts: "under 0.5 g per 100 ml" is shown as an upper bound.
     if (n.residual_sugar_g_l == null && n.sugar_below_g_l != null) n.sugar_below_5oz = (n.sugar_below_g_l * SERVING_ML) / 1000;
     if (n.residual_sugar_g_l != null) n.sugar_5oz = (n.residual_sugar_g_l * SERVING_ML) / 1000;
-    if (n.calories_5oz == null && n.abv != null) {
-      n.calories_5oz = SERVING_ML * (n.abv / 100) * 0.789 * 7 + (n.sugar_5oz || 0) * 4;
-      est.calories = true;
-    }
-    if (n.carbs_5oz == null && n.sugar_5oz != null) {
-      n.carbs_5oz = n.sugar_5oz + 0.5;
-      est.carbs = true;
-    }
-    const byId = Object.fromEntries((data.checks || []).map((c) => [c.id, c]));
-    const checks = ALL_ITEMS.map((i) => ({ ...i, ...(byId[i.id] || { status: "unknown", evidence: "none", detail: "Not checked.", source_url: null }) }));
+    // Only verified figures are shown: typical values and estimates are
+    // dropped (also from results saved before this rule) and shown as
+    // Not verified.
+    const VERIFIED = ["lab", "certified", "winery", "third_party"];
+    const typFields = (n.typical && n.typical.fields) || [];
+    if (typFields.includes("abv")) n.abv = null;
+    if (typFields.includes("so2")) { n.total_so2_mg_l = null; n.free_so2_mg_l = null; }
+    n.typical = null;
+    const rawById = Object.fromEntries((data.checks || []).map((c) => [c.id, c]));
+    if (!VERIFIED.includes(rawById.calories?.evidence)) n.calories_5oz = null;
+    if (!VERIFIED.includes(rawById.carbs?.evidence)) n.carbs_5oz = null;
+    const NOT_VERIFIED = "Not verified: no published figure from the winery, the bottle or another verified source.";
+    const cleaned = (data.checks || []).map((c) => (c.evidence === "estimate" || c.evidence === "typical")
+      ? { ...c, status: "unknown", evidence: "none", detail: NOT_VERIFIED, origin: "No source found yet", source_url: "" }
+      : c);
+    const byId = Object.fromEntries(cleaned.map((c) => [c.id, c]));
+    const checks = ALL_ITEMS.map((i) => ({ ...i, ...(byId[i.id] || { status: "unknown", evidence: "none", detail: "Not verified.", source_url: null }) }));
     if (!sugarVerified) {
       const c = checks.find((x) => x.id === "sugar_under_1g");
       if (c) Object.assign(c, { status: "unknown", evidence: "none", detail: "Unverified: no published sugar figure for this wine." });
@@ -518,8 +525,13 @@
 
   // Ingredient list: published (e-label, winery, importer) or typical for the style.
   function ingredientsCard(ing) {
-    if (!ing || !Array.isArray(ing.ingredients) || !ing.ingredients.length) return "";
-    const typical = ing.source === "typical";
+    if (!ing) return "";
+    // Typical lists are never shown: only a published list, or Not verified.
+    if (ing.source === "typical" || ing.source === "none" || !Array.isArray(ing.ingredients) || !ing.ingredients.length) {
+      return `<div class="card ingredients"><div class="lbl">Ingredients <span class="chip none">Not verified</span></div>
+        <p class="ing-src">No ingredient list from the winery, the bottle's e-label or the importer was found yet.</p></div>`;
+    }
+    const typical = false;
     let host = "";
     try { host = ing.source_url ? new URL(ing.source_url).hostname.replace(/^www\./, "") : ""; } catch {}
     const from = { winery: "the winery", importer: "the importer", elabel: "the bottle's e-label", retailer: "a retailer listing" }[ing.source] || "";
@@ -557,7 +569,10 @@
   // Winery tasting notes. Older results have neither ratings nor tasting, so skip the card for them.
   function tastingCard(t, ratings) {
     if (t === undefined && !Array.isArray(ratings)) return "";
-    if (!t) return "";
+    if (!t || t.source === "typical" || t.source === "none") {
+      return `<div class="card tasting"><div class="lbl">Tasting notes <span class="chip none">Not verified</span></div>
+        <p class="t-src">The winery and importer haven't published tasting notes for this wine.</p></div>`;
+    }
     let host = "";
     try { host = t.source_url ? new URL(t.source_url).hostname.replace(/^www\./, "") : ""; } catch {}
     return `<div class="card tasting">

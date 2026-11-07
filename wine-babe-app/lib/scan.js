@@ -395,14 +395,10 @@ const INGREDIENTS_SYSTEM = `You find a wine's published ingredient list for the 
 Run a web search with exactly the query you are given (the full wine name followed by "ingredients"). Good sources: the EU e-label page behind the bottle's QR code (domains like e-label, u-label, wine-id, ilabel, winelabel), the winery's or importer's product / spec page, or a tech sheet that lists ingredients. Fetch the best page if the snippets don't show the list.
 Ingredients are the things in the bottle (grapes, sugar, acids, preservatives, stabilizers, fining agents, yeast), never tasting notes, aromas or flavors like "blackberry" or "toasted oak". Only this exact wine. Return the ingredients in the order listed, in plain English (e.g. "Grapes", "Sucrose", "Acidity regulator: tartaric acid", "Preservative: sulfites"), with source winery, importer, elabel or retailer and the source_url. If no list is published, found false, empty list, source "none".`;
 
-function typicalIngredients(w) {
-  const t = typicalProfile(w);
-  const grapes = String(w.grapes || "").trim();
-  const list = [grapes ? `Grapes (${grapes})` : "Grapes"];
-  if (/brut nature|zero dosage|dosaggio zero|pas dos/i.test(`${w.name} ${w.style}`)) list.push("No sugar added at dosage");
-  else if (/sparkling|prosecco|brut|extra dry|champagne|cava|spumante|cremant/i.test(`${t.label} ${w.style}`)) list.push("Sugar (dosage, added to balance the sparkling wine)");
-  list.push("Yeast (fermentation)", "Preservative: sulfites");
-  return { ingredients: list, source: "typical", source_url: "", style: t.label };
+// No typical ingredient lists: when nothing is published, the app shows
+// "Not verified" instead of a made up list.
+function typicalIngredients() {
+  return { ingredients: [], source: "none", source_url: "" };
 }
 
 // Shop pages that don't reflect this bottle: US grocery listings, or a URL
@@ -1348,7 +1344,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v53";
+const ENGINE_VERSION = "v54";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1758,12 +1754,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     return { status, facts };
   })().catch(() => ({ status: { applicable: true, note: "", steps: [], complete: false, checked: [] }, facts: null }));
 
-  const typicalTastingCall = runAgent({ diag,
-    name: "tasting-typical", model: SMART_MODEL, schema: TASTING_SCHEMA, send, deadline,
-    system: `You write typical tasting notes for the Wine Babe app when the winery publishes none. Wine: ${wineLine(wine)}.
-Describe how a wine of this grape, style and region typically tastes (1 to 2 short sentences, max 250 characters), up to 6 typical flavor words, and up to 6 classic food pairings for this kind of wine. Set found true, source "none", source_url "".`,
-    content: ask("Write typical tasting notes and food pairings for this kind of wine."),
-  }).catch(() => null);
+  // No typical tasting notes: only the winery's or importer's own.
 
   const tastingLookup = (async () => {
     const first = await runAgent({ diag,
@@ -2102,28 +2093,10 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
       }
     } else diag.push({ name: "abv", outcome: "not found" });
   }
-  // Still nothing published: use typical values for this style of wine,
-  // labeled as such. Published or looked up figures always win.
-  {
-    if (!tech) tech = { checks: [], sources: [], nutrition: { ...EMPTY_NUTRITION }, tech_sheet_url: "", tech_sheet_vintage: "" };
-    tech.nutrition = tech.nutrition || { ...EMPTY_NUTRITION };
-    const n = tech.nutrition;
-    const t = typicalProfile(wine);
-    const used = [];
-    if (n.abv == null) { n.abv = t.abv; used.push("abv"); }
-    // Sugar is never filled with a typical value (shown as unverified); the
-    // typical figure is only used to estimate calories and carbs.
-    const typicalRs = n.residual_sugar_g_l == null ? t.rs : null;
-    if (n.total_so2_mg_l == null) { n.total_so2_mg_l = t.so2; used.push("so2"); }
-    if (used.length) {
-      n.typical = { style: t.label, fields: used };
-    }
-    if (typicalRs != null) {
-      n.typical = n.typical || { style: t.label, fields: [] };
-      n.typical.rs = typicalRs;
-      diag.push({ name: "typical", outcome: `${t.label}: ${used.join(", ")}` });
-    }
-  }
+  // Typical values are no longer used: missing figures stay Not verified.
+  if (!tech) tech = { checks: [], sources: [], nutrition: { ...EMPTY_NUTRITION }, tech_sheet_url: "", tech_sheet_vintage: "" };
+  tech.nutrition = tech.nutrition || { ...EMPTY_NUTRITION };
+
   // Calories and carbs not published: calculate them from ABV and sugar.
   {
     const n = tech?.nutrition;
@@ -2267,17 +2240,7 @@ Describe how a wine of this grape, style and region typically tastes (1 to 2 sho
 
   const ratings = cleanRatings(await ratingsLookup, wine);
   let tasting = cleanTasting(await tastingLookup);
-  if (!tasting) {
-    const tt = await typicalTastingCall;
-    if (tt && (tt.notes || "").trim()) {
-      tasting = {
-        notes: String(tt.notes).replace(/\s+/g, " ").trim().slice(0, 300),
-        flavors: (tt.flavors || []).map((f) => String(f).trim().toLowerCase()).filter(Boolean).slice(0, 6),
-        pairings: (tt.pairings || []).map((f) => String(f).trim()).filter(Boolean).slice(0, 6),
-        source: "typical", source_url: "", style: typicalProfile(wine).label,
-      };
-    }
-  }
+
   diag.push({ name: "tasting-found", outcome: tasting ? `${tasting.source}: ${tasting.source_url}` : "none" });
   diag.push({ name: "ratings-found", outcome: String(ratings.length) });
 
