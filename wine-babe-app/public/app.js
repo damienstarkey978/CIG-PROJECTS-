@@ -496,9 +496,9 @@
       ${euCard(data.eu_disclosure)}
 
       <div class="stats">
-        ${stat(n.calories_5oz != null ? fmt(n.calories_5oz, 0) : null, "", "Calories per 5 oz", r.est.calories ? "calculated" : null)}
-        ${stat(n.carbs_5oz != null ? fmt(n.carbs_5oz, 1) : null, "g", "Carbs per 5 oz", null)}
-        ${stat(n.abv != null ? fmt(n.abv, 1) : null, "%", "Alcohol (ABV)", typ.includes("abv") ? "typical" : null)}
+        ${stat(n.calories_5oz != null ? fmt(n.calories_5oz, 0) : null, "", "Calories per 5 oz", r.est.calories ? "calculated" : n.calories_5oz != null ? "verified" : null)}
+        ${stat(n.carbs_5oz != null ? fmt(n.carbs_5oz, 1) : null, "g", "Carbs per 5 oz", n.carbs_5oz != null ? "verified" : null)}
+        ${stat(n.abv != null ? fmt(n.abv, 1) : null, "%", "Alcohol (ABV)", n.abv != null ? "verified" : null)}
       </div>
       ${typ.length ? `<p class="typical-note">This wine doesn't publish full specs, so ${typ.map((f) => ({ sugar: "sugar", abv: "alcohol", so2: "sulfites" })[f]).join(", ").replace(/, ([^,]*)$/, " and $1")} ${typ.length > 1 ? "are" : "is"} typical for a ${esc(n.typical.style)} and calories and carbs are worked out from those. Treat them as estimates.</p>` : ""}
 
