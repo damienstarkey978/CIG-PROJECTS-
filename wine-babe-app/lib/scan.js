@@ -1365,6 +1365,11 @@ function sheetNumbers(text) {
     }
     i = j;
   }
+  // Sugar written per 100 ml ("RS 0.93g/100mL"): convert to g/L.
+  if (!out.rs) {
+    const m = String(text || "").match(/(?:\bRS\b|residual\s+sugar)\s*:?\s*([\d]+(?:[.,]\d+)?)\s*g\s*\/\s*100\s*m?l/i);
+    if (m) { const v = Number(m[1].replace(",", ".")) * 10; if (v >= 0 && v < 300) out.rs = { value: Math.round(v * 10) / 10, text: `${m[1]} g/100 ml (${Math.round(v * 10) / 10} g/L)` }; }
+  }
   return out;
 }
 
@@ -1586,7 +1591,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v66";
+const ENGINE_VERSION = "v67";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1912,6 +1917,9 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     if (!found?.url) return null;
     const bv = await readBarnivore(found.url);
     diag.push({ name: "barnivore", outcome: bv.error ? `${bv.error}: ${found.url}` : `${bv.status} (${bv.as_of}): ${found.url}` });
+    // Only Barnivore's wine entries count (its beer or liquor entry for a
+    // store brand says nothing about this wine).
+    if (!/barnivore\.com\/wine\//i.test(found.url)) { diag.push({ name: "barnivore-skipped", outcome: `not a wine entry: ${found.url}` }); return null; }
     return bv.error || bv.status === "unknown" ? null : bv;
   };
 
