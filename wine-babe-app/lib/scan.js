@@ -598,7 +598,9 @@ async function pageLabelImages(url, ms = 6000) {
   if (!/^https?:$/.test(u.protocol) || !isPublicHost(u)) return [];
   try {
     let html = "";
-    if (HAS_UNLOCKER && HARD_SHOPS.test(u.hostname)) html = await unlockedHtml(u.href, 30000);
+    // Label photo pages: a short Bright Data wait, and none for Kroger (it rarely loads in time).
+    if (/(^|\.)kroger\.com$/i.test(u.hostname)) return { images: [], pdfs: [] };
+    if (HAS_UNLOCKER && HARD_SHOPS.test(u.hostname) && !OPEN_SHOPS.test(u.hostname)) html = await unlockedHtml(u.href, 15000);
     else {
       const res = await fetch(u, { signal: AbortSignal.timeout(ms), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
       if (res.ok) html = (await res.text()).slice(0, 3_000_000);
@@ -880,6 +882,9 @@ function htmlToText(html) {
 // Grocers and liquor stores read through Bright Data (they block plain fetches).
 const GROCER_HOSTS = "walmart\\.com|target\\.com|kroger\\.com|totalwine\\.com|wegmans\\.com|albertsons\\.com|safeway\\.com|publix\\.com|meijer\\.com|heb\\.com|instacart\\.com|thrivemarket\\.com|freshdirect\\.com|bevmo\\.com|traderjoes\\.com|sprouts\\.com|wholefoodsmarket\\.com|amazon\\.(com|de|co\\.uk|it|fr)";
 const HARD_SHOPS = new RegExp(`(^|\\.)(${GROCER_HOSTS})$`, "i");
+// Stores whose pages load fine directly: read them without Bright Data (much
+// faster); a blocked answer still falls back to it.
+const OPEN_SHOPS = /(^|\.)(wholefoodsmarket\.com)$/i;
 const GROCER_NAMES = "Walmart, Target, Kroger, Total Wine & More, Wegmans, Albertsons, Safeway, Publix, Meijer, H-E-B, Instacart, Thrive Market, FreshDirect, BevMo!, Trader Joe's, Sprouts, Whole Foods";
 const HAS_UNLOCKER = Boolean(process.env.BRIGHTDATA_API_KEY);
 // Last Bright Data error, for the scan diagnostics (never includes the key).
@@ -912,7 +917,7 @@ async function pageText(url, ms = 7000) {
   let u;
   try { u = new URL(url); } catch { return ""; }
   if (!/^https?:$/.test(u.protocol) || !isPublicHost(u)) return "";
-  if (HAS_UNLOCKER && HARD_SHOPS.test(u.hostname)) {
+  if (HAS_UNLOCKER && HARD_SHOPS.test(u.hostname) && !OPEN_SHOPS.test(u.hostname)) {
     const html = await unlockedHtml(u.href, Math.max(ms, 15000));
     return html ? htmlToText(html).slice(0, 12000) : "";
   }
@@ -1655,7 +1660,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v71";
+const ENGINE_VERSION = "v74";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -2074,10 +2079,11 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
     if (!g || (g.found && (g.ingredients || []).length >= 2)) return g;
     if (!HAS_UNLOCKER) return g;
     const urls = [...new Set([...(g.product_urls || []), g.source_url].filter((u) => { try { return HARD_SHOPS.test(new URL(u).hostname); } catch { return false; } }))]
-      .sort((x, y) => Number(/wholefoodsmarket|thrivemarket/.test(y)) - Number(/wholefoodsmarket|thrivemarket/.test(x))).slice(0, 3);
+      // Whole Foods and Thrive first; Kroger last (Bright Data rarely gets it in time).
+      .sort((x, y) => (Number(/wholefoodsmarket|thrivemarket/.test(y)) - Number(/wholefoodsmarket|thrivemarket/.test(x))) || (Number(/kroger/.test(x)) - Number(/kroger/.test(y)))).slice(0, 3);
     if (!urls.length) return g;
     // Bright Data takes 20 to 35 s on some store pages.
-    const texts = await Promise.all(urls.map(async (u) => ({ u, text: await pageText(u, 40000) })));
+    const texts = await Promise.all(urls.map(async (u) => ({ u, text: await pageText(u, 28000) })));
     diag.push({ name: "grocer-unlocked", outcome: texts.map((x) => `${x.text.length}c ${/ingredients?\s*:/i.test(x.text) ? "with ingredients" : "no ingredients"}: ${x.u}`).join(" | ").slice(0, 500) });
     for (const x of texts.filter((t) => /ingredient/i.test(t.text)).sort((p, q) => Number(/ingredients?\s*:/i.test(q.text)) - Number(/ingredients?\s*:/i.test(p.text)))) {
       const read = await runAgent({ diag,
