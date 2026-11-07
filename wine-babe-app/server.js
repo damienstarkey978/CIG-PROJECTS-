@@ -82,7 +82,17 @@ function serveStatic(req, res) {
 }
 
 http
-  .createServer((req, res) => {
+  .createServer(async (req, res) => {
+    // Password gate (same rules as the Netlify edge function).
+    const { gate } = await import("./lib/auth.mjs");
+    const isLogin = req.url.split("?")[0] === "/login";
+    const body = isLogin && req.method === "POST" ? await readBody(req) : undefined;
+    const r = await gate(new Request(`http://${req.headers.host || "localhost"}${req.url}`, { method: req.method, headers: req.headers, body }), process.env.AUTH_SECRET);
+    if (r) {
+      // Local http: drop Secure so the cookie works on localhost.
+      const headers = Object.fromEntries([...r.headers].map(([k, v]) => [k, k === "set-cookie" ? v.replace("; Secure", "") : v]));
+      return void res.writeHead(r.status, headers).end(Buffer.from(await r.arrayBuffer()));
+    }
     if (req.method === "POST" && req.url === "/api/scan-start") return void handleStart(req, res);
     const m = req.url.match(/^\/api\/scan-status\/([^/?]+)/);
     if (m) return handleStatus(res, m[1]);

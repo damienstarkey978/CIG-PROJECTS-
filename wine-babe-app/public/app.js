@@ -88,6 +88,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      if (res.status === 401) { location.href = "/login"; return; }
       const start = await res.json().catch(() => ({}));
       if (!res.ok || !start.id) throw new Error(start.error || "The scanner is not reachable right now.");
 
