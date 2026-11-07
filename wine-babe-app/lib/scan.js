@@ -808,19 +808,51 @@ function wineTerms(wine) {
 // Pull the text out of a PDF (base64). Sending Claude plain text is far faster
 // than sending the PDF itself, which is processed page by page as images.
 // Visible text of a web page (for winery spec pages that are not PDFs).
+// Page HTML to plain text. Ingredient fields hidden in page data (Walmart and
+// similar shops keep them in JSON) are pulled out first.
+function htmlToText(html) {
+  const hidden = [...html.matchAll(/"(?:ingredients|ingredient_statement|ingredientStatement)"\s*:\s*"((?:[^"\\]|\\.){3,600})"/gi)]
+    .map((m) => `Ingredients: ${m[1].replace(/\\u003c[^>]*?\\u003e|\\n|\\"/g, " ")}`);
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<nav[\s\S]*?<\/nav>|<footer[\s\S]*?<\/footer>/gi, " ")
+    .replace(/<br\s*\/?>|<\/(p|div|li|tr|h\d)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&[a-z#0-9]+;/gi, " ")
+    .replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
+  return [...new Set(hidden)].join("\n") + (hidden.length ? "\n" : "") + text;
+}
+
+// Sites that block automated visits (big grocers). With a Bright Data Web
+// Unlocker key set (BRIGHTDATA_API_KEY, optional BRIGHTDATA_ZONE), these pages
+// are read through it; without a key they are skipped as before.
+const HARD_SHOPS = /(^|\.)(walmart\.com|wholefoodsmarket\.com|amazon\.com|target\.com|totalwine\.com|instacart\.com|kroger\.com|safeway\.com)$/i;
+const HAS_UNLOCKER = Boolean(process.env.BRIGHTDATA_API_KEY);
+async function unlockedHtml(url, ms = 20000) {
+  if (!HAS_UNLOCKER) return "";
+  try {
+    const res = await fetch("https://api.brightdata.com/request", {
+      method: "POST",
+      signal: AbortSignal.timeout(ms),
+      headers: { Authorization: `Bearer ${process.env.BRIGHTDATA_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ zone: process.env.BRIGHTDATA_ZONE || "web_unlocker1", url, format: "raw" }),
+    });
+    return res.ok ? (await res.text()).slice(0, 4_000_000) : "";
+  } catch {
+    return "";
+  }
+}
+
 async function pageText(url, ms = 7000) {
   let u;
   try { u = new URL(url); } catch { return ""; }
   if (!/^https?:$/.test(u.protocol) || !isPublicHost(u)) return "";
+  if (HAS_UNLOCKER && HARD_SHOPS.test(u.hostname)) {
+    const html = await unlockedHtml(u.href, Math.max(ms, 15000));
+    return html ? htmlToText(html).slice(0, 12000) : "";
+  }
   try {
     const res = await fetch(u, { signal: AbortSignal.timeout(ms), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
     if (!res.ok) return "";
-    const html = (await res.text()).slice(0, 2_000_000);
-    return html
-      .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<nav[\s\S]*?<\/nav>|<footer[\s\S]*?<\/footer>/gi, " ")
-      .replace(/<br\s*\/?>|<\/(p|div|li|tr|h\d)>/gi, "\n")
-      .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&[a-z#0-9]+;/gi, " ")
-      .replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim().slice(0, 12000);
+    return htmlToText((await res.text()).slice(0, 2_000_000)).slice(0, 12000);
   } catch {
     return "";
   }
@@ -1485,7 +1517,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v59";
+const ENGINE_VERSION = "v60";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1863,11 +1895,27 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // Walmart and Whole Foods list full ingredient panels for many wines.
   const grocerIngredientsLookup = runAgent({ diag,
     name: "ingredients-grocers", model: SMART_MODEL, system: INGREDIENTS_SYSTEM + `
-This run is for big grocers: look on walmart.com and wholefoodsmarket.com (and Amazon / Whole Foods listings) for this exact wine's product page and its Ingredients section. Fetch the product page to read the panel. Source is "retailer" with that page as source_url.`,
+This run is for big grocers: look on walmart.com and wholefoodsmarket.com (and Amazon / Whole Foods listings) for this exact wine's product page and its Ingredients section. Fetch the product page to read the panel. Source is "retailer" with that page as source_url. Always put the product page URL you found in source_url, even when you could not read its ingredient list (then found false).`,
     schema: INGREDIENTS_SCHEMA, send, deadline,
     content: ask(`Wine: ${wineLine(wine)}. Search exactly:\n1. ${brandAndName(wine)} ingredients walmart\n2. ${brandAndName(wine)} whole foods market`),
     tools: webTools(2, 2),
-  }).catch(() => null);
+  }).catch(() => null).then(async (g) => {
+    // Grocers block plain fetches: read the product page through Bright Data
+    // and pull the ingredient panel from it.
+    if (!HAS_UNLOCKER || !g?.source_url || (g.found && (g.ingredients || []).length >= 2)) return g;
+    let host = "";
+    try { host = new URL(g.source_url).hostname; } catch { return g; }
+    if (!HARD_SHOPS.test(host)) return g;
+    const text = await pageText(g.source_url, 20000);
+    diag.push({ name: "grocer-unlocked", outcome: `${text.length}c ${/ingredients?:/i.test(text) ? "with ingredients" : "no ingredients"}: ${g.source_url}`.slice(0, 200) });
+    if (!/ingredient/i.test(text)) return g;
+    const read = await runAgent({ diag,
+      name: "ingredients-grocer-read", model: SMART_MODEL, system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 10000),
+      content: ask(`Wine: ${wineLine(wine)}. Read the ingredient list from this product page (${g.source_url}). Source "retailer", source_url that page. If the page is for a different wine, found false.\n\n${text.slice(0, 9000)}`),
+      tools: [],
+    }).catch(() => null);
+    return read?.found ? { ...read, source: "retailer", source_url: g.source_url } : g;
+  });
 
   // EU ingredient and nutrition declaration: the e-label from the QR code,
   // plus the e-label, winery and European sellers found by search.
@@ -2634,4 +2682,4 @@ async function runDemo(send) {
   return demoResult();
 }
 
-module.exports = { runScan, runDemo, HAS_KEY };
+module.exports = { runScan, runDemo, HAS_KEY, HAS_UNLOCKER };
