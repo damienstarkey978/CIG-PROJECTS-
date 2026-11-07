@@ -621,6 +621,7 @@ async function pageLabelImages(url, ms = 6000) {
       if (/label|etichett|etiquet|etikett/i.test(text)) score += 2;
       if (/front|fronte/i.test(text)) score += 1;
       if (/bottle|shot|product|wine|gallery|zoom|large|full/i.test(text)) score += 0.5;
+      if (/product gallery/.test(ctx)) score += 1.5;
       if (score > 0) found.set(abs, Math.max(found.get(abs) || 0, score));
     };
     for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
@@ -635,6 +636,12 @@ async function pageLabelImages(url, ms = 6000) {
     }
     for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["'][^>]*>([\s\S]{0,200}?)<\/a>/gi)) add(m[1], m[2].replace(/<[^>]+>/g, " "));
     for (const m of html.matchAll(/<meta\b[^>]*property=["']og:image["'][^>]*content=["']([^"']+)/gi)) add(m[1], "product");
+    // Product photo galleries kept in page data (Whole Foods, Amazon and many
+    // shops): every angle of the bottle, back label included.
+    for (const g of html.matchAll(/"(?:images|imageUrls|imageList|gallery|productImages|media)"\s*:\s*\[([^\]]{0,6000})\]/gi)) {
+      for (const m of g[1].matchAll(/https?:\\?\/\\?\/[^"\s,]+?\.(?:jpe?g|png|webp)/gi)) add(m[0].replace(/\\\//g, "/"), "product gallery");
+    }
+    for (const m of html.matchAll(/https:\/\/m\.media-amazon\.com\/images\/I\/[A-Za-z0-9+%._-]+?\.jpg/g)) add(m[0], "product gallery");
     return { images: [...found.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([url, score]) => ({ url, score, page: u.href })), pdfs: pdfs.map((url) => ({ url, page: u.href })) };
   } catch {
     return { images: [], pdfs: [] };
@@ -1648,7 +1655,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v70";
+const ENGINE_VERSION = "v71";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -2004,7 +2011,8 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
     }).catch(() => null);
     if (!found) return null;
-    const pages = (found.pages || []).filter((p) => /^https?:\/\//.test(p.url)).slice(0, 6);
+    const wfPages = (await wfLookup).map((url) => ({ url, kind: "retailer" }));
+    const pages = [...wfPages, ...(found.pages || [])].filter((p) => /^https?:\/\//.test(p.url)).filter((p, i, a) => a.findIndex((q) => q.url === p.url) === i).slice(0, 7);
     const lists = await Promise.all(pages.map((p) => pageLabelImages(p.url)));
     const cands = [
       ...(found.image_urls || []).filter((x) => /^https?:\/\//.test(x)).map((url) => ({ url, score: 2.5, page: "" })),
@@ -2020,8 +2028,8 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     const sheets = read4.map((x) => ({ ...x, fit: sheetFits(x.text, x.url, wine) })).filter((x) => x.fit > 0).sort((a, b) => b.fit - a.fit).slice(0, 1);
     if (pdfAll.length) diag.push({ name: "store-sheets", outcome: `kept ${sheets.map((x) => x.url).join(" , ") || "none"} of ${read4.length} read (${read4.map((x) => `${x.url.split("/").pop()}=${sheetFits(x.text, x.url, wine)}`).join(", ")})`.slice(0, 400) });
     const seenImg = new Set();
-    const picked = cands.sort((a, b) => b.score - a.score).filter((c) => !seenImg.has(c.url) && seenImg.add(c.url)).slice(0, 6);
-    const imgs = (await Promise.all(picked.map(async (c) => ({ ...c, img: await fetchImage(c.url) })))).filter((c) => c.img).slice(0, 3);
+    const picked = cands.sort((a, b) => b.score - a.score).filter((c) => !seenImg.has(c.url) && seenImg.add(c.url)).slice(0, 8);
+    const imgs = (await Promise.all(picked.map(async (c) => ({ ...c, img: await fetchImage(c.url) })))).filter((c) => c.img).slice(0, 4);
     diag.push({ name: "label-images", outcome: `${imgs.length}/${picked.length} from ${pages.length} pages: ${imgs.map((c) => c.url).join(" , ")}`.slice(0, 400) });
     if (!imgs.length && !sheets.length) return null;
     const sheetText = sheets.map((x) => `Tech sheet (${x.url}):\n${x.text.slice(0, 5000)}`).join("\n\n");
