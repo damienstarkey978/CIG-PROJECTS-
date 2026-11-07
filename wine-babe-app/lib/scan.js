@@ -652,7 +652,7 @@ const LABEL_READ_SCHEMA = {
   type: "object", additionalProperties: false, required: ["this_wine", "label_claims"],
   properties: { this_wine: { type: "boolean" }, label_claims: null },
 };
-const LABEL_READ_SYSTEM = `You read photos of a wine bottle's labels found online, for the Wine Babe app. First check they show the wine named (this_wine false if it is a different wine or not a label). Then fill label_claims with what is printed on these labels, exactly as on a bottle: alcohol, calories per 5 oz serving (US labels give it per serving; convert per 100 ml x 1.4787), sugar per 5 oz, sugar_under_1g for "<1g sugar", carbs per 5 oz, and every claim printed (vegan, gluten free, sustainable, organic, non GMO, hand harvested, no added sugar, no added flavors...). printed_text: the claim lines word for word. Only what is printed and readable; never guess.`;
+const LABEL_READ_SYSTEM = `You read photos of a wine bottle's labels found online, for the Wine Babe app. First check they show the wine named: same brand, same wine and same style or dosage (Brut is not Extra Brut, Brut Nature or Extra Dry; a Rosé is not the white). this_wine false if any label is a different wine or version, or not a label. Then fill label_claims with what is printed on these labels, exactly as on a bottle: alcohol, calories per 5 oz serving (US labels give it per serving; convert per 100 ml x 1.4787), sugar per 5 oz, sugar_under_1g for "<1g sugar", carbs per 5 oz, and every claim printed (vegan, gluten free, sustainable, organic, non GMO, hand harvested, no added sugar, no added flavors...). printed_text: the claim lines word for word. Only what is printed and readable; never guess.`;
 
 const FIND_LINKS_TOOL = {
   name: "find_page_links",
