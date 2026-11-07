@@ -174,8 +174,8 @@
       rule: "Pass: verified sugar under 1 g per 5 oz (147.87 ml), from a lab sheet, the bottle or EU e-label, the winery, or a European copy of the EU label for the same vintage. Fail: verified 1 g or more." },
     { id: "no_added_sugar", pts: 15, critical: true, short: "no added sugar (ingredients)", name: "No added sugar",
       rule: "Pass: the producer explicitly states no sugar is added. Fail: verified dosage sugar or sugar / sweetener added to sweeten the wine. Neutral: sugar used and consumed during fermentation (tirage) and concentrated must with no stated purpose. Low residual sugar or zero dosage alone never passes." },
-    { id: "no_artificial_flavors", pts: 15, critical: true, short: "no artificial flavors (ingredients)", name: "No artificial flavors",
-      rule: "Pass: the producer states no flavourings are added. Fail: the ingredient list or producer shows a flavouring." },
+    { id: "no_artificial_flavors", pts: 15, critical: true, short: "no added flavors (ingredients)", name: "No added natural or artificial flavors",
+      rule: "Pass: the published ingredient list (winery, importer or e-label) lists no natural or artificial flavors, or the producer states none are added. Fail: a flavoring is listed. No ingredient list: not verified." },
     { id: "sulfites", pts: 10, short: "sulfite level", name: "Sulfite transparency",
       rule: "Pass: a verified source publishes the total sulfite level (mg/L). 'Contains sulphites' alone is a legal minimum and does not pass. No published level: not verified." },
     { id: "calories", pts: 10, short: "calories", name: "Calories per 5 oz",
@@ -237,6 +237,31 @@
       ? { ...c, status: "unknown", evidence: "none", detail: NOT_VERIFIED, origin: "No source found yet", source_url: "" }
       : c);
     const byId = Object.fromEntries(cleaned.map((c) => [c.id, c]));
+    // #8 No added natural or artificial flavors: a published ingredient list
+    // (winery, importer or the bottle's e-label) with no flavoring on it is a
+    // pass; a flavoring on it is a fail; no list keeps the producer's own
+    // statement or stays Not verified.
+    {
+      const ing = data.ingredients || {};
+      const eu = data.eu_disclosure || {};
+      const fromIng = ["winery", "importer", "elabel"].includes(ing.source) && (ing.ingredients || []).length;
+      const list = fromIng ? ing.ingredients : (eu.ingredients || []);
+      if (list.length) {
+        const url = fromIng ? ing.source_url || "" : eu.source_url || "";
+        const who = fromIng ? ({ winery: "the winery", importer: "the importer", elabel: "the bottle's e-label" })[ing.source] : "the European label";
+        const flav = list.filter((x) => /flavou?r|aroma(?!tic)|ar[oô]me|aromi|saborizante|aromastoff/i.test(x));
+        const res = flav.length
+          ? { status: "fail", evidence: "winery", detail: `Ingredient list from ${who} includes ${flav.join(", ")}.` }
+          : { status: "pass", evidence: "winery", detail: `Ingredient list from ${who} shows no added natural or artificial flavors.` };
+        // A European shop copy of the label (not the official e-label) is third party.
+        if (!fromIng && !(eu.source && eu.source.verified_elabel)) res.evidence = "third_party";
+        for (const id of ["no_artificial_flavors", "no_natural_flavors"]) {
+          const cur = byId[id];
+          if (cur && cur.status === "fail" && VERIFIED.includes(cur.evidence)) continue;
+          byId[id] = { ...(cur || {}), id, scope: "this_wine", ...res, origin: `Ingredient list from ${who}`, source_url: url };
+        }
+      }
+    }
     const checks = ALL_ITEMS.map((i) => ({ ...i, ...(byId[i.id] || { status: "unknown", evidence: "none", detail: "Not verified.", source_url: null }) }));
     if (!sugarVerified) {
       const c = checks.find((x) => x.id === "sugar_under_1g");

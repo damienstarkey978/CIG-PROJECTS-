@@ -25,7 +25,7 @@ const CHECKLIST = [
       { id: "non_gmo", label: "Non GMO", ask: "Including ingredients and fermentation yeast. Often stated on the winery tech sheet (e.g. NO OGM).", top: 2 },
       { id: "vegan", label: "Vegan friendly", ask: "No animal derived fining agents or processing aids. Winery statement is enough.", top: 3 },
       { id: "organic", label: "Organic grapes", ask: "Certified organic or documented organic cultivation.", top: 4 },
-      { id: "no_artificial_flavors", label: "No artificial flavors", ask: "Verify ingredients and flavor additives.", top: 8 },
+      { id: "no_artificial_flavors", label: "No added natural or artificial flavors", ask: "Passes when the published ingredient list shows no natural or artificial flavors.", top: 8 },
       { id: "no_natural_flavors", label: "No added natural flavors", ask: "Flavor comes from grapes and fermentation only." },
       { id: "no_artificial_colors", label: "No artificial colors", ask: "No synthetic coloring agents." },
       { id: "no_artificial_sweeteners", label: "No artificial sweeteners", ask: "No added sugar substitutes." },
