@@ -178,10 +178,12 @@
       rule: "Pass: the producer states no flavourings are added. Fail: the ingredient list or producer shows a flavouring." },
     { id: "sulfites", pts: 10, short: "sulfite level", name: "Sulfite transparency",
       rule: "Pass: a verified source publishes the total sulfite level (mg/L). 'Contains sulphites' alone is a legal minimum and does not pass. No published level: not verified." },
+    { id: "calories", pts: 10, short: "calories", name: "Calories per 5 oz",
+      rule: `Pass: verified ${CALORIE_MAX} calories or less per 5 oz (bottle or EU label, winery, lab). Fail: verified over ${CALORIE_MAX}. Calculated figures are shown but do not earn points.` },
     { id: "organic", pts: 10, short: "organic", name: "Organic grapes",
       rule: "Pass: organic certification (EU leaf, AB, control body code on the bottle, certifier) or the producer documents organic grapes. Fail: verified non-organic." },
-    { id: "non_gmo", pts: 10, short: "non GMO", name: "Non GMO", rule: "Pass: the producer states non GMO (e.g. NO OGM on the tech sheet) or a certifier does." },
-    { id: "vegan", pts: 10, short: "vegan", name: "Vegan friendly", rule: "Pass: the producer states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
+    { id: "non_gmo", pts: 5, short: "non GMO", name: "Non GMO", rule: "Pass: the producer states non GMO (e.g. NO OGM on the tech sheet) or a certifier does." },
+    { id: "vegan", pts: 5, short: "vegan", name: "Vegan friendly", rule: "Pass: the producer states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
     { id: "hand_harvested", pts: 5, short: "hand harvest", name: "Hand harvested grapes", rule: "Pass: the producer states the grapes are hand picked." },
     { id: "sustainable", pts: 5, short: "sustainable farming", name: "Sustainable farming", rule: "Pass: a sustainability certification or the producer's documented practices." },
   ];
@@ -256,13 +258,12 @@
       const c = checks.find((x) => x.id === "calories");
       const from = sc.evidence === "third_party" ? "the European label" : "the winery's tech sheet";
       if (c) Object.assign(c, { status: "pass", evidence: "calculated", scope: "this_wine",
-        detail: `About ${n.calories_5oz} calories per 5 oz, calculated from ${from}: ${n.abv}% alcohol and ${n.residual_sugar_g_l} g/L sugar. Shown for information, not scored.`,
+        detail: `About ${n.calories_5oz} calories per 5 oz, calculated from ${from}: ${n.abv}% alcohol and ${n.residual_sugar_g_l} g/L sugar. Calculated, not published, so it earns no points.`,
         origin: `Calculated from ${from}`, source_url: sc.source_url || "" });
     }
 
     // WINE BABE SCORE (0-100): points only for VERIFIED passes against the
-    // scored standards (top 10 priorities minus calories, which is shown but
-    // not scored), weighted. TRANSPARENCY (0-100%): how many of them have
+    // scored standards (the top 10 priorities), weighted. TRANSPARENCY (0-100%): how many of them have
     // enough evidence to decide pass or fail. Unknown is never a pass and
     // never a fail.
     const top = checks.filter((c) => c.top).sort((a, b) => a.top - b.top);
