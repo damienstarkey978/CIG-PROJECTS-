@@ -198,7 +198,7 @@
       if (s.id === "calories") {
         const cal = n.calories_5oz;
         if (verified && cal != null && !est.calories) { state = cal <= CALORIE_MAX ? "pass" : "fail"; basis = `${Math.round(cal)} calories per 5 oz. ${c.detail || ""}`; }
-        else { state = "unverified"; basis = cal != null ? `About ${Math.round(cal)} calories per 5 oz, an estimate only.` : "No verified calorie figure."; }
+        else { state = "unverified"; basis = cal != null ? `About ${Math.round(cal)} calories per 5 oz, calculated from verified alcohol and sugar. Calculated figures earn no points.` : "No verified calorie figure."; }
       }
       if (s.id === "sulfites") {
         const typicalSo2 = (n.typical?.fields || []).includes("so2");
@@ -248,8 +248,19 @@
       const c = checks.find((x) => x.id === id);
       if (c && c.status === "unknown") Object.assign(c, { status: "pass", evidence: "estimate", scope: "this_wine", detail: text });
     };
-    if (est.calories) fill("calories", `About ${Math.round(n.calories_5oz)} calories per 5 oz, calculated from the published alcohol and sugar.`);
-    if (est.carbs) fill("carbs", `About ${n.carbs_5oz.toFixed(1)} g carbs per 5 oz, calculated from the published sugar.`);
+    // Calories not published: calculate them from verified ABV and verified
+    // sugar only. Shown as "Calculated", earns no points. Carbs and
+    // ingredients are never calculated.
+    if (n.calories_5oz == null && n.abv != null && n.residual_sugar_g_l != null && sugarVerified) {
+      const sugarG = (n.residual_sugar_g_l * SERVING_ML) / 1000;
+      n.calories_5oz = Math.round(SERVING_ML * (n.abv / 100) * 0.789 * 7 + sugarG * 4);
+      est.calories = true;
+      const c = checks.find((x) => x.id === "calories");
+      const from = sc.evidence === "third_party" ? "the European label" : "the winery's tech sheet";
+      if (c) Object.assign(c, { status: "pass", evidence: "calculated", scope: "this_wine",
+        detail: `About ${n.calories_5oz} calories per 5 oz, calculated from ${from}: ${n.abv}% alcohol and ${n.residual_sugar_g_l} g/L sugar. Not a published figure, so it earns no points.`,
+        origin: `Calculated from ${from}`, source_url: sc.source_url || "" });
+    }
 
     // WINE BABE SCORE (0-100): points only for VERIFIED passes against the
     // 10 standards, weighted. TRANSPARENCY (0-100%): how many of the 10 have
@@ -454,8 +465,8 @@
       ${euCard(data.eu_disclosure)}
 
       <div class="stats">
-        ${stat(n.calories_5oz != null ? fmt(n.calories_5oz, 0) : null, "", "Calories per 5 oz", r.est.calories || byId.calories?.evidence === "estimate" ? "estimate" : null)}
-        ${stat(n.carbs_5oz != null ? fmt(n.carbs_5oz, 1) : null, "g", "Carbs per 5 oz", r.est.carbs || byId.carbs?.evidence === "estimate" ? "estimate" : null)}
+        ${stat(n.calories_5oz != null ? fmt(n.calories_5oz, 0) : null, "", "Calories per 5 oz", r.est.calories ? "calculated" : null)}
+        ${stat(n.carbs_5oz != null ? fmt(n.carbs_5oz, 1) : null, "g", "Carbs per 5 oz", null)}
         ${stat(n.abv != null ? fmt(n.abv, 1) : null, "%", "Alcohol (ABV)", typ.includes("abv") ? "typical" : null)}
       </div>
       ${typ.length ? `<p class="typical-note">This wine doesn't publish full specs, so ${typ.map((f) => ({ sugar: "sugar", abv: "alcohol", so2: "sulfites" })[f]).join(", ").replace(/, ([^,]*)$/, " and $1")} ${typ.length > 1 ? "are" : "is"} typical for a ${esc(n.typical.style)} and calories and carbs are worked out from those. Treat them as estimates.</p>` : ""}
