@@ -591,10 +591,18 @@ async function pageLabelImages(url, ms = 6000) {
   try { u = new URL(url); } catch { return []; }
   if (!/^https?:$/.test(u.protocol) || !isPublicHost(u)) return [];
   try {
-    const res = await fetch(u, { signal: AbortSignal.timeout(ms), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
-    if (!res.ok) return [];
-    const html = (await res.text()).slice(0, 3_000_000);
+    let html = "";
+    if (HAS_UNLOCKER && HARD_SHOPS.test(u.hostname)) html = await unlockedHtml(u.href, 30000);
+    else {
+      const res = await fetch(u, { signal: AbortSignal.timeout(ms), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
+      if (res.ok) html = (await res.text()).slice(0, 3_000_000);
+      else if ([401, 403, 429, 503].includes(res.status)) html = await unlockedHtml(u.href, 20000);
+    }
+    if (!html) return { images: [], pdfs: [] };
     const found = new Map();
+    // Tech sheet / spec PDFs linked from the page.
+    const pdfs = [...new Set([...html.matchAll(/href=["']([^"']+\.pdf[^"']*)["']/gi)].map((m) => { try { return new URL(m[1].replace(/&amp;/g, "&"), u).href; } catch { return ""; } }).filter(Boolean))]
+      .sort((a, b) => Number(/tech|sheet|spec|fiche|scheda|ficha|data/i.test(b)) - Number(/tech|sheet|spec|fiche|scheda|ficha|data/i.test(a))).slice(0, 3);
     const add = (raw, ctx) => {
       if (!raw || raw.startsWith("data:")) return;
       let abs;
@@ -621,9 +629,9 @@ async function pageLabelImages(url, ms = 6000) {
     }
     for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["'][^>]*>([\s\S]{0,200}?)<\/a>/gi)) add(m[1], m[2].replace(/<[^>]+>/g, " "));
     for (const m of html.matchAll(/<meta\b[^>]*property=["']og:image["'][^>]*content=["']([^"']+)/gi)) add(m[1], "product");
-    return [...found.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([url, score]) => ({ url, score, page: u.href }));
+    return { images: [...found.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([url, score]) => ({ url, score, page: u.href })), pdfs: pdfs.map((url) => ({ url, page: u.href })) };
   } catch {
-    return [];
+    return { images: [], pdfs: [] };
   }
 }
 
@@ -651,7 +659,7 @@ const LABEL_PAGES_SCHEMA = {
   },
 };
 const LABEL_PAGES_SYSTEM = `You find photos of one wine's bottle labels (front and especially back) for the Wine Babe app.
-Distributors and importers usually post label images or label downloads (front label, back label, bottle shot, shelf talker) on the wine's page; retailers often have a photo gallery with the back label. Run the searches you are given and return up to 5 pages for this exact wine that likely show its labels (distributor and importer first, then the brand's site, then retailers), and any direct image URLs (.jpg, .png, .webp) of its labels you see in the results. Only this wine.`;
+Distributors and importers usually post label images or label downloads (front label, back label, bottle shot, shelf talker) and tech sheets on the wine's page; stores that sell it (Trader Joe's, Total Wine, Whole Foods, Sprouts, Walmart, Target, wine shops) have product pages with label photos and sometimes a tech sheet. Run the searches you are given and return up to 6 pages for this exact wine that likely show its labels or link its tech sheet (distributor and importer first, then the brand's site, then store product pages), and any direct image URLs (.jpg, .png, .webp) of its labels you see in the results. Only this wine.`;
 
 const LABEL_READ_SCHEMA = {
   type: "object", additionalProperties: false, required: ["this_wine", "label_claims"],
@@ -1556,7 +1564,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v64";
+const ENGINE_VERSION = "v65";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1905,33 +1913,41 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   const onlineLabelLookup = (async () => {
     const found = await runAgent({ diag,
       name: "label-pages", model: SMART_MODEL, system: LABEL_PAGES_SYSTEM, schema: LABEL_PAGES_SCHEMA, send, deadline: deadline - 9000,
-      content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} back label\n2. ${brandAndName(wine)} distributor`),
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
+      content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} back label\n2. ${brandAndName(wine)} distributor\n3. ${brandAndName(wine)} tech sheet store`),
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
     }).catch(() => null);
     if (!found) return null;
-    const pages = (found.pages || []).filter((p) => /^https?:\/\//.test(p.url)).slice(0, 5);
+    const pages = (found.pages || []).filter((p) => /^https?:\/\//.test(p.url)).slice(0, 6);
     const lists = await Promise.all(pages.map((p) => pageLabelImages(p.url)));
     const cands = [
       ...(found.image_urls || []).filter((x) => /^https?:\/\//.test(x)).map((url) => ({ url, score: 2.5, page: "" })),
-      ...lists.flat(),
+      ...lists.flatMap((l) => l.images),
     ];
+    // Tech sheets linked from those pages: read their text.
+    const pdfCands = [...new Map(lists.flatMap((l) => l.pdfs).map((p) => [p.url, p])).values()].slice(0, 2);
+    const sheets = (await Promise.all(pdfCands.map(async (p) => { const got = await fetchPdf(p.url, 8000); return got.data ? { ...p, text: await pdfText(got.data) } : null; })))
+      .filter((x) => x && x.text && x.text.length > 200);
+    if (pdfCands.length) diag.push({ name: "store-sheets", outcome: `${sheets.length}/${pdfCands.length}: ${pdfCands.map((p) => p.url).join(" , ")}`.slice(0, 300) });
     const seenImg = new Set();
     const picked = cands.sort((a, b) => b.score - a.score).filter((c) => !seenImg.has(c.url) && seenImg.add(c.url)).slice(0, 6);
     const imgs = (await Promise.all(picked.map(async (c) => ({ ...c, img: await fetchImage(c.url) })))).filter((c) => c.img).slice(0, 3);
     diag.push({ name: "label-images", outcome: `${imgs.length}/${picked.length} from ${pages.length} pages: ${imgs.map((c) => c.url).join(" , ")}`.slice(0, 400) });
-    if (!imgs.length) return null;
+    if (!imgs.length && !sheets.length) return null;
+    const sheetText = sheets.map((x) => `Tech sheet (${x.url}):\n${x.text.slice(0, 5000)}`).join("\n\n");
     const read = await runAgent({ diag,
       name: "label-read", model: SMART_MODEL, system: LABEL_READ_SYSTEM, schema: LABEL_READ_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 12000),
-      content: [...imgs.map((c) => ({ type: "image", source: { type: "base64", ...c.img } })), { type: "text", text: `Wine: ${wineLine(wine)}. Read these label photos.` }],
+      content: [...imgs.map((c) => ({ type: "image", source: { type: "base64", ...c.img } })), { type: "text", text: `Wine: ${wineLine(wine)}. Read these ${imgs.length ? "label photos" : ""}${imgs.length && sheets.length ? " and " : ""}${sheets.length ? "tech sheets found on store and distributor pages (treat what they state like a label)" : ""}.${sheetText ? `\n\n${sheetText}` : ""}` }],
       tools: [],
     }).catch(() => null);
     if (!read?.this_wine) return null;
+    const sheetNums = sheets.length ? { ...sheetNumbers(sheets[0].text), url: sheets[0].url } : null;
     // QR codes on the label photos (JPEG only).
     const qrUrls = (await Promise.all(imgs.filter((c) => c.img.media_type === "image/jpeg").map((c) => decodeQr(c.img.data)))).filter((q) => /^https?:\/\//i.test(q));
     if (qrUrls.length) diag.push({ name: "label-photo-qr", outcome: qrUrls.join(" , ").slice(0, 300) });
     let host = "";
-    try { host = new URL(imgs[0].page || imgs[0].url).hostname.replace(/^www\./, ""); } catch {}
-    return { claims: read.label_claims, qrUrls, src: { name: `Label photo on ${host}`, url: imgs[0].page || imgs[0].url } };
+    const first = imgs[0] || sheets[0];
+    try { host = new URL(first.page || first.url).hostname.replace(/^www\./, ""); } catch {}
+    return { claims: read.label_claims, qrUrls, sheetNums, src: { name: imgs.length ? `Label photo on ${host}` : `Tech sheet on ${host}`, url: first.page || first.url } };
   })().catch(() => null);
 
   // Walmart and Whole Foods list full ingredient panels for many wines.
@@ -2625,6 +2641,25 @@ This run follows what is printed on the bottle: the barcode number and the compa
     if (ol?.claims) {
       const applied = applyLabelClaims(result, ol.claims, true, ol.src);
       Object.assign(result, { checks: applied.checks, nutrition: applied.nutrition, debug: applied.debug });
+    }
+    // Sulfites and sugar from a tech sheet found on a store or distributor page.
+    const sn = ol?.sheetNums;
+    if (sn && sn.url) {
+      let sh = "";
+      try { sh = new URL(sn.url).hostname.replace(/^www\./, ""); } catch {}
+      const n = result.nutrition = { ...(result.nutrition || EMPTY_NUTRITION) };
+      const set = (id, c) => { const i = result.checks.findIndex((x) => x.id === id); const cur = result.checks[i]; if (cur && (cur.status === "pass" || cur.status === "fail") && ["lab", "certified"].includes(cur.evidence)) return; if (i >= 0) result.checks[i] = c; else result.checks.push(c); };
+      if (n.total_so2_mg_l == null && sn.so2_total) {
+        n.total_so2_mg_l = sn.so2_total.value;
+        if (n.free_so2_mg_l == null && sn.so2_free) n.free_so2_mg_l = sn.so2_free.value;
+        set("sulfites", { id: "sulfites", status: "pass", evidence: "lab", scope: "this_wine", as_of: "", detail: `Tech sheet: total SO2 ${sn.so2_total.text} mg/L.`, source_url: sn.url, origin: `Tech sheet on ${sh}` });
+      }
+      if (n.residual_sugar_g_l == null && sn.rs) {
+        n.residual_sugar_g_l = sn.rs.value; n.source = "lab";
+        const per5 = sn.rs.value * 0.14787;
+        set("sugar_under_1g", { id: "sugar_under_1g", status: per5 < 1 ? "pass" : "fail", evidence: "lab", scope: "this_wine", as_of: "", detail: `Tech sheet: ${sn.rs.text} g/L residual sugar, about ${per5.toFixed(2)} g per 5 oz.`, source_url: sn.url, origin: `Tech sheet on ${sh}` });
+      }
+      if (!result.wine.tech_sheet_url) result.wine = { ...result.wine, tech_sheet_url: sn.url };
     }
   }
   const knownTop = ALL_ITEMS.filter((i) => i.top).filter((i) => result.checks.some((c) => c.id === i.id && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail"))).length;
