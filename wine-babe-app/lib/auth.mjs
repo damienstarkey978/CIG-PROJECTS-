@@ -8,7 +8,7 @@ export const USERS = {
 };
 
 const COOKIE = "wb_session";
-const DAYS = 30;
+const DAYS = 365;
 const enc = new TextEncoder();
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 const fromHex = (h) => new Uint8Array(h.match(/../g).map((x) => parseInt(x, 16)));
@@ -112,4 +112,13 @@ export async function gate(req, secret) {
   if (await sessionUser(req.headers.get("cookie"), secret)) return null;
   if (p.startsWith("/api/")) return Response.json({ error: "Please sign in again." }, { status: 401 });
   return new Response(null, { status: 302, headers: { Location: `/login?next=${encodeURIComponent(p + url.search)}`, "Cache-Control": "no-store" } });
+}
+
+// Keeps people signed in: every page visit with a valid session renews the
+// cookie for another year, so it never runs out while the app is in use.
+export async function renewCookie(req, secret) {
+  const p = new URL(req.url).pathname;
+  if (p.startsWith("/api/") || /\.[a-z0-9]+$/i.test(p) && !p.endsWith(".html")) return null;
+  const user = await sessionUser(req.headers.get("cookie"), secret);
+  return user ? makeCookie(user, secret) : null;
 }
