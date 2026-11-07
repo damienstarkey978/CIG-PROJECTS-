@@ -1062,10 +1062,19 @@ function marksToChecks(marks, source) {
 // the vision step pointed at (enlarged), then overlapping tiles, since a QR
 // code on a back label is often small in a phone photo.
 let qrLastError = "";
-function decodeQr(base64, box) {
+// Loaded with import() like the SDK: plain require() is not bundled on Netlify.
+let qrLibs = null;
+async function loadQrLibs() {
+  if (!qrLibs) {
+    const [jpegMod, jsqrMod] = await Promise.all([import("jpeg-js"), import("jsqr")]);
+    qrLibs = { jpeg: jpegMod.default || jpegMod, jsqr: jsqrMod.default || jsqrMod };
+  }
+  return qrLibs;
+}
+
+async function decodeQr(base64, box) {
   try {
-    const jpeg = require("jpeg-js");
-    const jsqrMod = require("jsqr");
+    const { jpeg, jsqr: jsqrMod } = await loadQrLibs();
     const jsQR = jsqrMod.default || jsqrMod;
     const img = jpeg.decode(Buffer.from(base64, "base64"), { useTArray: true, maxMemoryUsageInMB: 1024 });
     const crop = (x0, y0, w0, h0, scale = 1) => {
@@ -1562,7 +1571,7 @@ LABEL_READ_SCHEMA.properties.label_claims = IDENTIFY_SCHEMA.properties.label_cla
 async function runScan({ image, image2, mediaType, query, fresh }, send, cache) {
   // QR code on the label (usually the EU e-label): read it from the photos
   // (the back label first, where it usually is).
-  let qrRaw = (image2 ? decodeQr(image2) : "") || (image ? decodeQr(image) : "");
+  let qrRaw = (image2 ? await decodeQr(image2) : "") || (image ? await decodeQr(image) : "");
   let qrUrl = /^https?:\/\//i.test(qrRaw) ? qrRaw : "";
   const t0 = Date.now();
   const diag = [];
@@ -1610,7 +1619,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   const wine = id.wine;
   // QR code seen by the vision step but not decoded yet: retry on its area.
   if (image && !qrRaw && id.qr_visible) {
-    qrRaw = decodeQr(image, id.qr_box) || (image2 ? decodeQr(image2, id.qr_box) : "");
+    qrRaw = (await decodeQr(image, id.qr_box)) || (image2 ? await decodeQr(image2, id.qr_box) : "");
     qrUrl = /^https?:\/\//i.test(qrRaw) ? qrRaw : "";
   }
   const qrState = !image ? "no_photo" : qrUrl ? "decoded" : qrRaw ? "not_a_link" : id.qr_visible ? "undecoded" : "none";
@@ -1915,7 +1924,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     }).catch(() => null);
     if (!read?.this_wine) return null;
     // QR codes on the label photos (JPEG only).
-    const qrUrls = imgs.filter((c) => c.img.media_type === "image/jpeg").map((c) => decodeQr(c.img.data)).filter((q) => /^https?:\/\//i.test(q));
+    const qrUrls = (await Promise.all(imgs.filter((c) => c.img.media_type === "image/jpeg").map((c) => decodeQr(c.img.data)))).filter((q) => /^https?:\/\//i.test(q));
     if (qrUrls.length) diag.push({ name: "label-photo-qr", outcome: qrUrls.join(" , ").slice(0, 300) });
     let host = "";
     try { host = new URL(imgs[0].page || imgs[0].url).hostname.replace(/^www\./, ""); } catch {}
