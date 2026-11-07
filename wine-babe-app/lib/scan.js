@@ -476,7 +476,10 @@ function cleanIngredients(raw, wine) {
   if (all.length && list.length < all.length / 2) return typicalIngredients(wine);
   // Shop listings are often wrong (one "ingredient", another vintage): use
   // them only with at least two items including the sulphites line.
-  if (raw?.source === "retailer" && (list.length < 2 || !list.some((x) => /sulph|sulfi|solfit/i.test(x)) || wrongShopPage(raw.source_url, wine))) return typicalIngredients(wine);
+  // Walmart and Whole Foods publish full ingredient panels, so they are not
+  // treated as an unreliable grocer here.
+  const bigGrocer = /(^|\.)(walmart\.com|wholefoodsmarket\.com|amazon\.com)$/i.test((() => { try { return new URL(raw?.source_url || "").hostname; } catch { return ""; } })());
+  if (raw?.source === "retailer" && (list.length < 2 || !list.some((x) => /sulph|sulfi|solfit/i.test(x)) || (!bigGrocer && wrongShopPage(raw.source_url, wine)))) return typicalIngredients(wine);
   if (raw?.found && list.length && /^https?:\/\//.test(raw.source_url || "") && raw.source !== "none") {
     return { ingredients: list, source: raw.source, source_url: raw.source_url };
   }
@@ -1482,7 +1485,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v58";
+const ENGINE_VERSION = "v59";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1822,8 +1825,8 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // Claims published online (brand, winery, distributor, retailers).
   const claimsLookup = runAgent({ diag,
     name: "online-claims", model: SMART_MODEL, system: ONLINE_CLAIMS_SYSTEM, schema: ONLINE_CLAIMS_SCHEMA, send, deadline,
-    content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} non GMO vegan gluten free\n2. ${brandAndName(wine)} organic sustainable no added sugar flavors`),
-    tools: webTools(2, 3),
+    content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} non GMO vegan gluten free\n2. ${brandAndName(wine)} organic sustainable no added sugar flavors\n3. ${brandAndName(wine)} walmart whole foods`),
+    tools: webTools(3, 3),
   }).catch(() => null);
 
   // Label photos posted online (distributors, importers, shops): find the
@@ -1856,6 +1859,15 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     try { host = new URL(imgs[0].page || imgs[0].url).hostname.replace(/^www\./, ""); } catch {}
     return { claims: read.label_claims, src: { name: `Label photo on ${host}`, url: imgs[0].page || imgs[0].url } };
   })().catch(() => null);
+
+  // Walmart and Whole Foods list full ingredient panels for many wines.
+  const grocerIngredientsLookup = runAgent({ diag,
+    name: "ingredients-grocers", model: SMART_MODEL, system: INGREDIENTS_SYSTEM + `
+This run is for big grocers: look on walmart.com and wholefoodsmarket.com (and Amazon / Whole Foods listings) for this exact wine's product page and its Ingredients section. Fetch the product page to read the panel. Source is "retailer" with that page as source_url.`,
+    schema: INGREDIENTS_SCHEMA, send, deadline,
+    content: ask(`Wine: ${wineLine(wine)}. Search exactly:\n1. ${brandAndName(wine)} ingredients walmart\n2. ${brandAndName(wine)} whole foods market`),
+    tools: webTools(2, 2),
+  }).catch(() => null);
 
   // EU ingredient and nutrition declaration: the e-label from the QR code,
   // plus the e-label, winery and European sellers found by search.
@@ -2458,7 +2470,13 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     sugar_profile: sugarProfile,
     ingredients: eu?.ingredients?.length
       ? cleanIngredients({ found: true, ingredients: eu.ingredients, source: "elabel", source_url: eu.source_url }, wine)
-      : cleanIngredients(await ingredientsLookup, wine),
+      : await (async () => {
+        const own = cleanIngredients(await ingredientsLookup, wine);
+        if (own.ingredients.length) return own;
+        const g = cleanIngredients(await grocerIngredientsLookup, wine);
+        diag.push({ name: "ingredients-grocer-used", outcome: g.ingredients.length ? `${g.source_url}: ${g.ingredients.join(", ")}`.slice(0, 300) : "none" });
+        return g;
+      })(),
     summary: summarize(wine, checks, nutrition),
     sources,
     seconds: Math.round((Date.now() - t0) / 1000),

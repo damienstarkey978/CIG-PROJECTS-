@@ -275,20 +275,23 @@
     {
       const ing = data.ingredients || {};
       const eu = data.eu_disclosure || {};
-      const fromIng = ["winery", "importer", "elabel"].includes(ing.source) && (ing.ingredients || []).length;
+      const fromIng = ["winery", "importer", "elabel", "retailer"].includes(ing.source) && (ing.ingredients || []).length;
       const list = fromIng ? ing.ingredients : (eu.ingredients || []);
       if (list.length) {
-        const who0 = fromIng ? ({ winery: "the winery", importer: "the importer", elabel: "the bottle's e-label" })[ing.source] : "the European label";
-        byId.ingredient_transparency = { id: "ingredient_transparency", status: "pass", evidence: fromIng || (eu.source && eu.source.verified_elabel) ? "winery" : "third_party", scope: "this_wine",
+        const who0 = fromIng ? ({ winery: "the winery", importer: "the importer", elabel: "the bottle's e-label", retailer: (() => { try { return new URL(ing.source_url).hostname.replace(/^www\./, ""); } catch { return "a retailer"; } })() })[ing.source] : "the European label";
+        byId.ingredient_transparency = { id: "ingredient_transparency", status: "pass", evidence: fromIng && ing.source === "retailer" ? "retailer" : fromIng || (eu.source && eu.source.verified_elabel) ? "winery" : "third_party", scope: "this_wine",
           detail: `Full ingredient list published by ${who0}: ${list.join(", ")}.`, origin: `Ingredient list from ${who0}`, source_url: fromIng ? ing.source_url || "" : eu.source_url || "" };
         const url = fromIng ? ing.source_url || "" : eu.source_url || "";
-        const who = fromIng ? ({ winery: "the winery", importer: "the importer", elabel: "the bottle's e-label" })[ing.source] : "the European label";
+        let shop = "";
+        try { shop = new URL(ing.source_url || "").hostname.replace(/^www\./, ""); } catch {}
+        const who = fromIng ? ({ winery: "the winery", importer: "the importer", elabel: "the bottle's e-label", retailer: shop || "a retailer" })[ing.source] : "the European label";
         const flav = list.filter((x) => /flavou?r|aroma(?!tic)|ar[oô]me|aromi|saborizante|aromastoff/i.test(x));
         const res = flav.length
           ? { status: "fail", evidence: "winery", detail: `Ingredient list from ${who} includes ${flav.join(", ")}.` }
           : { status: "pass", evidence: "winery", detail: `Ingredient list from ${who} shows no added natural or artificial flavors.` };
         // A European shop copy of the label (not the official e-label) is third party.
         if (!fromIng && !(eu.source && eu.source.verified_elabel)) res.evidence = "third_party";
+        if (fromIng && ing.source === "retailer") res.evidence = "retailer";
         for (const id of ["no_artificial_flavors", "no_natural_flavors"]) {
           const cur = byId[id];
           if (cur && cur.status === "fail" && VERIFIED.includes(cur.evidence)) continue;
