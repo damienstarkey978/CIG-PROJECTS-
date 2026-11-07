@@ -93,6 +93,7 @@ const EVIDENCE = {
   certified: { label: "Certified", weight: 1 },
   winery: { label: "Winery confirmed", weight: 0.8 },
   third_party: { label: "Third party (EU label)", weight: 0.6 },
+  retailer: { label: "Retailer / distributor", weight: 0.5 },
   verified: { label: "Verified", weight: 1 },
   calculated: { label: "Estimated", weight: 0 },
   estimate: { label: "Estimate", weight: 0.3 },

@@ -197,7 +197,7 @@
   // ---------- WINE BABE standards ----------
   // Published thresholds. Weights total 100.
   const CALORIE_MAX = 100; // kcal per 5 oz, the "Under 100 Calories" Wine Babe standard
-  const VERIFIED_EVIDENCE = ["lab", "certified", "winery", "third_party"];
+  const VERIFIED_EVIDENCE = ["lab", "certified", "winery", "third_party", "retailer"];
   const STANDARDS = [
     { id: "sugar_under_1g", pts: 20, critical: true, short: "sugar", name: "Less than 1 g sugar per 5 oz",
       rule: "Pass: verified sugar under 1 g per 5 oz (147.87 ml), from a lab sheet, the bottle or EU e-label, the winery, or a European copy of the EU label for the same vintage. Fail: verified 1 g or more." },
@@ -255,7 +255,7 @@
     // Only verified figures are shown: typical values and estimates are
     // dropped (also from results saved before this rule) and shown as
     // Not verified.
-    const VERIFIED = ["lab", "certified", "winery", "third_party"];
+    const VERIFIED = ["lab", "certified", "winery", "third_party", "retailer"];
     const typFields = (n.typical && n.typical.fields) || [];
     if (typFields.includes("abv")) n.abv = null;
     if (typFields.includes("so2")) { n.total_so2_mg_l = null; n.free_so2_mg_l = null; }

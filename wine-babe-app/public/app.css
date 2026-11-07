@@ -401,7 +401,7 @@ details.cat .checks { padding: 0 1rem 0.4rem; }
 .ingredients .ing-src { margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--muted); }
 
 /* EU nutrition disclosure */
-.chip.third_party { background: #e8eef6; color: #3d5a80; }
+.chip.retailer, .chip.third_party { background: #e8eef6; color: #3d5a80; }
 .eu__head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
 .eu .lbl { font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
 .eu__status { padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }

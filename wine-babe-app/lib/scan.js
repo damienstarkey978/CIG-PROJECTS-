@@ -86,6 +86,32 @@ const CLAIM_TEXT = {
   native_yeast: "Native yeast", no_added_water: "No added water",
 };
 
+// Claims about this wine published online: brand / winery site, distributor,
+// importer or retailer listings.
+const ONLINE_CLAIMS_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["claims"],
+  properties: {
+    claims: {
+      type: "array",
+      items: {
+        type: "object", additionalProperties: false, required: ["claim", "source_kind", "url", "quote", "this_wine"],
+        properties: {
+          claim: { type: "string", enum: LABEL_CLAIMS },
+          source_kind: { type: "string", enum: ["brand", "winery", "importer", "distributor", "retailer"] },
+          url: { type: "string" },
+          quote: { type: "string" },
+          this_wine: { type: "boolean" },
+        },
+      },
+    },
+  },
+};
+const ONLINE_CLAIMS_SYSTEM = `You find what is published online about one wine for the Wine Babe app: the brand or winery website, the importer or distributor, and online retailers (World Market, Total Wine, Wine.com, Drizly, grocery chains, specialty shops).
+Run the searches you are given, then read the most useful pages (the brand's own page first, then distributor and retailer product pages).
+For each claim a page makes about this wine, return one entry: claim (from the list), source_kind (brand = the wine brand's own site, winery = the producer's site, importer, distributor, retailer), url (the page), quote (the exact words, short), this_wine (true if the page is about this exact wine; false if it is a brand wide statement).
+Claims to look for: vegan, gluten free, sustainable / sustainably farmed, organic, non GMO, hand harvested, no added sugar, no added flavors / no flavor additives, no artificial colors, no artificial sweeteners, estate grown, family owned, single vineyard, native yeast, no added water.
+Only claims the page actually states. Never infer: "low sugar" is not "no added sugar"; "natural" is not "organic". If nothing is found, return an empty list.`;
+
 const IDENTIFY_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -1379,7 +1405,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v56";
+const ENGINE_VERSION = "v57";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1712,6 +1738,13 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     name: "ingredients", model: SMART_MODEL, system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline,
     content: ask(`Wine: ${wineLine(wine)}. Search exactly: ${brandAndName(wine)} ingredients`),
     tools: webTools(1, 1),
+  }).catch(() => null);
+
+  // Claims published online (brand, winery, distributor, retailers).
+  const claimsLookup = runAgent({ diag,
+    name: "online-claims", model: SMART_MODEL, system: ONLINE_CLAIMS_SYSTEM, schema: ONLINE_CLAIMS_SCHEMA, send, deadline,
+    content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} non GMO vegan gluten free\n2. ${brandAndName(wine)} organic sustainable no added sugar flavors`),
+    tools: webTools(2, 3),
   }).catch(() => null);
 
   // EU ingredient and nutrition declaration: the e-label from the QR code,
@@ -2264,6 +2297,28 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   const sparkling = /sparkl|spumante|champagne|cava|cr[eé]mant|prosecco|franciacorta|sekt|brut|p[eé]tillant|frizzante|mousseux|espumoso/i.test(`${wine.style} ${wine.name}`);
   if (!sparkling && (!best.zero_dosage || best.zero_dosage.status === "unknown")) {
     best.zero_dosage = { id: "zero_dosage", status: "na", evidence: "none", scope: "this_wine", as_of: "", detail: "Still wine, so dosage does not apply.", source_url: "" };
+  }
+  // Online claims fill items still not verified. The brand's or winery's own
+  // site counts as the winery; distributors and retailers are labeled as such.
+  {
+    const oc = await claimsLookup;
+    const used = [];
+    const kindOrder = { brand: 0, winery: 0, importer: 1, distributor: 1, retailer: 2 };
+    for (const c of [...(oc?.claims || [])].sort((a, b) => (kindOrder[a.source_kind] ?? 3) - (kindOrder[b.source_kind] ?? 3))) {
+      const id = LABEL_CLAIM_MAP[c.claim];
+      if (!id || !/^https?:\/\//.test(c.url || "")) continue;
+      const own = c.source_kind === "brand" || c.source_kind === "winery";
+      if (!own && !c.this_wine) continue; // a shop's brand wide blurb is too loose
+      const cur = best[id];
+      if (cur && (cur.status === "pass" || cur.status === "fail") && ["lab", "certified", "winery", "third_party", "retailer"].includes(cur.evidence)) continue;
+      let host = "";
+      try { host = new URL(c.url).hostname.replace(/^www\./, ""); } catch {}
+      const label = { brand: "Brand website", winery: "Winery website", importer: "Importer", distributor: "Distributor", retailer: "Retailer" }[c.source_kind] || "Online";
+      best[id] = { id, status: "pass", evidence: own ? "winery" : "retailer", scope: own && !c.this_wine ? "producer" : "this_wine", as_of: "",
+        detail: `${label} (${host}): "${String(c.quote || CLAIM_TEXT[c.claim]).slice(0, 140)}"`, source_url: c.url, origin: `${label}: ${host}` };
+      used.push(`${id}@${host}`);
+    }
+    diag.push({ name: "online-claims-used", outcome: used.join(" , ").slice(0, 300) || "none" });
   }
   const checks = ALL_ITEMS.map(
     (i) => best[i.id] || { id: i.id, status: "unknown", evidence: "none", scope: "this_wine", as_of: "", detail: "No public information found.", source_url: "" }
