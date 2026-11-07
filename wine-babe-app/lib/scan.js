@@ -766,8 +766,13 @@ async function fetchPdf(url, ms = 8000) {
   if (!/^https?:$/.test(u.protocol) || !isPublicHost(u)) return { error: "not a public url" };
   try {
     const res = await fetch(u, { signal: AbortSignal.timeout(ms), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
-    if (!res.ok) return { error: `HTTP ${res.status}` };
-    const buf = Buffer.from(await res.arrayBuffer());
+    let buf;
+    if (!res.ok) {
+      // Blocked tech sheet: retry through Bright Data.
+      if (![401, 403, 429, 503].includes(res.status) || !HAS_UNLOCKER) return { error: `HTTP ${res.status}` };
+      buf = await unlockedFetch(u.href, Math.max(ms, 15000));
+      if (!buf) return { error: `HTTP ${res.status}, unlocker failed` };
+    } else buf = Buffer.from(await res.arrayBuffer());
     if (buf.length > 15 * 1024 * 1024) return { error: "too large" };
     if (buf.subarray(0, 4).toString() !== "%PDF") return { error: "not a PDF" };
     return { data: buf.toString("base64") };
@@ -811,7 +816,10 @@ function wineTerms(wine) {
 // Page HTML to plain text. Ingredient fields hidden in page data (Walmart and
 // similar shops keep them in JSON) are pulled out first.
 function htmlToText(html) {
-  const hidden = [...html.matchAll(/"(?:ingredients|ingredient_statement|ingredientStatement)"\s*:\s*"((?:[^"\\]|\\.){3,600})"/gi)]
+  const hidden = [
+    ...html.matchAll(/"(?:ingredients|ingredient_statement|ingredientStatement)"\s*:\s*"((?:[^"\\]|\\.){3,600})"/gi),
+    ...html.matchAll(/"name"\s*:\s*"Ingredients"\s*,\s*"value"\s*:\s*"((?:[^"\\]|\\.){2,600})"/gi),
+  ]
     .map((m) => `Ingredients: ${m[1].replace(/\\u003c[^>]*?\\u003e|\\n|\\"/g, " ")}`);
   const text = html
     .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<nav[\s\S]*?<\/nav>|<footer[\s\S]*?<\/footer>/gi, " ")
@@ -826,8 +834,12 @@ function htmlToText(html) {
 // are read through it; without a key they are skipped as before.
 const HARD_SHOPS = /(^|\.)(walmart\.com|wholefoodsmarket\.com|amazon\.com|target\.com|totalwine\.com|instacart\.com|kroger\.com|safeway\.com)$/i;
 const HAS_UNLOCKER = Boolean(process.env.BRIGHTDATA_API_KEY);
-async function unlockedHtml(url, ms = 20000) {
-  if (!HAS_UNLOCKER) return "";
+// Last Bright Data error, for the scan diagnostics (never includes the key).
+let unlockerLastError = "";
+let unlockerCalls = 0;
+async function unlockedFetch(url, ms = 20000) {
+  if (!HAS_UNLOCKER) return null;
+  unlockerCalls += 1;
   try {
     const res = await fetch("https://api.brightdata.com/request", {
       method: "POST",
@@ -835,10 +847,17 @@ async function unlockedHtml(url, ms = 20000) {
       headers: { Authorization: `Bearer ${process.env.BRIGHTDATA_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({ zone: process.env.BRIGHTDATA_ZONE || "web_unlocker1", url, format: "raw" }),
     });
-    return res.ok ? (await res.text()).slice(0, 4_000_000) : "";
-  } catch {
-    return "";
+    if (!res.ok) { unlockerLastError = `HTTP ${res.status}: ${(await res.text()).slice(0, 80)}`; console.error(`brightdata ${unlockerLastError}`); return null; }
+    return Buffer.from(await res.arrayBuffer());
+  } catch (err) {
+    unlockerLastError = err.name === "TimeoutError" ? "timed out" : String(err.message || err).slice(0, 80);
+    console.error(`brightdata ${unlockerLastError}`);
+    return null;
   }
+}
+async function unlockedHtml(url, ms = 20000) {
+  const buf = await unlockedFetch(url, ms);
+  return buf ? buf.toString("utf8").slice(0, 4_000_000) : "";
 }
 
 async function pageText(url, ms = 7000) {
@@ -849,12 +868,16 @@ async function pageText(url, ms = 7000) {
     const html = await unlockedHtml(u.href, Math.max(ms, 15000));
     return html ? htmlToText(html).slice(0, 12000) : "";
   }
+  // Blocked (401/403/429/503) or failed fetches are retried through Bright Data.
+  const viaUnlocker = async () => { const html = await unlockedHtml(u.href, 15000); return html ? htmlToText(html).slice(0, 12000) : ""; };
   try {
     const res = await fetch(u, { signal: AbortSignal.timeout(ms), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
-    if (!res.ok) return "";
-    return htmlToText((await res.text()).slice(0, 2_000_000)).slice(0, 12000);
+    if (!res.ok) return [401, 403, 429, 503].includes(res.status) ? viaUnlocker() : "";
+    const text = htmlToText((await res.text()).slice(0, 2_000_000)).slice(0, 12000);
+    if (text.length < 200 && /captcha|access denied|blocked|are you a robot|cloudflare/i.test(text)) return viaUnlocker();
+    return text;
   } catch {
-    return "";
+    return viaUnlocker();
   }
 }
 
@@ -1517,7 +1540,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v60";
+const ENGINE_VERSION = "v61";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -2541,6 +2564,7 @@ This run is for big grocers: look on walmart.com and wholefoodsmarket.com (and A
   // A thin result (fewer than 4 of the top 10 known) is not cached: lookups
   // vary run to run, so the next scan gets a fresh try instead of a stored
   // empty answer.
+  diag.push({ name: "unlocker", outcome: HAS_UNLOCKER ? `on, ${unlockerCalls} calls${unlockerLastError ? `, last error ${unlockerLastError}` : ""}` : "off" });
   {
     const ol = await onlineLabelLookup;
     if (ol?.claims) {
