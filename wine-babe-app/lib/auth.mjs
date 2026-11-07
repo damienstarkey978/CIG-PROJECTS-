@@ -39,7 +39,7 @@ async function sign(value, secret) {
 export async function checkLogin(username, password) {
   const u = USERS[String(username || "").trim().toLowerCase()];
   if (!u) { await hashPassword(String(password || ""), "00"); return null; }
-  return same(await hashPassword(String(password || ""), u.salt), u.hash) ? String(username).trim().toLowerCase() : null;
+  return same(await hashPassword(String(password || "").trim(), u.salt), u.hash) ? String(username).trim().toLowerCase() : null;
 }
 
 export async function makeCookie(user, secret) {
