@@ -176,16 +176,18 @@
       rule: "Pass: the producer explicitly states no sugar is added. Fail: verified dosage sugar or sugar / sweetener added to sweeten the wine. Neutral: sugar used and consumed during fermentation (tirage) and concentrated must with no stated purpose. Low residual sugar or zero dosage alone never passes." },
     { id: "no_artificial_flavors", pts: 15, critical: true, short: "no added flavors (ingredients)", name: "No added natural or artificial flavors",
       rule: "Pass: the published ingredient list (winery, importer or e-label) lists no natural or artificial flavors, or the producer states none are added. Fail: a flavoring is listed. No ingredient list: not verified." },
-    { id: "sulfites", pts: 10, short: "sulfite level", name: "Sulfite transparency",
+    { id: "sulfites", pts: 5, short: "sulfite level", name: "Sulfite transparency",
       rule: "Pass: a verified source publishes the total sulfite level (mg/L). 'Contains sulphites' alone is a legal minimum and does not pass. No published level: not verified." },
-    { id: "calories", pts: 10, short: "calories", name: "Calories per 5 oz",
+    { id: "calories", pts: 5, short: "calories", name: "Calories per 5 oz",
       rule: `Pass: verified ${CALORIE_MAX} calories or less per 5 oz (bottle or EU label, winery, lab). Fail: verified over ${CALORIE_MAX}. Calculated figures are shown but do not earn points.` },
-    { id: "organic", pts: 10, short: "organic", name: "Organic grapes",
+    { id: "organic", pts: 5, short: "organic", name: "Organic grapes",
       rule: "Pass: organic certification (EU leaf, AB, control body code on the bottle, certifier) or the producer documents organic grapes. Fail: verified non-organic." },
     { id: "non_gmo", pts: 5, short: "non GMO", name: "Non GMO", rule: "Pass: the producer states non GMO (e.g. NO OGM on the tech sheet) or a certifier does." },
     { id: "vegan", pts: 5, short: "vegan", name: "Vegan friendly", rule: "Pass: the producer states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
     { id: "hand_harvested", pts: 5, short: "hand harvest", name: "Hand harvested grapes", rule: "Pass: the producer states the grapes are hand picked." },
     { id: "sustainable", pts: 5, short: "sustainable farming", name: "Sustainable farming", rule: "Pass: a sustainability certification or the producer's documented practices." },
+    { id: "ingredient_transparency", pts: 15, short: "ingredient list", name: "Full ingredient transparency",
+      rule: "Pass: a full ingredient list for this wine is published by the winery, the importer, the bottle's e-label or the European label. No list found: not verified." },
   ];
 
   // Decide each standard: "pass", "fail" or "unverified", with the evidence used.
@@ -247,6 +249,9 @@
       const fromIng = ["winery", "importer", "elabel"].includes(ing.source) && (ing.ingredients || []).length;
       const list = fromIng ? ing.ingredients : (eu.ingredients || []);
       if (list.length) {
+        const who0 = fromIng ? ({ winery: "the winery", importer: "the importer", elabel: "the bottle's e-label" })[ing.source] : "the European label";
+        byId.ingredient_transparency = { id: "ingredient_transparency", status: "pass", evidence: fromIng || (eu.source && eu.source.verified_elabel) ? "winery" : "third_party", scope: "this_wine",
+          detail: `Full ingredient list published by ${who0}: ${list.join(", ")}.`, origin: `Ingredient list from ${who0}`, source_url: fromIng ? ing.source_url || "" : eu.source_url || "" };
         const url = fromIng ? ing.source_url || "" : eu.source_url || "";
         const who = fromIng ? ({ winery: "the winery", importer: "the importer", elabel: "the bottle's e-label" })[ing.source] : "the European label";
         const flav = list.filter((x) => /flavou?r|aroma(?!tic)|ar[oô]me|aromi|saborizante|aromastoff/i.test(x));
@@ -288,7 +293,7 @@
     }
 
     // WINE BABE SCORE (0-100): points only for VERIFIED passes against the
-    // scored standards (the top 10 priorities), weighted. TRANSPARENCY (0-100%): how many of them have
+    // scored standards (the top 11 priorities), weighted. TRANSPARENCY (0-100%): how many of them have
     // enough evidence to decide pass or fail. Unknown is never a pass and
     // never a fail.
     const top = checks.filter((c) => c.top).sort((a, b) => a.top - b.top);
@@ -511,7 +516,7 @@
       </div>
 
       <div class="block">
-        <h2>The Wine Babe top 10</h2>
+        <h2>The Wine Babe top 11</h2>
         <div class="card"><ul class="checks">${r.top.map((c) => checkRow(c, true)).join("")}</ul></div>
       </div>
 

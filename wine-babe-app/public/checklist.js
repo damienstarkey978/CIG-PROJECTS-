@@ -29,6 +29,7 @@ const CHECKLIST = [
       { id: "no_natural_flavors", label: "No added natural flavors", ask: "Flavor comes from grapes and fermentation only." },
       { id: "no_artificial_colors", label: "No artificial colors", ask: "No synthetic coloring agents." },
       { id: "no_artificial_sweeteners", label: "No artificial sweeteners", ask: "No added sugar substitutes." },
+      { id: "ingredient_transparency", label: "Full ingredient transparency", ask: "A full ingredient list published by the winery, importer or e-label.", top: 11 },
       { id: "gluten_free", label: "Gluten free", ask: "Confirm ingredients and processing practices." },
     ],
   },
