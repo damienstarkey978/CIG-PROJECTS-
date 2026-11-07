@@ -1061,6 +1061,7 @@ function marksToChecks(marks, source) {
 // Decode a QR code from a JPEG photo. Tries the whole photo, then the area
 // the vision step pointed at (enlarged), then overlapping tiles, since a QR
 // code on a back label is often small in a phone photo.
+let qrLastError = "";
 function decodeQr(base64, box) {
   try {
     const jpeg = require("jpeg-js");
@@ -1106,7 +1107,8 @@ function decodeQr(base64, box) {
       if (data) return data;
     }
     return "";
-  } catch {
+  } catch (err) {
+    qrLastError = String(err?.message || err).slice(0, 120);
     return "";
   }
 }
@@ -1612,7 +1614,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     qrUrl = /^https?:\/\//i.test(qrRaw) ? qrRaw : "";
   }
   const qrState = !image ? "no_photo" : qrUrl ? "decoded" : qrRaw ? "not_a_link" : id.qr_visible ? "undecoded" : "none";
-  diag.push({ name: "qr-state", outcome: `${qrState}${qrRaw ? `: ${qrRaw.slice(0, 120)}` : ""}` });
+  diag.push({ name: "qr-state", outcome: `${qrState}${qrRaw ? `: ${qrRaw.slice(0, 120)}` : ""}${qrLastError ? ` (decoder error: ${qrLastError})` : ""}` });
   // Text sources scanned by the certification recognizer.
   const markSources = [];
   {
