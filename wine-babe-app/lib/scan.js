@@ -598,7 +598,9 @@ async function pageLabelImages(url, ms = 6000) {
   if (!/^https?:$/.test(u.protocol) || !isPublicHost(u)) return [];
   try {
     let html = "";
-    if (HAS_UNLOCKER && HARD_SHOPS.test(u.hostname) && !OPEN_SHOPS.test(u.hostname)) html = await unlockedHtml(u.href, 30000);
+    // Label photo pages: a short Bright Data wait, and none for Kroger (it rarely loads in time).
+    if (/(^|\.)kroger\.com$/i.test(u.hostname)) return { images: [], pdfs: [] };
+    if (HAS_UNLOCKER && HARD_SHOPS.test(u.hostname) && !OPEN_SHOPS.test(u.hostname)) html = await unlockedHtml(u.href, 15000);
     else {
       const res = await fetch(u, { signal: AbortSignal.timeout(ms), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
       if (res.ok) html = (await res.text()).slice(0, 3_000_000);
@@ -1658,7 +1660,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v73";
+const ENGINE_VERSION = "v74";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
