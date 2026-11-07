@@ -2742,7 +2742,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
       if (n.residual_sugar_g_l == null && sn.rs) {
         n.residual_sugar_g_l = sn.rs.value; n.source = "lab";
         const per5 = sn.rs.value * 0.14787;
-        set("sugar_under_1g", { id: "sugar_under_1g", status: per5 < 1 ? "pass" : "fail", evidence: "lab", scope: "this_wine", as_of: "", detail: `Tech sheet: ${sn.rs.text} g/L residual sugar, about ${per5.toFixed(2)} g per 5 oz.`, source_url: sn.url, origin: `Tech sheet on ${sh}` });
+        set("sugar_under_1g", { id: "sugar_under_1g", status: per5 < 1 ? "pass" : "fail", evidence: "lab", scope: "this_wine", as_of: "", detail: `Tech sheet: ${sn.rs.value} g/L residual sugar${/100/.test(sn.rs.text) ? ` (printed as ${sn.rs.text})` : ""}, about ${per5.toFixed(2)} g per 5 oz.`, source_url: sn.url, origin: `Tech sheet on ${sh}` });
       }
       if (!result.wine.tech_sheet_url) result.wine = { ...result.wine, tech_sheet_url: sn.url };
     }
