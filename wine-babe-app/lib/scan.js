@@ -1658,7 +1658,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v72";
+const ENGINE_VERSION = "v73";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -2077,10 +2077,11 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
     if (!g || (g.found && (g.ingredients || []).length >= 2)) return g;
     if (!HAS_UNLOCKER) return g;
     const urls = [...new Set([...(g.product_urls || []), g.source_url].filter((u) => { try { return HARD_SHOPS.test(new URL(u).hostname); } catch { return false; } }))]
-      .sort((x, y) => Number(/wholefoodsmarket|thrivemarket/.test(y)) - Number(/wholefoodsmarket|thrivemarket/.test(x))).slice(0, 3);
+      // Whole Foods and Thrive first; Kroger last (Bright Data rarely gets it in time).
+      .sort((x, y) => (Number(/wholefoodsmarket|thrivemarket/.test(y)) - Number(/wholefoodsmarket|thrivemarket/.test(x))) || (Number(/kroger/.test(x)) - Number(/kroger/.test(y)))).slice(0, 3);
     if (!urls.length) return g;
     // Bright Data takes 20 to 35 s on some store pages.
-    const texts = await Promise.all(urls.map(async (u) => ({ u, text: await pageText(u, 40000) })));
+    const texts = await Promise.all(urls.map(async (u) => ({ u, text: await pageText(u, 28000) })));
     diag.push({ name: "grocer-unlocked", outcome: texts.map((x) => `${x.text.length}c ${/ingredients?\s*:/i.test(x.text) ? "with ingredients" : "no ingredients"}: ${x.u}`).join(" | ").slice(0, 500) });
     for (const x of texts.filter((t) => /ingredient/i.test(t.text)).sort((p, q) => Number(/ingredients?\s*:/i.test(q.text)) - Number(/ingredients?\s*:/i.test(p.text)))) {
       const read = await runAgent({ diag,
