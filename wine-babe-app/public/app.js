@@ -488,7 +488,7 @@
             ${sugar == null && n.sugar_below_5oz == null ? (data.eu_disclosure?.applicable ? esc(sugarCheck?.detail || "Not yet verified — EU nutritional disclosure search completed.") : "The winery hasn't published a sugar figure we can verify.") : sugarCheck ? ` <span class="chip ${sugarCheck.evidence}">${EVIDENCE[sugarCheck.evidence].label}</span>` : ""}
           </div>
           ${sugarTiers}
-          ${sugarProfileHtml(data.sugar_profile)}
+
         </div>
       </div>
 
