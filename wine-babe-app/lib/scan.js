@@ -589,12 +589,17 @@ function rankPdfs(links, wine, siteUrl) {
       const fileName = raw.split("/").pop();
       const file = norm(`${fileName} ${l.text}`);
       const words = new Set(file.split(" "));
-      const matched = nameWords.filter((w) => words.has(w)).length;
+      // Close spellings count (Cuvée / Cuvè / Cuve): same first 4+ letters.
+      const fileWords = [...words];
+      const near = (w) => words.has(w) || (w.length >= 4 && fileWords.some((f) => f.length >= 4 && (w.startsWith(f) || f.startsWith(w))));
+      const matched = nameWords.filter(near).length;
       const missingStyle = requiredStyle.filter((w) => !words.has(w)).length;
       const conflicts = STYLE_WORDS.filter((w) => words.has(w) && !allowedStyle.has(w)).length;
       let score = matched * 1.5 - (nameWords.length - matched) * 0.5 - conflicts * 2;
       if (producerWords.some((w) => words.has(w))) score += 1;
       if (/\b(en|eng|english)\b/.test(file)) score += 0.5;
+      // Large formats (magnum, 1.5 l) are a separate sheet; prefer the standard bottle.
+      if (/\b(15lt|15l|150cl|magnum|3lt|jeroboam)\b/.test(file)) score -= 1;
       if (/\b(scheda|tecnica|technical|tech|sheet|fiche|ficha|ts|tn)\b/.test(file)) score += 0.5;
       const junk = /\b(award|awards|medal|gold|silver|bronze|decanter|trophy|press|menu|price|prices|listino|catalog|catalogue|brochure)\b/.test(file);
       try { if (siteHost && new URL(l.url).hostname.replace(/^www\./, "").endsWith(siteHost)) score += 1; } catch {}
@@ -1344,7 +1349,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v54";
+const ENGINE_VERSION = "v55";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
