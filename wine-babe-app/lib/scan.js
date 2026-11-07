@@ -449,6 +449,11 @@ const INGREDIENTS_SCHEMA = {
     source_url: str,
   },
 };
+const GROCER_INGREDIENTS_SCHEMA = {
+  ...INGREDIENTS_SCHEMA,
+  required: [...INGREDIENTS_SCHEMA.required, "product_urls"],
+  properties: { ...INGREDIENTS_SCHEMA.properties, product_urls: { type: "array", items: str } },
+};
 const INGREDIENTS_SYSTEM = `You find a wine's published ingredient list for the Wine Babe app, fast.
 Run a web search with exactly the query you are given (the full wine name followed by "ingredients"). Good sources: the EU e-label page behind the bottle's QR code (domains like e-label, u-label, wine-id, ilabel, winelabel), the winery's or importer's product / spec page, or a tech sheet that lists ingredients. Fetch the best page if the snippets don't show the list.
 Ingredients are the things in the bottle (grapes, sugar, acids, preservatives, stabilizers, fining agents, yeast), never tasting notes, aromas or flavors like "blackberry" or "toasted oak". Only this exact wine. Return the ingredients in the order listed, in plain English (e.g. "Grapes", "Sucrose", "Acidity regulator: tartaric acid", "Preservative: sulfites"), with source winery, importer, elabel or retailer and the source_url. If no list is published, found false, empty list, source "none".`;
@@ -1642,7 +1647,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v68";
+const ENGINE_VERSION = "v69";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -2038,27 +2043,30 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // Walmart and Whole Foods list full ingredient panels for many wines.
   const grocerIngredientsLookup = runAgent({ diag,
     name: "ingredients-grocers", model: SMART_MODEL, system: INGREDIENTS_SYSTEM + `
-This run is for big grocers and liquor stores: ${GROCER_NAMES}. Look for this exact wine's product page on those stores and its Ingredients section. Fetch the product page to read the panel. Source is "retailer" with that page as source_url. Always put the product page URL you found in source_url, even when you could not read its ingredient list (then found false).`,
-    schema: INGREDIENTS_SCHEMA, send, deadline,
-    content: ask(`Wine: ${wineLine(wine)}. Search exactly:\n1. ${brandAndName(wine)} ingredients walmart target kroger\n2. ${brandAndName(wine)} total wine bevmo instacart\n3. ${brandAndName(wine)} whole foods thrive market wegmans publix\n4. ${brandAndName(wine)} trader joes sprouts`),
+This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and Thrive Market usually show the full ingredient panel, so look there first. Find this exact wine's product pages on those stores and their Ingredients section; fetch a page to read the panel. Source is "retailer" with that page as source_url. In product_urls list every product page for this exact wine you found on those stores (best ingredient panel first, Whole Foods first), even when you could not read them.`,
+    schema: GROCER_INGREDIENTS_SCHEMA, send, deadline,
+    content: ask(`Wine: ${wineLine(wine)}. Search exactly:\n1. ${brandAndName(wine)} whole foods market ingredients\n2. ${brandAndName(wine)} ingredients walmart target kroger\n3. ${brandAndName(wine)} thrive market total wine instacart\n4. ${brandAndName(wine)} trader joes sprouts wegmans publix`),
     tools: webTools(4, 3),
   }).catch(() => null).then(async (g) => {
-    // Grocers block plain fetches: read the product page through Bright Data
-    // and pull the ingredient panel from it.
-    if (!HAS_UNLOCKER || !g?.source_url || (g.found && (g.ingredients || []).length >= 2)) return g;
-    let host = "";
-    try { host = new URL(g.source_url).hostname; } catch { return g; }
-    if (!HARD_SHOPS.test(host)) return g;
-    // Bright Data takes 20 to 35 s on Walmart pages.
-    const text = await pageText(g.source_url, 40000);
-    diag.push({ name: "grocer-unlocked", outcome: `${text.length}c ${/ingredients?:/i.test(text) ? "with ingredients" : "no ingredients"}: ${g.source_url}`.slice(0, 200) });
-    if (!/ingredient/i.test(text)) return g;
-    const read = await runAgent({ diag,
-      name: "ingredients-grocer-read", model: SMART_MODEL, system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 10000),
-      content: ask(`Wine: ${wineLine(wine)}. Read the ingredient list from this product page (${g.source_url}). Source "retailer", source_url that page. If the page is for a different wine, found false.\n\n${text.slice(0, 9000)}`),
-      tools: [],
-    }).catch(() => null);
-    return read?.found ? { ...read, source: "retailer", source_url: g.source_url } : g;
+    // Grocers block plain fetches: read up to 3 store pages through Bright
+    // Data at once (Whole Foods first) and take the first full ingredient panel.
+    if (!g || (g.found && (g.ingredients || []).length >= 2)) return g;
+    if (!HAS_UNLOCKER) return g;
+    const urls = [...new Set([...(g.product_urls || []), g.source_url].filter((u) => { try { return HARD_SHOPS.test(new URL(u).hostname); } catch { return false; } }))]
+      .sort((x, y) => Number(/wholefoodsmarket|thrivemarket/.test(y)) - Number(/wholefoodsmarket|thrivemarket/.test(x))).slice(0, 3);
+    if (!urls.length) return g;
+    // Bright Data takes 20 to 35 s on some store pages.
+    const texts = await Promise.all(urls.map(async (u) => ({ u, text: await pageText(u, 40000) })));
+    diag.push({ name: "grocer-unlocked", outcome: texts.map((x) => `${x.text.length}c ${/ingredients?\s*:/i.test(x.text) ? "with ingredients" : "no ingredients"}: ${x.u}`).join(" | ").slice(0, 500) });
+    for (const x of texts.filter((t) => /ingredient/i.test(t.text)).sort((p, q) => Number(/ingredients?\s*:/i.test(q.text)) - Number(/ingredients?\s*:/i.test(p.text)))) {
+      const read = await runAgent({ diag,
+        name: "ingredients-grocer-read", model: SMART_MODEL, system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 10000),
+        content: ask(`Wine: ${wineLine(wine)}. Read the ingredient list from this product page (${x.u}). Source "retailer", source_url that page. If the page is for a different wine, found false.\n\n${x.text.slice(0, 9000)}`),
+        tools: [],
+      }).catch(() => null);
+      if (read?.found && (read.ingredients || []).length >= 2) return { ...read, source: "retailer", source_url: x.u };
+    }
+    return g;
   });
 
   // Anything scannable or traceable on the bottle: QR codes (from the shopper's
