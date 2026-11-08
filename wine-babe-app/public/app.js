@@ -350,7 +350,7 @@
     // never a fail.
     const std = judgeStandards(byId, n, est);
     // The list shown on the result: the 12 scored standards, in order.
-    const top = std.map((x, i) => ({ id: x.id, label: `${x.name} (${x.pts} pts)`, top: i + 1, status: x.state === "unverified" ? "unknown" : x.state,
+    const top = std.map((x, i) => ({ id: x.id, label: x.name, top: i + 1, status: x.state === "unverified" ? "unknown" : x.state,
       evidence: x.evidence, detail: x.basis || "Not verified.", origin: x.state === "unverified" ? "No source found yet" : x.origin, source_url: x.url, scope: x.scope }));
     const score = std.reduce((t, x) => t + (x.state === "pass" ? x.pts : 0), 0);
     const verifiedCount = std.filter((x) => x.state !== "unverified").length;
