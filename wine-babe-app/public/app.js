@@ -198,46 +198,66 @@
   // Published thresholds. Weights total 100.
   const CALORIE_MAX = 100; // kcal per 5 oz, the "Under 100 Calories" Wine Babe standard
   const VERIFIED_EVIDENCE = ["lab", "certified", "winery", "third_party", "retailer"];
+  // The Wine Babe score: 12 standards, 100 points, in priority order.
   const STANDARDS = [
     { id: "sugar_under_1g", pts: 20, critical: true, short: "sugar", name: "Less than 1 g sugar per 5 oz",
-      rule: "Pass: verified sugar under 1 g per 5 oz (147.87 ml), from a lab sheet, the bottle or EU e-label, the winery, or a European copy of the EU label for the same vintage. Fail: verified 1 g or more." },
-    { id: "no_added_sugar", pts: 15, critical: true, short: "no added sugar (ingredients)", name: "No added sugar",
-      rule: "Pass: the producer explicitly states no sugar is added. Fail: verified dosage sugar or sugar / sweetener added to sweeten the wine. Neutral: sugar used and consumed during fermentation (tirage) and concentrated must with no stated purpose. Low residual sugar or zero dosage alone never passes." },
-    { id: "no_artificial_flavors", pts: 15, critical: true, short: "no added flavors (ingredients)", name: "No added natural or artificial flavors",
-      rule: "Pass: the published ingredient list (winery, importer or e-label) lists no natural or artificial flavors, or the producer states none are added. Fail: a flavoring is listed. No ingredient list: not verified." },
+      rule: "Pass: verified sugar under 1 g per 5 oz (147.87 ml), from a lab sheet, the bottle or EU label, the winery, or a verified store or distributor listing. Fail: verified 1 g or more." },
+    { id: "ingredient_transparency", pts: 20, short: "ingredient list", name: "Full ingredient transparency",
+      rule: "Pass: a full ingredient list for this wine is published (winery, importer, the bottle's e-label, the European label, or a store listing). No list found: not verified." },
+    { id: "sugar_disclosed", from: "sugar_under_1g", pts: 15, short: "sugar figure", name: "Sugar content publicly disclosed",
+      rule: "Pass: a sugar figure for this wine is published by a verified source, whatever the amount. No published figure: not verified." },
+    { id: "calories", pts: 15, short: "calories", name: "Calories per 5 oz publicly disclosed",
+      rule: "Pass: a calorie figure is published (bottle or EU label, winery, lab, store listing), whatever the amount. Calculated estimates are shown but do not count." },
     { id: "sulfites", pts: 5, short: "sulfite level", name: "Sulfite transparency",
-      rule: "Pass: a verified source publishes the total sulfite level (mg/L). 'Contains sulphites' alone is a legal minimum and does not pass. No published level: not verified." },
-    { id: "calories", pts: 5, short: "calories", name: "Calories per 5 oz",
-      rule: `Pass: verified ${CALORIE_MAX} calories or less per 5 oz (bottle or EU label, winery, lab). Fail: verified over ${CALORIE_MAX}. Calculated figures are shown but do not earn points.` },
-    { id: "organic", pts: 5, short: "organic", name: "Organic grapes",
-      rule: "Pass: organic certification (EU leaf, AB, control body code on the bottle, certifier) or the producer documents organic grapes. Fail: verified non-organic." },
-    { id: "non_gmo", pts: 5, short: "non GMO", name: "Non GMO", rule: "Pass: the producer states non GMO (e.g. NO OGM on the tech sheet) or a certifier does." },
-    { id: "vegan", pts: 5, short: "vegan", name: "Vegan friendly", rule: "Pass: the producer states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
-    { id: "hand_harvested", pts: 5, short: "hand harvest", name: "Hand harvested grapes", rule: "Pass: the producer states the grapes are hand picked." },
-    { id: "sustainable", pts: 5, short: "sustainable farming", name: "Sustainable farming", rule: "Pass: a sustainability certification or the producer's documented practices." },
-    { id: "ingredient_transparency", pts: 15, short: "ingredient list", name: "Full ingredient transparency",
-      rule: "Pass: a full ingredient list for this wine is published by the winery, the importer, the bottle's e-label or the European label. No list found: not verified." },
+      rule: "Pass: a verified source publishes the total sulfite level (mg/L). 'Contains sulfites' alone is a legal minimum and does not pass." },
+    { id: "no_artificial_flavors", pts: 5, critical: true, short: "no added flavors (ingredients)", name: "No added natural or artificial flavors",
+      rule: "Pass: the published ingredient list shows no natural or artificial flavors, or the producer states none are added. Fail: a flavoring is listed." },
+    { id: "no_added_sugar", pts: 5, critical: true, short: "no added sugar (ingredients)", name: "No added sugar",
+      rule: "Pass: an explicit statement that no sugar is added. Fail: verified dosage or sweetening. Sugar used during fermentation is neutral; low sugar or zero dosage alone never passes." },
+    { id: "vegan", pts: 5, short: "vegan", name: "Vegan friendly", rule: "Pass: the producer or the label states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
+    { id: "farming", from: ["sustainable", "organic"], pts: 5, short: "sustainable or organic farming", name: "Sustainable or organic farming",
+      rule: "Pass: sustainable farming or organic farming, either one, by certification or the producer's documented practices." },
+    { id: "certified_organic", from: "organic", pts: 2, short: "certified organic", name: "Certified organic",
+      rule: "Pass: an organic certification (USDA Organic, EU organic leaf, AB, CCOF, a control body code on the bottle, or a named certifier). Documented organic practices without a certificate do not count here." },
+    { id: "hand_harvested", pts: 2, short: "hand harvest", name: "Hand harvested grapes", rule: "Pass: the producer states the grapes are hand picked." },
+    { id: "non_gmo", pts: 1, short: "non GMO", name: "Non GMO verified", rule: "Pass: the producer, the label or a certifier states non GMO (e.g. NO OGM on the tech sheet)." },
   ];
 
   // Decide each standard: "pass", "fail" or "unverified", with the evidence used.
   function judgeStandards(byId, n, est) {
+    const isVerified = (c) => c && (c.status === "pass" || c.status === "fail") && VERIFIED_EVIDENCE.includes(c.evidence);
     return STANDARDS.map((s) => {
-      const c = byId[s.id];
-      const verified = c && (c.status === "pass" || c.status === "fail") && VERIFIED_EVIDENCE.includes(c.evidence);
-      let state = verified ? c.status : "unverified";
-      let basis = c?.detail || "";
-      if (s.id === "calories") {
+      let c = byId[s.id];
+      let state, basis;
+      if (s.id === "sugar_disclosed") {
+        c = byId.sugar_under_1g;
+        const shown = isVerified(c);
+        state = shown ? "pass" : "unverified";
+        basis = shown ? `Sugar figure published. ${c.detail || ""}` : "No published sugar figure.";
+      } else if (s.id === "calories") {
         const cal = n.calories_5oz;
-        if (verified && cal != null && !est.calories) { state = cal <= CALORIE_MAX ? "pass" : "fail"; basis = `${Math.round(cal)} calories per 5 oz. ${c.detail || ""}`; }
-        else { state = "unverified"; basis = cal != null ? `About ${Math.round(cal)} calories per 5 oz, calculated from verified alcohol and sugar. Calculated figures earn no points.` : "No verified calorie figure."; }
+        if (isVerified(c) && cal != null && !est.calories) { state = "pass"; basis = `${Math.round(cal)} calories per 5 oz, published. ${c.detail || ""}`; }
+        else { state = "unverified"; basis = cal != null ? `About ${Math.round(cal)} calories per 5 oz, calculated from verified alcohol and sugar. Calculated figures earn no points.` : "No published calorie figure."; }
+      } else if (s.id === "sulfites") {
+        const ok = n.total_so2_mg_l != null && isVerified(c);
+        state = ok ? "pass" : "unverified";
+        basis = ok ? `Total sulfites ${Math.round(n.total_so2_mg_l)} mg/L published. ${c?.detail || ""}` : "No published total sulfite level.";
+      } else if (s.id === "farming") {
+        const sus = byId.sustainable, org = byId.organic;
+        const passing = [sus, org].find((x) => isVerified(x) && x.status === "pass");
+        if (passing) { c = passing; state = "pass"; basis = `${passing === sus ? "Sustainable" : "Organic"} farming. ${passing.detail || ""}`; }
+        else if (isVerified(sus) && isVerified(org)) { c = sus; state = "fail"; basis = "Verified as neither sustainable nor organic."; }
+        else { c = sus || org; state = "unverified"; basis = "No sustainable or organic farming information found."; }
+      } else if (s.id === "certified_organic") {
+        c = byId.organic;
+        const certified = isVerified(c) && c.status === "pass" && (c.evidence === "certified" || /certif|usda|euroleaf|organic leaf|\bAB\b|agriculture biologique|ccof|ecocert|demeter|[A-Z]{2}-BIO-\d|organic seal|control body/i.test(`${c.detail} ${c.origin || ""}`));
+        state = certified ? "pass" : isVerified(c) && c.status === "fail" ? "fail" : "unverified";
+        basis = certified ? c.detail : isVerified(c) && c.status === "pass" ? "Organic practices documented, but no organic certificate found." : c?.detail || "No organic certification found.";
+      } else {
+        state = isVerified(c) ? c.status : "unverified";
+        basis = c?.detail || "";
       }
-      if (s.id === "sulfites") {
-        const typicalSo2 = (n.typical?.fields || []).includes("so2");
-        const so2Verified = n.total_so2_mg_l != null && !typicalSo2 && verified;
-        state = so2Verified ? "pass" : "unverified";
-        basis = so2Verified ? `Total sulfites ${Math.round(n.total_so2_mg_l)} mg/L published. ${c?.detail || ""}` : "No published total sulfite level.";
-      }
-      return { ...s, state, basis: String(basis).trim(), origin: c?.origin || "", url: c?.source_url || "", evidence: c?.evidence || "none" };
+      return { ...s, state, basis: String(basis || "").trim(), origin: c?.origin || "", url: c?.source_url || "", evidence: state === "unverified" ? "none" : c?.evidence || "none", scope: c?.scope };
     });
   }
 
@@ -325,11 +345,13 @@
     }
 
     // WINE BABE SCORE (0-100): points only for VERIFIED passes against the
-    // scored standards (the top 11 priorities), weighted. TRANSPARENCY (0-100%): how many of them have
+    // scored standards (the 12 Wine Babe standards), weighted. TRANSPARENCY (0-100%): how many of them have
     // enough evidence to decide pass or fail. Unknown is never a pass and
     // never a fail.
-    const top = checks.filter((c) => c.top).sort((a, b) => a.top - b.top);
     const std = judgeStandards(byId, n, est);
+    // The list shown on the result: the 12 scored standards, in order.
+    const top = std.map((x, i) => ({ id: x.id, label: `${x.name} (${x.pts} pts)`, top: i + 1, status: x.state === "unverified" ? "unknown" : x.state,
+      evidence: x.evidence, detail: x.basis || "Not verified.", origin: x.state === "unverified" ? "No source found yet" : x.origin, source_url: x.url, scope: x.scope }));
     const score = std.reduce((t, x) => t + (x.state === "pass" ? x.pts : 0), 0);
     const verifiedCount = std.filter((x) => x.state !== "unverified").length;
     const transparency = Math.round((verifiedCount / STANDARDS.length) * 100);
@@ -548,7 +570,7 @@
       </div>
 
       <div class="block">
-        <h2>The Wine Babe top 11</h2>
+        <h2>The Wine Babe 12</h2>
         <div class="card"><ul class="checks">${r.top.map((c) => checkRow(c, true)).join("")}</ul></div>
       </div>
 
