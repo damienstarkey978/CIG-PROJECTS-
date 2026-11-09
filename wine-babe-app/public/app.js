@@ -707,4 +707,19 @@
   // Which deploy this page is running, so updates are easy to confirm.
   const v = window.WB_VERSION;
   if (v && v.at) $("#appVersion").textContent = `Version ${v.ref} · updated ${new Date(v.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
+
+  // Always run the latest version: ask the server which version is live and
+  // reload when this page is older. Checked on open, when the app comes back
+  // to the screen, and every few minutes. Never during a scan.
+  async function checkForUpdate() {
+    if (!v || !v.ref || v.ref === "dev" || screens.scanning.classList.contains("is-active")) return;
+    try {
+      const txt = await (await fetch(`/version.js?check=${Date.now()}`, { cache: "no-store" })).text();
+      const live = (txt.match(/"ref":"([^"]+)"/) || [])[1];
+      if (live && live !== v.ref && !screens.scanning.classList.contains("is-active")) location.reload();
+    } catch {}
+  }
+  checkForUpdate();
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkForUpdate(); });
+  setInterval(checkForUpdate, 5 * 60 * 1000);
 })();
