@@ -38,7 +38,7 @@ const CHECKLIST = [
     title: "Farming & Vineyard Practices",
     icon: "🌿",
     items: [
-      { id: "hand_harvested", label: "Hand harvested grapes", ask: "All or some grapes harvested by hand.", top: 5 },
+      { id: "hand_harvested", label: "Hand harvested grapes", ask: "All or some grapes picked by hand. Manual harvest is the same thing: hand harvested, hand picked, harvested manually, manual harvest, vendange manuelle, vendemmia manuale, raccolta a mano, cosecha manual, Handlese.", top: 5 },
       { id: "sustainable", label: "Sustainable farming", ask: "Winery documentation or a recognized certification (SQNPI, Equalitas, SIP, etc.).", top: 6 },
       { id: "minimal_pesticide", label: "Minimal pesticide use", ask: "Vineyard pest management practices." },
       { id: "no_synthetic_herbicides", label: "No synthetic herbicides", ask: "Verify vineyard practices." },

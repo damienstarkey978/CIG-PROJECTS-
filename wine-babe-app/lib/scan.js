@@ -109,7 +109,7 @@ const ONLINE_CLAIMS_SCHEMA = {
 const ONLINE_CLAIMS_SYSTEM = `You find what is published online about one wine for the Wine Babe app: the brand or winery website, the importer or distributor, and online retailers (World Market, Total Wine, Wine.com, Drizly, grocery chains, specialty shops).
 Run the searches you are given, then read the most useful pages (the brand's own page first, then distributor and retailer product pages).
 For each claim a page makes about this wine, return one entry: claim (from the list), source_kind (brand = the wine brand's own site, winery = the producer's site, importer, distributor, retailer), url (the page), quote (the exact words, short), this_wine (true if the page is about this exact wine; false if it is a brand wide statement).
-Claims to look for: vegan, gluten free, sustainable / sustainably farmed, organic, non GMO, hand harvested, no added sugar, no added flavors / no flavor additives, no artificial colors, no artificial sweeteners, estate grown, family owned, single vineyard, native yeast, no added water.
+Claims to look for: vegan, gluten free, sustainable / sustainably farmed, organic, non GMO, hand harvested (also "manual harvest", "harvested manually", "hand picked", vendange manuelle, vendemmia manuale, cosecha manual), no added sugar, no added flavors / no flavor additives, no artificial colors, no artificial sweeteners, estate grown, family owned, single vineyard, native yeast, no added water.
 Only claims the page actually states. Never infer: "low sugar" is not "no added sugar"; "natural" is not "organic". If nothing is found, return an empty list.`;
 
 const IDENTIFY_SCHEMA = {
@@ -1042,6 +1042,9 @@ function veganByColor(quote, w) {
   return null;
 }
 
+// Hand harvesting in its many wordings (manual harvest is the same thing).
+const HAND_HARVEST_RE = /hand[\s-]*(harvest\w*|pick\w*|pick(ed)? by hand|select\w*)|harvest\w* by hand|picked by hand|manual(ly)?[\s-]*(harvest\w*|pick\w*)|harvest\w*:?\s*(\w+\s){0,2}manual(ly)?|harvested manually|vendanges? manuelles?|vendang\w* (à|a) la main|vendemmia (manuale|a mano)|raccolta (manuale|a mano)|vendemmiat\w* a mano|cosecha manual|vendimia manual|handlese|handgelesen|colheita manual/i;
+
 const BARNIVORE_FIND_SYSTEM = `Find the producer's company page on barnivore.com, fast. Run exactly one web search: barnivore <producer>. Return the barnivore.com page url for that producer (paths like /wine/1234/name or /products/1234-name), or "" if there is none.`;
 
 async function readBarnivore(url) {
@@ -1685,7 +1688,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v75";
+const ENGINE_VERSION = "v76";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -1983,6 +1986,8 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     // model left out (sulfites, sugar), so a lab figure is never lost.
     const nums = sheetNumbers(text);
     sheetNumsSeen = { ...nums, url: sheet.url };
+    const hh = String(text || "").match(HAND_HARVEST_RE);
+    if (hh) sheetNumsSeen.handHarvest = hh[0];
     if (Object.keys(nums).length) {
       const out = read || { checks: [], sources: [], nutrition: { ...EMPTY_NUTRITION }, tech_sheet_url: sheet.url, tech_sheet_vintage: "" };
       out.nutrition = out.nutrition || { ...EMPTY_NUTRITION };
@@ -2732,6 +2737,11 @@ This run follows what is printed on the bottle: the barcode number and the compa
       used.push(`${id}@${host}`);
     }
     diag.push({ name: "online-claims-used", outcome: used.join(" , ").slice(0, 300) || "none" });
+  }
+  // Hand harvesting stated on the tech sheet in any wording ("manual
+  // harvest", "vendemmia manuale"...) counts as hand harvested.
+  if (sheetNumsSeen?.handHarvest && !(best.hand_harvested && (best.hand_harvested.status === "pass" || best.hand_harvested.status === "fail"))) {
+    best.hand_harvested = { id: "hand_harvested", status: "pass", evidence: "winery", scope: "this_wine", as_of: "", detail: `Tech sheet: "${sheetNumsSeen.handHarvest}" (manual harvest is hand harvesting).`, source_url: sheetNumsSeen.url || "" };
   }
   const checks = ALL_ITEMS.map(
     (i) => best[i.id] || { id: i.id, status: "unknown", evidence: "none", scope: "this_wine", as_of: "", detail: "No public information found.", source_url: "" }
