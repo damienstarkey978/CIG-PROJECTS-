@@ -198,29 +198,27 @@
   // Published thresholds. Weights total 100.
   const CALORIE_MAX = 100; // kcal per 5 oz, the "Under 100 Calories" Wine Babe standard
   const VERIFIED_EVIDENCE = ["lab", "certified", "winery", "third_party", "retailer"];
-  // The Wine Babe score: 12 standards, 100 points, in priority order.
+  // The Wine Babe score: 11 standards, 100 points, in priority order.
   const STANDARDS = [
-    { id: "sugar_under_1g", pts: 20, critical: true, short: "sugar", name: "Less than 1 g sugar per 5 oz",
+    { id: "sugar_under_1g", pts: 50, critical: true, short: "sugar", name: "Less than 1 g sugar per 5 oz, publicly verified",
       rule: "Pass: verified sugar under 1 g per 5 oz (147.87 ml), from a lab sheet, the bottle or EU label, the winery, or a verified store or distributor listing. Fail: verified 1 g or more." },
-    { id: "ingredient_transparency", pts: 20, short: "ingredient list", name: "Full ingredient transparency",
+    { id: "ingredient_transparency", pts: 20, short: "ingredient list", name: "Full ingredient list published",
       rule: "Pass: a full ingredient list for this wine is published (winery, importer, the bottle's e-label, the European label, or a store listing). No list found: not verified." },
-    { id: "sugar_disclosed", from: "sugar_under_1g", pts: 15, short: "sugar figure", name: "Sugar content publicly disclosed",
-      rule: "Pass: a sugar figure for this wine is published by a verified source, whatever the amount. No published figure: not verified." },
-    { id: "calories", pts: 15, short: "calories", name: "Calories per 5 oz publicly disclosed",
+    { id: "calories", pts: 5, short: "calories", name: "Calories per 5 oz publicly disclosed",
       rule: "Pass: a calorie figure is published (bottle or EU label, winery, lab, store listing), whatever the amount. Calculated estimates are shown but do not count." },
-    { id: "sulfites", pts: 5, short: "sulfite level", name: "Sulfite transparency",
-      rule: "Pass: a verified source publishes the total sulfite level (mg/L). 'Contains sulfites' alone is a legal minimum and does not pass." },
     { id: "no_artificial_flavors", pts: 5, critical: true, short: "no added flavors (ingredients)", name: "No added natural or artificial flavors",
       rule: "Pass: the published ingredient list shows no natural or artificial flavors, or the producer states none are added. Fail: a flavoring is listed." },
     { id: "no_added_sugar", pts: 5, critical: true, short: "no added sugar (ingredients)", name: "No added sugar",
       rule: "Pass: an explicit statement that no sugar is added. Fail: verified dosage or sweetening. Sugar used during fermentation is neutral; low sugar or zero dosage alone never passes." },
-    { id: "vegan", pts: 5, short: "vegan", name: "Vegan friendly", rule: "Pass: the producer or the label states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
-    { id: "farming", from: ["sustainable", "organic"], pts: 5, short: "sustainable or organic farming", name: "Sustainable or organic farming",
+    { id: "sulfites", pts: 4, short: "sulfite level", name: "Sulfite transparency",
+      rule: "Pass: a verified source publishes the total sulfite level (mg/L). 'Contains sulfites' alone is a legal minimum and does not pass." },
+    { id: "vegan", pts: 3, short: "vegan", name: "Vegan", rule: "Pass: the producer or the label states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
+    { id: "farming", from: ["sustainable", "organic"], pts: 2, short: "sustainable or organic farming", name: "Sustainable or organic farming practices",
       rule: "Pass: sustainable farming or organic farming, either one, by certification or the producer's documented practices." },
     { id: "certified_organic", from: "organic", pts: 2, short: "certified organic", name: "Certified organic",
       rule: "Pass: an organic certification (USDA Organic, EU organic leaf, AB, CCOF, a control body code on the bottle, or a named certifier). Documented organic practices without a certificate do not count here." },
     { id: "hand_harvested", pts: 2, short: "hand harvest", name: "Hand harvested grapes", rule: "Pass: the producer states the grapes are hand picked." },
-    { id: "non_gmo", pts: 1, short: "non GMO", name: "Non GMO verified", rule: "Pass: the producer, the label or a certifier states non GMO (e.g. NO OGM on the tech sheet)." },
+    { id: "non_gmo", pts: 2, short: "non GMO", name: "Non GMO", rule: "Pass: the producer, the label or a certifier states non GMO (e.g. NO OGM on the tech sheet)." },
   ];
 
   // Decide each standard: "pass", "fail" or "unverified", with the evidence used.
@@ -345,7 +343,7 @@
     }
 
     // WINE BABE SCORE (0-100): points only for VERIFIED passes against the
-    // scored standards (the 12 Wine Babe standards), weighted. TRANSPARENCY (0-100%): how many of them have
+    // scored standards (the 11 Wine Babe standards), weighted. TRANSPARENCY (0-100%): how many of them have
     // enough evidence to decide pass or fail. Unknown is never a pass and
     // never a fail.
     const std = judgeStandards(byId, n, est);
@@ -570,7 +568,7 @@
       </div>
 
       <div class="block">
-        <h2>The Wine Babe 12</h2>
+        <h2>The Wine Babe 11</h2>
         <div class="card"><ul class="checks">${r.top.map((c) => checkRow(c, true)).join("")}</ul></div>
       </div>
 
