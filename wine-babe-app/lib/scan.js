@@ -1017,6 +1017,31 @@ const URL_SCHEMA = {
   type: "object", additionalProperties: false, required: ["url"],
   properties: { url: { type: "string" } },
 };
+// The wine's color, from its style, grapes and name.
+const RED_GRAPES = /\b(red|rouge|rosso|tinto|tinta|rot|pinot noir|gamay|beaujolais|cabernet|merlot|syrah|shiraz|malbec|zinfandel|primitivo|sangiovese|chianti|nebbiolo|barolo|barbaresco|barbera|dolcetto|tempranillo|rioja|grenache|garnacha|mourv[eè]dre|carm[eé]n[eè]re|petite sirah|montepulciano|valpolicella|amarone|lambrusco|aglianico|nero d.avola|bordeaux|burgundy red|c[oô]tes du rh[oô]ne|ch[aâ]teauneuf|red blend)\b/i;
+function wineColor(w) {
+  const t = `${w.style} ${w.name} ${w.grapes}`.toLowerCase();
+  if (/ros[eé]|rosato|rosado|blush/.test(t)) return "rosé";
+  if (/sparkl|spumante|champagne|cava|cr[eé]mant|prosecco|franciacorta|sekt|brut|frizzante|mousseux/.test(t)) return "sparkling";
+  if (/\bwhite\b|blanc|bianco|blanco|chardonnay|sauvignon blanc|pinot gri|riesling|moscato|viognier|chenin|albari|verdejo|gew[uü]rz/.test(t)) return "white";
+  if (RED_GRAPES.test(t)) return "red";
+  return "";
+}
+// Reads a winery's answer that depends on color, e.g. "Only our red wines
+// are vegan", against this wine. Returns { status, color } or null.
+function veganByColor(quote, w) {
+  const q = String(quote || "").toLowerCase().replace(/ros[eé]/g, "rose");
+  const color = wineColor(w);
+  if (!q || !color) return null;
+  const c = color === "rosé" ? "rose" : color;
+  const words = "(red|white|rose|sparkling)";
+  let m = q.match(new RegExp(`only (?:our |the |all )?(?:${words}(?: and ${words})?) wines? (?:are|is)? ?(?:suitable for vegans|vegan)`));
+  if (m) { const ok = [m[1], m[2]].filter(Boolean); return { status: ok.includes(c) ? "pass" : "fail", color }; }
+  m = q.match(new RegExp(`(?:all )?(?:our |the )?${words} wines? (?:are|is) (not |never )?(?:suitable for vegans|vegan)`));
+  if (m && m[1] === c) return { status: m[2] ? "fail" : "pass", color };
+  return null;
+}
+
 const BARNIVORE_FIND_SYSTEM = `Find the producer's company page on barnivore.com, fast. Run exactly one web search: barnivore <producer>. Return the barnivore.com page url for that producer (paths like /wine/1234/name or /products/1234-name), or "" if there is none.`;
 
 async function readBarnivore(url) {
@@ -1660,7 +1685,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v74";
+const ENGINE_VERSION = "v75";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -2286,6 +2311,13 @@ This run follows what is printed on the bottle: the barcode number and the compa
       ? `Barnivore, winery's reply: "${barnivore.quote.length > 220 ? barnivore.quote.slice(0, 217).replace(/\s+\S*$/, "") + "..." : barnivore.quote}"`
       : `Barnivore lists the producer as ${barnivore.status === "pass" ? "vegan" : "not vegan"}.`;
     best.vegan = { id: "vegan", status: barnivore.status, evidence: "winery", scope: "producer", as_of: barnivore.as_of, detail, source_url: barnivore.url };
+    // Replies that depend on the wine's color ("Only our red wines are
+    // vegan") are judged against this wine's color.
+    const byColor = veganByColor(barnivore.quote || "", wine);
+    if (byColor) {
+      best.vegan = { ...best.vegan, status: byColor.status, scope: "this_wine", detail: `${detail} This is a ${byColor.color} wine, so it ${byColor.status === "pass" ? "is vegan" : "is not vegan"} by the winery's answer.` };
+      diag.push({ name: "vegan-by-color", outcome: `${byColor.color}: ${byColor.status}` });
+    }
   }
   if (cert) {
     const detail = cert.snippet ? `Winery site: "...${cert.snippet.split(" ").slice(0, 20).join(" ")}..."` : `The winery's site names ${cert.term} certification.`;
