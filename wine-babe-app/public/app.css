@@ -466,7 +466,7 @@ button.ring { border: 0; background: none; padding: 0; cursor: pointer; }
 .back-ask .btn.link { background: transparent; border: 0; color: var(--muted, #8b7b78); text-decoration: underline; }
 
 /* Top Pours */
-.top-pours-link { display: block; margin: 1.6rem auto 0; padding: 0.3rem 0.6rem; border: 0; background: none; font: inherit; font-size: 1.1rem; font-weight: 600; letter-spacing: 0.02em; color: var(--wine); text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
+.top-pours-link { display: block; margin: 0 auto 0.8rem; padding: 0.5rem 1.3rem; border: 1px solid var(--wine); border-radius: 999px; background: var(--card); font: inherit; font-size: 0.95rem; font-weight: 600; letter-spacing: 0.04em; color: var(--wine); text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
 .top-pours .tp-title { font-family: var(--serif); font-size: 2rem; margin: 0.5rem 0 0.25rem; text-align: center; }
 .top-pours .tp-sub { margin: 0 0 1.2rem; font-size: 0.9rem; color: var(--muted); text-align: center; }
 .top-pours .tp-empty { text-align: center; color: var(--muted); }
