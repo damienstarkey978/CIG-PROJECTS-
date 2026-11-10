@@ -1,7 +1,7 @@
 /* Wine Babe scanner front end. Needs checklist.js loaded first. */
 (() => {
   const $ = (s) => document.querySelector(s);
-  const screens = { home: $("#home"), scanning: $("#scanning"), result: $("#result") };
+  const screens = { home: $("#home"), scanning: $("#scanning"), result: $("#result"), toppours: $("#toppours") };
   const HISTORY_KEY = "winebabe.history.v1";
   const SERVING_ML = 147.87; // 5 oz
 
@@ -41,7 +41,8 @@
   // ---------- Top Pours (shared top 10) ----------
   function renderTopPours(list) {
     const items = Array.isArray(list) ? list : [];
-    $("#topPours").hidden = !items.length;
+    $("#topPoursBtn").textContent = items.length ? `Top Pours (${items.length})` : "Top Pours";
+    $("#topPoursEmpty").hidden = items.length > 0;
     $("#topPoursList").innerHTML = items
       .map((e, i) => `<li><button data-tp="${esc(e.id)}" data-q="${esc([e.wine.producer, e.wine.name, e.wine.vintage].filter(Boolean).join(" "))}">
           <span class="tp-rank">${i + 1}</span>
@@ -55,11 +56,11 @@
     try { const r = await fetch("/api/top-pours", { cache: "no-store" }); if (r.ok) renderTopPours((await r.json()).list); } catch {}
   }
   // After a scan: send it in. The server reads the stored scan itself and
-  // keeps it only if it scores 80+ without "Additional Verification Required".
+  // keeps it only if it scores 90+ without "Additional Verification Required".
   async function submitTopPour(id, data) {
     try {
       const r = enrich(data);
-      if (!id || r.score == null || r.score < 80 || /additional verification/i.test(r.tier)) return;
+      if (!id || r.score == null || r.score < 90 || /additional verification/i.test(r.tier)) return;
       const res = await fetch("/api/top-pours", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, score: r.score, tier: r.tier }) });
       if (!res.ok) return;
       const out = await res.json();
@@ -74,6 +75,8 @@
       }
     } catch {}
   }
+  $("#topPoursBtn").addEventListener("click", () => { show("toppours"); loadTopPours(); });
+  $("#topPoursBack").addEventListener("click", () => show("home"));
   $("#topPoursList").addEventListener("click", async (ev) => {
     const b = ev.target.closest("button[data-tp]");
     if (!b) return;

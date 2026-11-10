@@ -1,8 +1,8 @@
-// Top Pours: the 10 highest scoring wines anyone has scanned.
+// Top Pours: every wine anyone has scanned that scores 90 or more.
 // Shared by the Netlify function and the local server.
 
-const MAX = 10;
-const MIN_SCORE = 80;
+const MAX = 1000; // safety cap
+const MIN_SCORE = 90;
 
 const keyOf = (w) => [w.producer, w.name, w.vintage].map((x) => String(x || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim()).join("|");
 

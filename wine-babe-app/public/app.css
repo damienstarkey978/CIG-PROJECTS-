@@ -466,7 +466,15 @@ button.ring { border: 0; background: none; padding: 0; cursor: pointer; }
 .back-ask .btn.link { background: transparent; border: 0; color: var(--muted, #8b7b78); text-decoration: underline; }
 
 /* Top Pours */
-.top-pours .tp-sub { margin: -0.4rem 0 0.8rem; font-size: 0.85rem; color: var(--muted); }
+.top-pours-link { display: block; margin: 1.6rem auto 0; padding: 0.3rem 0.6rem; border: 0; background: none; font: inherit; font-size: 1.1rem; font-weight: 600; letter-spacing: 0.02em; color: var(--wine); text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
+.top-pours .tp-title { font-family: var(--serif); font-size: 2rem; margin: 0.5rem 0 0.25rem; text-align: center; }
+.top-pours .tp-sub { margin: 0 0 1.2rem; font-size: 0.9rem; color: var(--muted); text-align: center; }
+.top-pours .tp-empty { text-align: center; color: var(--muted); }
+.top-pours #topPoursBack { display: block; margin: 1.5rem auto 0; }
+.top-pours ol button { display: flex; align-items: center; gap: 0.8rem; width: 100%; padding: 0.75rem 0.9rem; border: 1px solid var(--line); border-radius: 14px; background: var(--card); text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.top-pours .r-name { font-family: var(--serif); font-weight: 600; font-size: 1.1rem; line-height: 1.2; }
+.top-pours .r-sub { font-size: 0.8rem; color: var(--muted); }
+.top-pours .mini-score { flex: none; display: grid; place-items: center; width: 2.4rem; height: 2.4rem; border-radius: 50%; background: var(--blush-soft); font-weight: 600; font-size: 0.85rem; color: var(--wine); }
 .top-pours ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
 .top-pours .tp-rank { flex: none; width: 1.6rem; font-family: inherit; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 1.15rem; color: var(--wine); text-align: center; }
 .top-pours .tp-wine { flex: 1; min-width: 0; }
