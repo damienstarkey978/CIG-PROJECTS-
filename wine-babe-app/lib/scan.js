@@ -221,7 +221,7 @@ const itemList = (ids) =>
 
 const RULES = `Rules for each check:
 - A clear winery statement is enough for a pass (evidence "winery"): on the winery's site, its tech sheet, or its importer's page. Shop, retailer, review and marketplace pages do not count as evidence: if they are the only source, the item is "unknown". A certificate or certifier listing is "certified". Lab numbers on a tech sheet are "lab". A calculation is "estimate".
-- status "pass" when a source supports it, "fail" when a source contradicts it (residual sugar above 6.7 g/L, egg white or casein fining, sugar added at dosage), "unknown" when you found nothing, "na" when it does not apply (zero_dosage for a still wine). Never guess a pass.
+- status "pass" when a source supports it, "fail" when a source contradicts it (residual sugar above 6.76 g/L, i.e. more than 1 g per 5 oz, egg white or casein fining, sugar added at dosage), "unknown" when you found nothing, "na" when it does not apply (zero_dosage for a still wine). Never guess a pass.
 - scope: "this_wine" (source is about this exact wine), "producer" (winery wide statement, e.g. "all our wines are vegan", "150 ha certified SQNPI"), "related_wine" (a sister wine's tech sheet from the same producer; name it in the detail).
 - as_of: date or year of the statement or document if shown, else "".
 - detail: at most 15 words for a shopper, with the number or quoted wording when there is one.
@@ -1680,7 +1680,7 @@ function summarize(wine, checks, nutrition) {
   const rs = nutrition.residual_sugar_g_l;
   const sugar =
     rs == null ? "We could not find a published sugar number."
-    : rs * 0.14787 < 1 ? `It has about ${(rs * 0.14787).toFixed(1)} g of sugar per 5 oz glass, under the 1 g mark.`
+    : Math.round(rs * 14.787) / 100 <= 1 ? `It has about ${(rs * 0.14787).toFixed(1)} g of sugar per 5 oz glass, at or under the 1 g mark.`
     : `It has about ${(rs * 0.14787).toFixed(1)} g of sugar per 5 oz glass, over the 1 g mark.`;
   return `${[wine.producer, wine.name].filter(Boolean).join(" ")}${wine.vintage ? ` ${wine.vintage}` : ""}: ${ok} of the Wine Babe top 10 are backed by a source. ${sugar}`;
 }
@@ -1688,7 +1688,7 @@ function summarize(wine, checks, nutrition) {
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
 
 // Bump when scan logic changes, so results from older versions are not reused.
-const ENGINE_VERSION = "v76";
+const ENGINE_VERSION = "v77";
 // The identify step can name the same wine slightly differently between runs
 // ("Prosecco Treviso Brut Nature" vs "Prosecco Treviso DOC Brut Nature"), so
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
@@ -2413,7 +2413,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
         n.residual_sugar_g_l = Math.round(eu.sugars_100ml * 100) / 10;
       }
       n.source = evidence === "third_party" ? "third_party" : "winery";
-      best.sugar_under_1g = { ...euBase, id: "sugar_under_1g", status: per5 < 1 ? "pass" : "fail", evidence,
+      best.sugar_under_1g = { ...euBase, id: "sugar_under_1g", status: Math.round(per5 * 100) / 100 <= 1 ? "pass" : "fail", evidence,
         detail: `${bound ? "Under " : ""}${per5.toFixed(2)} g ${kindLabel} per 5 oz: ${original} on the ${label}.` };
       euDisclosure.sugar = {
         per_5oz: Math.round(per5 * 100) / 100,
@@ -2499,7 +2499,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
       n.eu_sugar = true;
       n.sugar_kind = "total_sugars";
       n.source = "winery";
-      best.sugar_under_1g = { ...lb, id: "sugar_under_1g", status: per5 < 1 ? "pass" : "fail", evidence: "winery", detail: `${per5.toFixed(2)} g total sugars per 5 oz: ${ln.sugars_100ml} g per 100 ml on the bottle label.` };
+      best.sugar_under_1g = { ...lb, id: "sugar_under_1g", status: Math.round(per5 * 100) / 100 <= 1 ? "pass" : "fail", evidence: "winery", detail: `${per5.toFixed(2)} g total sugars per 5 oz: ${ln.sugars_100ml} g per 100 ml on the bottle label.` };
       euDisclosure.sugar = { per_5oz: Math.round(per5 * 100) / 100, upper_bound: false, original: `${ln.sugars_100ml} g / 100 ml`, kind: "total sugars", source_type: "Bottle label", host: "", url: "", vintage: wine.vintage || "", vintage_verified: true };
       used.push("sugar");
     }
@@ -2614,7 +2614,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
       : { id: "sugar_under_1g", evidence: tech.nutrition.source === "none" ? "lab" : tech.nutrition.source, scope: "this_wine", as_of: "", source_url: tech.tech_sheet_url || "" };
     best.sugar_under_1g = {
       ...base,
-      status: rs * 0.14787 < 1 ? "pass" : "fail",
+      status: Math.round(rs * 14.787) / 100 <= 1 ? "pass" : "fail",
       detail: tech.nutrition.typical?.fields.includes("sugar")
         ? `About ${perGlass} g sugar per 5 oz glass, typical for a ${tech.nutrition.typical.style} (${rs} g/L). Not published for this wine.`
         : `About ${perGlass} g sugar per 5 oz glass (${rs} g/L residual sugar).${base.scope === "related_wine" ? " From another vintage's sheet." : ""}`,
@@ -2819,7 +2819,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
       if (n.residual_sugar_g_l == null && sn.rs) {
         n.residual_sugar_g_l = sn.rs.value; n.source = "lab";
         const per5 = sn.rs.value * 0.14787;
-        set("sugar_under_1g", { id: "sugar_under_1g", status: per5 < 1 ? "pass" : "fail", evidence: "lab", scope: "this_wine", as_of: "", detail: `Tech sheet: ${sn.rs.value} g/L residual sugar${/100/.test(sn.rs.text) ? ` (printed as ${sn.rs.text})` : ""}, about ${per5.toFixed(2)} g per 5 oz.`, source_url: sn.url, origin: `Tech sheet on ${sh}` });
+        set("sugar_under_1g", { id: "sugar_under_1g", status: Math.round(per5 * 100) / 100 <= 1 ? "pass" : "fail", evidence: "lab", scope: "this_wine", as_of: "", detail: `Tech sheet: ${sn.rs.value} g/L residual sugar${/100/.test(sn.rs.text) ? ` (printed as ${sn.rs.text})` : ""}, about ${per5.toFixed(2)} g per 5 oz.`, source_url: sn.url, origin: `Tech sheet on ${sh}` });
       }
       if (!result.wine.tech_sheet_url) result.wine = { ...result.wine, tech_sheet_url: sn.url };
     }
@@ -2866,7 +2866,7 @@ function applyLabelClaims(result, lc, image, src = { name: "Bottle label", url: 
   if (!sugarStrong && sugar != null) {
     n.residual_sugar_g_l = Math.round((sugar / 0.14787) * 10) / 10;
     n.source = "winery";
-    put("sugar_under_1g", sugar < 1 ? "pass" : "fail", `${W}: ${sugar} g sugar per 5 oz serving.`);
+    put("sugar_under_1g", sugar <= 1 ? "pass" : "fail", `${W}: ${sugar} g sugar per 5 oz serving.`);
   } else if (!sugarStrong && lc.sugar_under_1g) {
     n.residual_sugar_g_l = null;
     n.sugar_below_g_l = 6.7;

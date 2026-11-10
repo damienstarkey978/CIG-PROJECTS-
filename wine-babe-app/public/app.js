@@ -200,25 +200,25 @@
   const VERIFIED_EVIDENCE = ["lab", "certified", "winery", "third_party", "retailer"];
   // The Wine Babe score: 11 standards, 100 points, in priority order.
   const STANDARDS = [
-    { id: "sugar_under_1g", pts: 50, critical: true, short: "sugar", name: "Less than 1 g sugar per 5 oz, publicly verified",
-      rule: "Pass: verified sugar under 1 g per 5 oz (147.87 ml), from a lab sheet, the bottle or EU label, the winery, or a verified store or distributor listing. Fail: verified 1 g or more." },
-    { id: "ingredient_transparency", pts: 20, short: "ingredient list", name: "Complete ingredient list publicly disclosed",
+    { id: "sugar_under_1g", pts: 80, critical: true, short: "sugar", name: "1 gram or less of sugar per 5 oz, publicly verified",
+      rule: "Pass: verified sugar of 1 g or less per 5 oz (147.87 ml), from a lab sheet, the bottle or EU label, the winery, or a verified store or distributor listing. Fail: verified more than 1 g." },
+    { id: "ingredient_transparency", pts: 5, short: "ingredient list", name: "Full ingredient list published",
       rule: "Pass: a full ingredient list for this wine is published (winery, importer, the bottle's e-label, the European label, or a store listing). No list found: not verified." },
-    { id: "farming", from: ["sustainable", "organic"], pts: 6, short: "sustainable or organic farming", name: "Sustainable or organic farming practices",
-      rule: "Pass: sustainable farming or organic farming, either one, by certification or the producer's documented practices." },
-    { id: "hand_harvested", pts: 5, short: "hand harvest", name: "Hand harvested grapes", rule: "Pass: the producer states the grapes are picked by hand. Manual harvest (harvested manually, vendemmia manuale, vendange manuelle) is the same thing." },
-    { id: "vegan", pts: 5, short: "vegan", name: "Vegan friendly", rule: "Pass: the producer or the label states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
-    { id: "no_artificial_flavors", pts: 4, critical: true, short: "no added flavors (ingredients)", name: "No added natural or artificial flavors",
-      rule: "Pass: the published ingredient list shows no natural or artificial flavors, or the producer states none are added. Fail: a flavoring is listed." },
-    { id: "no_added_sugar", pts: 3, critical: true, short: "no added sugar (ingredients)", name: "No added sugar",
-      rule: "Pass: an explicit statement that no sugar is added. Fail: verified dosage or sweetening. Sugar used during fermentation is neutral; low sugar or zero dosage alone never passes." },
     { id: "calories", pts: 2, short: "calories", name: "Calories per 5 oz publicly disclosed",
       rule: "Pass: a calorie figure is published (bottle or EU label, winery, lab, store listing), whatever the amount. Calculated estimates are shown but do not count." },
-    { id: "certified_organic", from: "organic", pts: 2, short: "certified organic", name: "Certified organic",
-      rule: "Pass: an organic certification (USDA Organic, EU organic leaf, AB, CCOF, a control body code on the bottle, or a named certifier). Documented organic practices without a certificate do not count here." },
-    { id: "sulfites", pts: 1, short: "sulfite level", name: "Sulfite transparency",
+    { id: "no_artificial_flavors", pts: 2, critical: true, short: "no added flavors (ingredients)", name: "No added natural or artificial flavors",
+      rule: "Pass: the published ingredient list shows no natural or artificial flavors, or the producer states none are added. Fail: a flavoring is listed." },
+    { id: "no_added_sugar", pts: 2, critical: true, short: "no added sugar (ingredients)", name: "No added sugar",
+      rule: "Pass: an explicit statement that no sugar is added. Fail: verified dosage or sweetening. Sugar used during fermentation is neutral; low sugar or zero dosage alone never passes." },
+    { id: "sulfites", pts: 2, short: "sulfite level", name: "Sulfite transparency",
       rule: "Pass: a verified source publishes the total sulfite level (mg/L). 'Contains sulfites' alone is a legal minimum and does not pass." },
-    { id: "non_gmo", pts: 2, short: "non GMO", name: "Non GMO verified", rule: "Pass: the producer, the label or a certifier states non GMO (e.g. NO OGM on the tech sheet)." },
+    { id: "vegan", pts: 2, short: "vegan", name: "Vegan friendly", rule: "Pass: the producer or the label states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
+    { id: "farming", from: ["sustainable", "organic"], pts: 1, short: "sustainable or organic farming", name: "Sustainable or organic farming practices",
+      rule: "Pass: sustainable farming or organic farming, either one, by certification or the producer's documented practices." },
+    { id: "certified_organic", from: "organic", pts: 1, short: "certified organic", name: "Certified organic",
+      rule: "Pass: an organic certification (USDA Organic, EU organic leaf, AB, CCOF, a control body code on the bottle, or a named certifier). Documented organic practices without a certificate do not count here." },
+    { id: "hand_harvested", pts: 1, short: "hand harvest", name: "Hand harvested grapes", rule: "Pass: the producer states the grapes are picked by hand. Manual harvest (harvested manually, vendemmia manuale, vendange manuelle) is the same thing." },
+    { id: "non_gmo", pts: 2, short: "non GMO", name: "Non GMO", rule: "Pass: the producer, the label or a certifier states non GMO (e.g. NO OGM on the tech sheet)." },
   ];
 
   // Decide each standard: "pass", "fail" or "unverified", with the evidence used.
@@ -251,6 +251,11 @@
         const certified = isVerified(c) && c.status === "pass" && (c.evidence === "certified" || /certif|usda|euroleaf|organic leaf|\bAB\b|agriculture biologique|ccof|ecocert|demeter|[A-Z]{2}-BIO-\d|organic seal|control body/i.test(`${c.detail} ${c.origin || ""}`));
         state = certified ? "pass" : isVerified(c) && c.status === "fail" ? "fail" : "unverified";
         basis = certified ? c.detail : isVerified(c) && c.status === "pass" ? "Organic practices documented, but no organic certificate found." : c?.detail || "No organic certification found.";
+      } else if (s.id === "sugar_under_1g" && isVerified(c) && (n.sugar_5oz != null || n.sugar_below_5oz != null)) {
+        // 1 gram or less per 5 oz passes (rounded to 0.01 g).
+        const g = n.sugar_5oz != null ? Math.round(n.sugar_5oz * 100) / 100 : null;
+        state = g != null ? (g <= 1 ? "pass" : "fail") : n.sugar_below_5oz <= 1.0001 ? "pass" : c.status;
+        basis = c.detail || "";
       } else {
         state = isVerified(c) ? c.status : "unverified";
         basis = c?.detail || "";
@@ -532,8 +537,8 @@
           <div class="big">${sugar != null ? `${fmt(sugar, 1)}<small> g</small>` : n.sugar_below_5oz != null ? `&lt;${fmt(n.sugar_below_5oz, 1)}<small> g</small>` : "—"}</div>
         </div>
         <div>
-          <div class="verdict ${sugar == null ? (n.sugar_below_5oz != null && n.sugar_below_5oz < 1 ? "ok" : "") : sugar < 1 ? "ok" : "no"}">
-            ${sugar == null && n.sugar_below_5oz != null ? (n.sugar_below_5oz < 1 ? "Under 1 g. Skinny sip approved." : `Under ${fmt(n.sugar_below_5oz, 1)} g per glass`) : sugar == null ? "Unverified" : typ.includes("sugar") ? (sugar < 1 ? "Likely under 1 g per glass" : "Likely over 1 g per glass") : sugar < 1 ? "Under 1 g. Skinny sip approved." : "Over 1 g per glass"}
+          <div class="verdict ${sugar == null ? (n.sugar_below_5oz != null && n.sugar_below_5oz <= 1.0001 ? "ok" : "") : Math.round(sugar * 100) / 100 <= 1 ? "ok" : "no"}">
+            ${sugar == null && n.sugar_below_5oz != null ? (n.sugar_below_5oz <= 1.0001 ? "1 g or less. Skinny sip approved." : `Under ${fmt(n.sugar_below_5oz, 1)} g per glass`) : sugar == null ? "Unverified" : typ.includes("sugar") ? (sugar < 1 ? "Likely under 1 g per glass" : "Likely over 1 g per glass") : Math.round(sugar * 100) / 100 <= 1 ? "1 g or less. Skinny sip approved." : "Over 1 g per glass"}
           </div>
           <div class="detail" style="font-size:.82rem;color:var(--muted)">
             ${data.eu_disclosure?.sugar ? `${esc(data.eu_disclosure.sugar.original)} (${esc(data.eu_disclosure.sugar.kind)})` : n.residual_sugar_g_l != null ? `${fmt(n.residual_sugar_g_l, 1)} g/L residual sugar` : n.sugar_below_g_l != null ? `Under ${fmt(n.sugar_below_g_l, 1)} g/L residual sugar` : ""}
