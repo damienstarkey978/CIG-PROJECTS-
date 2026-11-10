@@ -38,6 +38,53 @@
       )
       .join("");
   }
+  // ---------- Top Pours (shared top 10) ----------
+  function renderTopPours(list) {
+    const items = Array.isArray(list) ? list : [];
+    $("#topPours").hidden = !items.length;
+    $("#topPoursList").innerHTML = items
+      .map((e, i) => `<li><button data-tp="${esc(e.id)}" data-q="${esc([e.wine.producer, e.wine.name, e.wine.vintage].filter(Boolean).join(" "))}">
+          <span class="tp-rank">${i + 1}</span>
+          <span class="tp-wine"><span class="r-name">${esc(e.wine.name || "Unknown wine")}</span><br />
+          <span class="r-sub">${esc([e.wine.producer, e.wine.vintage].filter(Boolean).join(" · "))}</span></span>
+          <span class="mini-score">${esc(String(e.score))}</span>
+        </button></li>`)
+      .join("");
+  }
+  async function loadTopPours() {
+    try { const r = await fetch("/api/top-pours", { cache: "no-store" }); if (r.ok) renderTopPours((await r.json()).list); } catch {}
+  }
+  // After a scan: send it in. The server reads the stored scan itself and
+  // keeps it only if it scores 80+ without "Additional Verification Required".
+  async function submitTopPour(id, data) {
+    try {
+      const r = enrich(data);
+      if (!id || r.score == null || r.score < 80 || /additional verification/i.test(r.tier)) return;
+      const res = await fetch("/api/top-pours", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, score: r.score, tier: r.tier }) });
+      if (!res.ok) return;
+      const out = await res.json();
+      renderTopPours(out.list);
+      if (out.added) {
+        const rank = out.list.findIndex((e) => e.id === id) + 1;
+        const note = document.createElement("div");
+        note.className = "tp-added";
+        note.textContent = `Added to Top Pours at #${rank}`;
+        const res0 = $("#result");
+        res0.insertBefore(note, res0.firstChild);
+      }
+    } catch {}
+  }
+  $("#topPoursList").addEventListener("click", async (ev) => {
+    const b = ev.target.closest("button[data-tp]");
+    if (!b) return;
+    try {
+      const r = await fetch(`/api/scan-status/${encodeURIComponent(b.dataset.tp)}`, { cache: "no-store" });
+      const job = r.ok ? await r.json() : null;
+      if (job && job.result) return renderResult(job.result, false, job.at);
+    } catch {}
+    if (b.dataset.q) scan({ query: b.dataset.q }, null);
+  });
+
   $("#recentList").addEventListener("click", (ev) => {
     const b = ev.target.closest("button[data-i]");
     if (b) { const e = loadHistory()[+b.dataset.i]; renderResult(e.data, false, e.at); }
@@ -112,6 +159,7 @@
       if (job.error) throw new Error(job.error);
       if (!job.result) throw new Error("No result came back. Try again.");
       renderResult(job.result, true);
+      submitTopPour(start.id, job.result);
     } catch (err) {
       const box = document.createElement("div");
       box.className = "error-box";
@@ -709,6 +757,7 @@
 
   fetch("/api/health").then((r) => r.json()).then((h) => { $("#demoNote").hidden = h.live; }).catch(() => {});
   renderRecent();
+  loadTopPours();
   // Which deploy this page is running, so updates are easy to confirm.
   const v = window.WB_VERSION;
   if (v && v.at) $("#appVersion").textContent = `Version ${v.ref} · updated ${new Date(v.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;

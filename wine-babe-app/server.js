@@ -40,6 +40,7 @@ function readBody(req, limit = 12 * 1024 * 1024) {
 // Jobs live in memory here; on Netlify they live in Blobs (see netlify/functions).
 const JOBS = new Map();
 const RESULTS = new Map(); // scan cache, in memory
+let TOP_POURS = []; // Top Pours list, in memory locally
 const cache = { get: async (k) => RESULTS.get(k) || null, set: async (k, v) => { RESULTS.set(k, v); } };
 const json = (res, code, obj) => res.writeHead(code, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify(obj));
 
@@ -92,6 +93,17 @@ http
       // Local http: drop Secure so the cookie works on localhost.
       const headers = Object.fromEntries([...r.headers].map(([k, v]) => [k, k === "set-cookie" ? v.replace("; Secure", "") : v]));
       return void res.writeHead(r.status, headers).end(Buffer.from(await r.arrayBuffer()));
+    }
+    if (req.url === "/api/top-pours") {
+      const tp = require("./lib/toppours.js");
+      if (req.method === "GET") return json(res, 200, { list: TOP_POURS });
+      if (req.method === "POST") {
+        let body = {};
+        try { body = JSON.parse((await readBody(req)) || "{}"); } catch {}
+        const next = tp.addEntry(TOP_POURS, JOBS.get(body.id), body.id, body.score, body.tier);
+        if (next) TOP_POURS = next;
+        return json(res, 200, { list: TOP_POURS, added: TOP_POURS.some((e) => e.id === body.id) });
+      }
     }
     if (req.method === "POST" && req.url === "/api/scan-start") return void handleStart(req, res);
     const m = req.url.match(/^\/api\/scan-status\/([^/?]+)/);
