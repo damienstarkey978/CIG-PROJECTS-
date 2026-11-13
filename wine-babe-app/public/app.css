@@ -465,3 +465,17 @@ button.ring { border: 0; background: none; padding: 0; cursor: pointer; }
 .back-ask .btn { width: 100%; }
 .back-ask .btn.ghost { background: transparent; border: 1px solid currentColor; color: inherit; }
 .back-ask .btn.link { background: transparent; border: 0; color: var(--muted, #8b7b78); text-decoration: underline; }
+
+/* Verdict */
+.verdict-big { margin: 0.9rem auto 0.2rem; padding: 0.45rem 1.6rem; width: max-content; max-width: 100%; border-radius: 999px; font-family: var(--serif); font-size: 1.7rem; font-weight: 600; text-align: center; }
+.verdict-big.yes { background: var(--pass-bg); color: var(--pass); }
+.verdict-big.no { background: var(--unk-bg); color: var(--unk); }
+.verdict-sub { margin: 0.3rem 0 0.7rem; text-align: center; color: var(--muted); font-size: 0.95rem; }
+.recent .vchip { margin-left: auto; flex: none; }
+.vchip { display: inline-block; padding: 0.12rem 0.6rem; border-radius: 999px; font-size: 0.74rem; font-weight: 600; white-space: nowrap; }
+.vchip.yes { background: var(--pass-bg); color: var(--pass); }
+.vchip.no { background: var(--unk-bg); color: var(--unk); }
+/* The "N of 11 items found" link under the verdict (shares the info button's behavior, not its round look). */
+.score .verified-count.info-btn { display: block; position: static; width: auto; height: auto; margin: 0.2rem auto 0; padding: 0.3rem 0.6rem; border: 0; border-radius: 8px; background: none; font: inherit; font-style: normal; font-size: 0.9rem; font-weight: 400; color: var(--ink); text-align: center; line-height: 1.4; }
+.score .verified-count b { font-weight: 600; font-style: normal; }
+.score .verified-count .tap-hint { display: block; font-style: normal; text-decoration: underline; text-underline-offset: 3px; }

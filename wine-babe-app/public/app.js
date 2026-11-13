@@ -31,7 +31,7 @@
     $("#recentList").innerHTML = list
       .map(
         (e, i) => `<li><button data-i="${i}">
-          <span class="mini-score">${(() => { try { const q = enrich(e.data); return `${q.knownCount}/${q.applicableCount}`; } catch { return "—"; } })()}</span>
+          ${(() => { try { const q = enrich(e.data); return `<span class="vchip ${q.verified ? "yes" : "no"}">${q.verified ? "Verified" : "Not verified"}</span>`; } catch { return ""; } })()}
           <span><span class="r-name">${esc(e.data.wine.name || "Unknown wine")}</span><br />
           <span class="r-sub">${esc([e.data.wine.producer, e.data.wine.vintage].filter(Boolean).join(" · "))}</span></span>
         </button></li>`
@@ -211,6 +211,7 @@
   // Published thresholds. Weights total 100.
   const CALORIE_MAX = 100; // kcal per 5 oz, the "Under 100 Calories" Wine Babe standard
   const VERIFIED_EVIDENCE = ["lab", "certified", "winery", "third_party", "retailer"];
+  const VERIFIED_MIN = 3; // items needed for a wine to count as Verified
   // The Transparency Scanner: 11 items, no points and no score. An item is
   // "verified" when reliable public information for it was found (whether the
   // wine meets it or not), otherwise "not verified".
@@ -371,7 +372,10 @@
     const top = std.map((x, i) => ({ id: x.id, label: x.name, top: i + 1, status: x.state === "unverified" ? "unknown" : x.state,
       evidence: x.evidence, detail: x.basis || "Not verified.", origin: x.state === "unverified" ? "No source found yet" : x.origin, source_url: x.url, scope: x.scope }));
     const known = std.filter((x) => x.state !== "unverified");
-    return { n, est, checks, top, knownCount: known.length, applicableCount: std.length, std };
+    // The verdict: a wine is Verified when at least 3 of the 11 items were
+    // found and verified, otherwise Not verified. No points, no score.
+    const verified = known.length >= VERIFIED_MIN;
+    return { n, est, checks, top, knownCount: known.length, applicableCount: std.length, verified, std };
   }
 
   // ---------- sulfites ----------
@@ -530,7 +534,7 @@
           <button type="button" class="info-btn" aria-label="See the score breakdown" aria-expanded="false" aria-controls="scoreInfo">i</button>
         </div>
         <div class="score-info" id="scoreInfo" role="dialog" aria-label="Transparency Scanner breakdown" hidden>
-          <p><b>What we looked for</b> · ${r.knownCount} of ${r.applicableCount} verified</p>
+          <p><b>${r.verified ? "Verified" : "Not verified"}</b> · ${r.knownCount} of ${r.applicableCount} items found. A wine is Verified when at least ${VERIFIED_MIN} are found.</p>
           <ul class="std-list">
             ${r.std.map((x) => `<li class="std ${x.state}">
               <div class="std__top"><span class="std__mark">${x.state === "unverified" ? "–" : "✓"}</span>
@@ -543,8 +547,12 @@
           <p class="std__foot">"Verified" means we found reliable public information for that item. "Not verified" means we couldn't find any yet. It says nothing about whether the wine is good or bad. Rescan to look for anything new.</p>
           <button type="button" class="info-close">Got it</button>
         </div>
+        <div class="verdict-big ${r.verified ? "yes" : "no"}">${r.verified ? "Verified" : "Not verified"}</div>
+        <p class="verdict-sub">${r.verified
+          ? `We found and verified ${r.knownCount} things about this wine.`
+          : `We found ${r.knownCount === 0 ? "nothing" : r.knownCount === 1 ? "only 1 thing" : "only " + r.knownCount + " things"} about this wine. At least ${VERIFIED_MIN} are needed to verify it.`}</p>
         <button type="button" class="verified-count info-btn" aria-label="See what we looked for" aria-controls="scoreInfo">
-          <b>${r.knownCount} of ${r.applicableCount}</b> items verified
+          <b>${r.knownCount} of ${r.applicableCount}</b> items found
           <span class="tap-hint">Tap for the full list</span>
         </button>
       </div>
