@@ -1707,7 +1707,7 @@ const cacheKey = (w) => {
 // verified facts are added, and verified facts the new run missed are kept.
 // Bump when the research improves: wines saved by an older revision are
 // researched again the next time they are scanned (and merged into the entry).
-const BRAIN_REV = 3;
+const BRAIN_REV = 4;
 const brainKey = (w) => cacheKey(w).replace(/^[^_]+__/, "brain__");
 const isKnown = (c) => c && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail");
 const topKnown = (r) => ALL_ITEMS.filter((i) => i.top).filter((i) => (r?.checks || []).some((c) => c.id === i.id && isKnown(c))).length;
@@ -1849,8 +1849,39 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   send({ type: "status", text: "Checking the tech sheet, farming and vegan status" });
   const site = id.winery_website, page = id.product_page_url;
   // The wine's own product page on the winery site often states harvesting
-  // ("Vinification: manual harvest"); read its text for that.
-  const productPageText = page ? pageText(page, 9000).catch(() => "") : Promise.resolve("");
+  // ("Vinification: manual harvest"). Read the page the first step found, and
+  // also look the wine up in the winery site's own search (WordPress sites
+  // expose it), then keep only pages that are really this wine.
+  const productPages = (async () => {
+    const urls = [];
+    if (page) urls.push(page);
+    try {
+      if (site) {
+        const origin = new URL(site).origin;
+        const words = norm(`${wine.name}`).split(" ").filter((w) => w.length > 2);
+        const need = STYLE_WORDS.filter((w) => REQUIRED_STYLE.has(w) && words.includes(w));
+        const sr = new URL("/wp-json/wp/v2/search", origin);
+        sr.searchParams.set("search", words.slice(0, 4).join(" "));
+        sr.searchParams.set("per_page", "12");
+        sr.searchParams.set("_fields", "title,url");
+        const res = await fetch(sr, { signal: AbortSignal.timeout(7000), headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)", Accept: "application/json" } });
+        if (res.ok) {
+          const list = (await res.json()).filter((r) => r && typeof r.url === "string");
+          const scored = list.map((r) => {
+            const t = new Set(norm(`${r.title?.rendered || r.title || ""} ${decodeURIComponent(new URL(r.url).pathname)}`).split(" "));
+            const hit = words.filter((w) => t.has(w)).length;
+            const styleOk = need.every((w) => t.has(w));
+            const prod = /prodotto|product|wine|vino|vin\b|weine/i.test(r.url) ? 1 : 0;
+            const lang = /\/(de|fr|es|ru|zh)\//.test(r.url) ? -1 : 0;
+            return { url: r.url, score: hit + prod + lang, styleOk };
+          }).filter((r) => r.styleOk && r.score >= Math.max(1, Math.ceil(words.length * 0.5))).sort((a, b) => b.score - a.score);
+          for (const r of scored.slice(0, 2)) if (!urls.includes(r.url)) urls.push(r.url);
+        }
+      }
+    } catch {}
+    const out = await Promise.all(urls.slice(0, 3).map(async (url) => ({ url, text: await pageText(url, 9000).catch(() => "") })));
+    return out.filter((x) => x.text);
+  })();
   const ask = (text) => [{ type: "text", text }];
   const deadline = Date.now() + LOOKUP_MS;
   const webTools = (searches, fetches) => [
@@ -2383,14 +2414,18 @@ This run follows what is printed on the bottle: the barcode number and the compa
   // Hand harvesting (manual harvest is the same) stated on any page or sheet
   // from the winery: its product page, spec page or tech sheet.
   {
-    const ppText = await productPageText;
-    const nameWords = norm(wine.name).split(" ").filter((w) => w.length > 2 && !VARIETIES.some((v) => v.split(" ").includes(w)));
-    const ppWords = new Set(norm(ppText).split(" "));
-    const ppIsThisWine = ppText && (nameWords.length === 0 || nameWords.some((w) => ppWords.has(w)) || norm(ppText).includes(norm(wine.name)));
-    diag.push({ name: "product-page", outcome: `${page || "none"}: ${ppText.length} chars, this wine: ${Boolean(ppIsThisWine)}, harvest words: ${Boolean(String(ppText).match(HAND_HARVEST_RE))}` });
+    const nameWords = norm(wine.name).split(" ").filter((w) => w.length > 2);
+    const needStyle = STYLE_WORDS.filter((w) => REQUIRED_STYLE.has(w) && nameWords.includes(w));
+    const pageFits = (text) => {
+      const words = new Set(norm(text).split(" "));
+      const hits = nameWords.filter((w) => words.has(w)).length;
+      return hits >= Math.ceil(nameWords.length * 0.6) && needStyle.every((w) => words.has(w));
+    };
+    const pps = await productPages;
+    diag.push({ name: "product-page", outcome: pps.map((x) => `${x.url}: ${x.text.length}c fits ${pageFits(x.text)} harvest ${HAND_HARVEST_RE.test(x.text)}`).join(" | ").slice(0, 360) || "none found" });
     const pools = [
       ...markSources.filter((m) => m.label !== "Label").map((m) => ({ text: m.text, url: m.url, where: m.label === "Tech sheet" ? "tech sheet" : "winery page" })),
-      ...(ppIsThisWine ? [{ text: ppText, url: page, where: "winery product page" }] : []),
+      ...pps.filter((x) => pageFits(x.text)).map((x) => ({ text: x.text, url: x.url, where: "winery product page" })),
     ];
     for (const pool of pools) {
       const m = String(pool.text || "").match(HAND_HARVEST_RE);
