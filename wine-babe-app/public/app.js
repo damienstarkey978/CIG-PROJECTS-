@@ -158,7 +158,16 @@
     const inp = document.createElement("input");
     inp.type = "file"; inp.accept = "image/*";
     if (capture) inp.setAttribute("capture", "environment");
-    inp.onchange = () => resolve(inp.files[0] || null);
+    let done = false;
+    const finish = (f) => { if (!done) { done = true; resolve(f); } };
+    inp.onchange = () => finish(inp.files[0] || null);
+    // Cancelled picker: carry on with the front photo alone.
+    inp.addEventListener("cancel", () => finish(null));
+    document.addEventListener("visibilitychange", function back() {
+      if (document.visibilityState !== "visible") return;
+      document.removeEventListener("visibilitychange", back);
+      setTimeout(() => { if (!done && !(inp.files && inp.files.length)) finish(null); }, 8000);
+    });
     inp.click();
   });
   const askBack = () => new Promise((resolve) => {
@@ -178,16 +187,20 @@
       resolve(a === "skip" ? null : await pickFile(a === "camera"));
     });
   });
+  let photoBusy = false;
   const onPhoto = async (ev) => {
     const file = ev.target.files[0];
     ev.target.value = "";
     if (!file) return;
+    photoBusy = true;
     try {
       const front = await shrink(file, 2000);
       const backFile = await askBack();
       const back = backFile ? await shrink(backFile, 2000) : null;
+      photoBusy = false;
       scan(back ? { image: front, image2: back, mediaType: "image/jpeg" } : { image: front, mediaType: "image/jpeg" }, front);
     } catch (err) {
+      photoBusy = false;
       alert(err.message);
     }
   };
@@ -751,15 +764,24 @@
   // Always run the latest version: ask the server which version is live and
   // reload when this page is older. Checked on open, when the app comes back
   // to the screen, and every few minutes. Never during a scan.
+  // Only ever reload while the app is idle on the home screen. Never while a
+  // photo is being taken or sent, a scan runs, or a result is on screen:
+  // returning from the camera also looks like "reopening" and must not wipe
+  // the photos just taken.
+  let lastPick = 0;
+  const markPick = () => { lastPick = Date.now(); };
+  ["#photo", "#photoLib"].forEach((sel) => $(sel).addEventListener("click", markPick));
+  document.addEventListener("click", (ev) => { if (ev.target.closest(".scan, .upload-link, .back-ask")) markPick(); }, true);
+  const idle = () => screens.home.classList.contains("is-active") && !document.querySelector(".back-ask") && !photoBusy && Date.now() - lastPick > 15 * 60 * 1000;
   async function checkForUpdate() {
-    if (!v || !v.ref || v.ref === "dev" || screens.scanning.classList.contains("is-active")) return;
+    if (!v || !v.ref || v.ref === "dev" || !idle()) return;
     try {
       const txt = await (await fetch(`/version.js?check=${Date.now()}`, { cache: "no-store" })).text();
       const live = (txt.match(/"ref":"([^"]+)"/) || [])[1];
-      if (live && live !== v.ref && !screens.scanning.classList.contains("is-active")) location.reload();
+      if (live && live !== v.ref && idle()) location.reload();
     } catch {}
   }
   checkForUpdate();
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkForUpdate(); });
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") setTimeout(checkForUpdate, 1500); });
   setInterval(checkForUpdate, 5 * 60 * 1000);
 })();
