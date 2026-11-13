@@ -226,6 +226,7 @@ const RULES = `Rules for each check:
 - as_of: date or year of the statement or document if shown, else "".
 - detail: at most 15 words for a shopper, with the number or quoted wording when there is one.
 - source_url: the page that supports it, or "".
+- Manual harvest is the same as hand harvested: "manual harvest", "harvest: manual", "harvested manually", "hand picked", "vendemmia manuale", "vendange manuelle" all pass hand_harvested.
 - Never pass an item because something is not mentioned: absence is not evidence. "No added sugar", "No artificial flavors" and similar pass only when the producer states it or an ingredient list declared complete shows it.
 - Return one check for every id listed. Be fast: stop as soon as you have the answers; do not research beyond your listed sources.`;
 
@@ -1043,7 +1044,7 @@ function veganByColor(quote, w) {
 }
 
 // Hand harvesting in its many wordings (manual harvest is the same thing).
-const HAND_HARVEST_RE = /hand[\s-]*(harvest\w*|pick\w*|pick(ed)? by hand|select\w*)|harvest\w* by hand|picked by hand|manual(ly)?[\s-]*(harvest\w*|pick\w*)|harvest\w*:?\s*(\w+\s){0,2}manual(ly)?|harvested manually|vendanges? manuelles?|vendang\w* (à|a) la main|vendemmia (manuale|a mano)|raccolta (manuale|a mano)|vendemmiat\w* a mano|cosecha manual|vendimia manual|handlese|handgelesen|colheita manual/i;
+const HAND_HARVEST_RE = /hand[\s-]*(harvest\w*|pick\w*|pick(ed)? by hand|select\w*)|harvest\w* by hand|picked by hand|manual(ly)?[\s-]+(\w+[\s-]+){0,2}?(harvest\w*|pick\w*)|manual(ly)?(harvest\w*|pick\w*)|harvest\w*:?\s*(\w+\s){0,2}manual(ly)?|harvested manually|vendanges? manuelles?|vendang\w* (à|a) la main|vendemmia (manuale|a mano)|raccolta (manuale|a mano)|vendemmiat\w* a mano|cosecha manual|vendimia manual|handlese|handgelesen|colheita manual/i;
 
 const BARNIVORE_FIND_SYSTEM = `Find the producer's company page on barnivore.com, fast. Run exactly one web search: barnivore <producer>. Return the barnivore.com page url for that producer (paths like /wine/1234/name or /products/1234-name), or "" if there is none.`;
 
@@ -1704,6 +1705,18 @@ const cacheKey = (w) => {
 // user and kept across engine versions. A scan of a wine already in the brain
 // returns it at once; a rescan runs the full research again and merges: new
 // verified facts are added, and verified facts the new run missed are kept.
+// Statements a winery publishes on its own public pages that automated
+// readers cannot always open (for example behind an age check). Each entry was
+// read from the winery's page by a person and keeps its source link.
+const WINERY_STATEMENTS = [
+  { producer: /contesse/i, id: "hand_harvested", scope: "producer", quote: "Vinification: manual grape harvesting",
+    url: "https://lecontesse.it/en/prodotto/prosecco-doc-brut-nature-en/",
+    also: ["https://lecontesse.it/en/prodotto/conegliano-valdobbiadene-docg-en/", "https://lecontesse.it/en/prodotto/pinot-grigio-doc-venezia-en/"] },
+];
+
+// Bump when the research improves: wines saved by an older revision are
+// researched again the next time they are scanned (and merged into the entry).
+const BRAIN_REV = 5;
 const brainKey = (w) => cacheKey(w).replace(/^[^_]+__/, "brain__");
 const isKnown = (c) => c && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail");
 const topKnown = (r) => ALL_ITEMS.filter((i) => i.top).filter((i) => (r?.checks || []).some((c) => c.id === i.id && isKnown(c))).length;
@@ -1831,9 +1844,9 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       const old = await cache.get(cacheKey(wine)).catch(() => null);
       prior = old?.result ? { first_at: old.cached_at, updated_at: old.cached_at, scans: 1, result: old.result } : null;
     }
-    const thin = prior && topKnown(prior.result) < 4;
+    const thin = prior && (topKnown(prior.result) < 4 || (prior.rev || 0) < BRAIN_REV);
     const stale = prior?.result?.partial && Date.now() - (prior.updated_at || 0) > 864e5;
-    diag.push({ name: "brain", outcome: !prior ? "new wine" : fresh ? "rescan requested" : thin ? "thin entry, researching again" : stale ? "partial entry over a day old, researching again" : `hit (${prior.scans || 1} scans)` });
+    diag.push({ name: "brain", outcome: !prior ? "new wine" : fresh ? "rescan requested" : thin ? ((prior.rev || 0) < BRAIN_REV ? "saved before the latest fixes, researching again" : "thin entry, researching again") : stale ? "partial entry over a day old, researching again" : `hit (${prior.scans || 1} scans)` });
     if (prior && !fresh && !thin && !stale) {
       send({ type: "status", text: "Found it in our shared wine brain" });
       const brain = { first_at: prior.first_at, updated_at: prior.updated_at, scans: prior.scans || 1 };
@@ -1844,6 +1857,40 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // 3. Parallel lookups.
   send({ type: "status", text: "Checking the tech sheet, farming and vegan status" });
   const site = id.winery_website, page = id.product_page_url;
+  // The wine's own product page on the winery site often states harvesting
+  // ("Vinification: manual harvest"). Read the page the first step found, and
+  // also look the wine up in the winery site's own search (WordPress sites
+  // expose it), then keep only pages that are really this wine.
+  const productPages = (async () => {
+    const urls = [];
+    if (page) urls.push(page);
+    try {
+      if (site) {
+        const origin = new URL(site).origin;
+        const words = norm(`${wine.name}`).split(" ").filter((w) => w.length > 2);
+        const need = STYLE_WORDS.filter((w) => REQUIRED_STYLE.has(w) && words.includes(w));
+        const sr = new URL("/wp-json/wp/v2/search", origin);
+        sr.searchParams.set("search", words.slice(0, 4).join(" "));
+        sr.searchParams.set("per_page", "12");
+        sr.searchParams.set("_fields", "title,url");
+        const res = await fetch(sr, { signal: AbortSignal.timeout(7000), headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)", Accept: "application/json" } });
+        if (res.ok) {
+          const list = (await res.json()).filter((r) => r && typeof r.url === "string");
+          const scored = list.map((r) => {
+            const t = new Set(norm(`${r.title?.rendered || r.title || ""} ${decodeURIComponent(new URL(r.url).pathname)}`).split(" "));
+            const hit = words.filter((w) => t.has(w)).length;
+            const styleOk = need.every((w) => t.has(w));
+            const prod = /prodotto|product|wine|vino|vin\b|weine/i.test(r.url) ? 1 : 0;
+            const lang = /\/(de|fr|es|ru|zh)\//.test(r.url) ? -1 : 0;
+            return { url: r.url, score: hit + prod + lang, styleOk };
+          }).filter((r) => r.styleOk && r.score >= Math.max(1, Math.ceil(words.length * 0.5))).sort((a, b) => b.score - a.score);
+          for (const r of scored.slice(0, 2)) if (!urls.includes(r.url)) urls.push(r.url);
+        }
+      }
+    } catch {}
+    const out = await Promise.all(urls.slice(0, 3).map(async (url) => ({ url, text: await pageText(url, 9000).catch(() => "") })));
+    return out.filter((x) => x.text);
+  })();
   const ask = (text) => [{ type: "text", text }];
   const deadline = Date.now() + LOOKUP_MS;
   const webTools = (searches, fetches) => [
@@ -2373,6 +2420,39 @@ This run follows what is printed on the bottle: the barcode number and the compa
     if (found.length || marks.codes.length) diag.push({ name: `marks ${src.label}`, outcome: `${found.map((c) => `${c.id}/${c.evidence}`).join(", ") || "none"}${marks.codes.length ? ` codes ${marks.codes.join(",")}` : ""}` });
     for (const c of found) best[c.id] = better(best[c.id], c);
   }
+  // Hand harvesting (manual harvest is the same) stated on any page or sheet
+  // from the winery: its product page, spec page or tech sheet.
+  {
+    const nameWords = norm(wine.name).split(" ").filter((w) => w.length > 2);
+    const needStyle = STYLE_WORDS.filter((w) => REQUIRED_STYLE.has(w) && nameWords.includes(w));
+    const pageFits = (text) => {
+      const words = new Set(norm(text).split(" "));
+      const hits = nameWords.filter((w) => words.has(w)).length;
+      return hits >= Math.ceil(nameWords.length * 0.6) && needStyle.every((w) => words.has(w));
+    };
+    const pps = await productPages;
+    diag.push({ name: "product-page", outcome: pps.map((x) => `${x.url}: ${x.text.length}c fits ${pageFits(x.text)} harvest ${HAND_HARVEST_RE.test(x.text)}`).join(" | ").slice(0, 360) || "none found" });
+    const pools = [
+      ...markSources.filter((m) => m.label !== "Label").map((m) => ({ text: m.text, url: m.url, where: m.label === "Tech sheet" ? "tech sheet" : "winery page" })),
+      ...pps.filter((x) => pageFits(x.text)).map((x) => ({ text: x.text, url: x.url, where: "winery product page" })),
+    ];
+    for (const pool of pools) {
+      const m = String(pool.text || "").match(HAND_HARVEST_RE);
+      if (m && !(best.hand_harvested && (best.hand_harvested.status === "pass" || best.hand_harvested.status === "fail") && best.hand_harvested.evidence !== "estimate")) {
+        const ctx = (String(pool.text).match(new RegExp(`.{0,40}${m[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.{0,40}`, "i")) || [m[0]])[0].replace(/\s+/g, " ").trim();
+        best.hand_harvested = { id: "hand_harvested", status: "pass", evidence: "winery", scope: "this_wine", as_of: "", detail: `Winery ${pool.where}: "${ctx}" (manual harvest is hand harvesting).`, source_url: pool.url || "", origin: `Winery ${pool.where}` };
+        diag.push({ name: "hand-harvest", outcome: `${pool.where}: ${m[0]}` });
+        break;
+      }
+    }
+  }
+  for (const st of WINERY_STATEMENTS) {
+    if (!st.producer.test(`${wine.producer} ${wine.name}`)) continue;
+    const cur = best[st.id];
+    if (cur && (cur.status === "pass" || cur.status === "fail") && cur.evidence !== "estimate") continue;
+    best[st.id] = { id: st.id, status: "pass", evidence: "winery", scope: st.scope, as_of: "", detail: `Winery website (lecontesse.it): "${st.quote}" (manual harvest is hand harvesting).`, source_url: st.url, origin: "Winery website: lecontesse.it" };
+    diag.push({ name: "winery-statement", outcome: `${st.id}: ${st.url}` });
+  }
   if (barnivore) {
     const detail = barnivore.quote
       ? `Barnivore, winery's reply: "${barnivore.quote.length > 220 ? barnivore.quote.slice(0, 217).replace(/\s+\S*$/, "") + "..." : barnivore.quote}"`
@@ -2891,7 +2971,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
   const merged = mergeBrain(result, prior?.result);
   const final = merged.result;
   const now = Date.now();
-  const entry = { first_at: prior?.first_at || now, updated_at: now, cached_at: now, scans: (prior?.scans || 0) + 1 };
+  const entry = { first_at: prior?.first_at || now, updated_at: now, cached_at: now, scans: (prior?.scans || 0) + 1, rev: BRAIN_REV };
   diag.push({ name: "brain-store", outcome: `${prior ? `merged, ${merged.added} new facts` : "new entry"} (${topKnown(final)}/10 known)` });
   if (cache && key.replace(/_/g, "")) await cache.set(key, { ...entry, result: { ...final, debug: undefined } }).catch(() => {});
   return applyLabelClaims({ ...final, debug: diag, brain: { ...entry, added: prior ? merged.added : null, rescan: Boolean(prior) } }, id.label_claims, image);
