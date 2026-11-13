@@ -31,7 +31,7 @@
     $("#recentList").innerHTML = list
       .map(
         (e, i) => `<li><button data-i="${i}">
-          <span class="mini-score">${(() => { try { return enrich(e.data).score ?? "—"; } catch { return "—"; } })()}</span>
+          <span class="mini-score">${(() => { try { const q = enrich(e.data); return `${q.knownCount}/${q.applicableCount}`; } catch { return "—"; } })()}</span>
           <span><span class="r-name">${esc(e.data.wine.name || "Unknown wine")}</span><br />
           <span class="r-sub">${esc([e.data.wine.producer, e.data.wine.vintage].filter(Boolean).join(" · "))}</span></span>
         </button></li>`
@@ -54,26 +54,6 @@
   }
   async function loadTopPours() {
     try { const r = await fetch("/api/top-pours", { cache: "no-store" }); if (r.ok) renderTopPours((await r.json()).list); } catch {}
-  }
-  // After a scan: send it in. The server reads the stored scan itself and
-  // keeps it only if it scores 90+ without "Additional Verification Required".
-  async function submitTopPour(id, data) {
-    try {
-      const r = enrich(data);
-      if (!id || r.score == null || r.score < 90 || /additional verification/i.test(r.tier)) return;
-      const res = await fetch("/api/top-pours", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, score: r.score, tier: r.tier }) });
-      if (!res.ok) return;
-      const out = await res.json();
-      renderTopPours(out.list);
-      if (out.added) {
-        const rank = out.list.findIndex((e) => e.id === id) + 1;
-        const note = document.createElement("div");
-        note.className = "tp-added";
-        note.textContent = `Added to Top Pours at #${rank}`;
-        const res0 = $("#result");
-        res0.insertBefore(note, res0.firstChild);
-      }
-    } catch {}
   }
   $("#topPoursBtn").addEventListener("click", () => { show("toppours"); loadTopPours(); });
   $("#topPoursBack").addEventListener("click", () => show("home"));
@@ -248,29 +228,29 @@
   // Published thresholds. Weights total 100.
   const CALORIE_MAX = 100; // kcal per 5 oz, the "Under 100 Calories" Wine Babe standard
   const VERIFIED_EVIDENCE = ["lab", "certified", "winery", "third_party", "retailer"];
-  // The Transparency Scanner: 11 items, 100 points. An item earns its points
-  // when its information is published and verified, whether the wine meets
-  // it or not. The ingredient list weighs the most.
+  // The Transparency Scanner: 11 items, no points and no score. An item is
+  // "verified" when reliable public information for it was found (whether the
+  // wine meets it or not), otherwise "not verified".
   const STANDARDS = [
-    { id: "sugar_under_1g", pts: 20, critical: true, short: "sugar", name: "1 gram or less of sugar per 5 oz, publicly verified",
+    { id: "sugar_under_1g", critical: true, short: "sugar", name: "1 gram or less of sugar per 5 oz, publicly verified",
       rule: "Pass: verified sugar of 1 g or less per 5 oz (147.87 ml), from a lab sheet, the bottle or EU label, the winery, or a verified store or distributor listing. Fail: verified more than 1 g." },
-    { id: "ingredient_transparency", pts: 30, short: "ingredient list", name: "Full ingredient list published",
+    { id: "ingredient_transparency", short: "ingredient list", name: "Full ingredient list published",
       rule: "Pass: a full ingredient list for this wine is published (winery, importer, the bottle's e-label, the European label, or a store listing). No list found: not verified." },
-    { id: "calories", pts: 10, short: "calories", name: "Calories per 5 oz publicly disclosed",
+    { id: "calories", short: "calories", name: "Calories per 5 oz publicly disclosed",
       rule: "Pass: a calorie figure is published (bottle or EU label, winery, lab, store listing), whatever the amount. Calculated estimates are shown but do not count." },
-    { id: "no_artificial_flavors", pts: 5, critical: true, short: "no added flavors (ingredients)", name: "No added natural or artificial flavors",
+    { id: "no_artificial_flavors", critical: true, short: "no added flavors (ingredients)", name: "No added natural or artificial flavors",
       rule: "Pass: the published ingredient list shows no natural or artificial flavors, or the producer states none are added. Fail: a flavoring is listed." },
-    { id: "no_added_sugar", pts: 5, critical: true, short: "no added sugar (ingredients)", name: "No added sugar",
+    { id: "no_added_sugar", critical: true, short: "no added sugar (ingredients)", name: "No added sugar",
       rule: "Pass: an explicit statement that no sugar is added. Fail: verified dosage or sweetening. Sugar used during fermentation is neutral; low sugar or zero dosage alone never passes." },
-    { id: "sulfites", pts: 10, short: "sulfite level", name: "Sulfite transparency",
+    { id: "sulfites", short: "sulfite level", name: "Sulfite transparency",
       rule: "Pass: a verified source publishes the total sulfite level (mg/L). 'Contains sulfites' alone is a legal minimum and does not pass." },
-    { id: "vegan", pts: 5, short: "vegan", name: "Vegan friendly", rule: "Pass: the producer or the label states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
-    { id: "farming", from: ["sustainable", "organic"], pts: 5, short: "sustainable or organic farming", name: "Sustainable or organic farming practices",
+    { id: "vegan", short: "vegan", name: "Vegan friendly", rule: "Pass: the producer or the label states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
+    { id: "farming", from: ["sustainable", "organic"], short: "sustainable or organic farming", name: "Sustainable or organic farming practices",
       rule: "Pass: sustainable farming or organic farming, either one, by certification or the producer's documented practices." },
-    { id: "certified_organic", from: "organic", pts: 3, short: "certified organic", name: "Certified organic",
+    { id: "certified_organic", from: "organic", short: "certified organic", name: "Certified organic",
       rule: "Pass: an organic certification (USDA Organic, EU organic leaf, AB, CCOF, a control body code on the bottle, or a named certifier). Documented organic practices without a certificate do not count here." },
-    { id: "hand_harvested", pts: 3, short: "hand harvest", name: "Hand harvested grapes", rule: "Pass: the producer states the grapes are picked by hand. Manual harvest (harvested manually, vendemmia manuale, vendange manuelle) is the same thing." },
-    { id: "non_gmo", pts: 4, short: "non GMO", name: "Non GMO", rule: "Pass: the producer, the label or a certifier states non GMO (e.g. NO OGM on the tech sheet)." },
+    { id: "hand_harvested", short: "hand harvest", name: "Hand harvested grapes", rule: "Pass: the producer states the grapes are picked by hand. Manual harvest (harvested manually, vendemmia manuale, vendange manuelle) is the same thing." },
+    { id: "non_gmo", short: "non GMO", name: "Non GMO", rule: "Pass: the producer, the label or a certifier states non GMO (e.g. NO OGM on the tech sheet)." },
   ];
 
   // Decide each standard: "pass", "fail" or "unverified", with the evidence used.
@@ -287,7 +267,7 @@
       } else if (s.id === "calories") {
         const cal = n.calories_5oz;
         if (isVerified(c) && cal != null && !est.calories) { state = "pass"; basis = `${Math.round(cal)} calories per 5 oz, published. ${c.detail || ""}`; }
-        else { state = "unverified"; basis = cal != null ? `About ${Math.round(cal)} calories per 5 oz, calculated from verified alcohol and sugar. Calculated figures earn no points.` : "No published calorie figure."; }
+        else { state = "unverified"; basis = cal != null ? `About ${Math.round(cal)} calories per 5 oz, calculated from verified alcohol and sugar. A calculated figure is not a published one, so it is not marked verified.` : "No published calorie figure."; }
       } else if (s.id === "sulfites") {
         const ok = n.total_so2_mg_l != null && isVerified(c);
         state = ok ? "pass" : "unverified";
@@ -395,7 +375,7 @@
       const c = checks.find((x) => x.id === "calories");
       const from = sc.evidence === "third_party" ? "the European label" : "the winery's tech sheet";
       if (c) Object.assign(c, { status: "pass", evidence: "calculated", scope: "this_wine",
-        detail: `About ${n.calories_5oz} calories per 5 oz, calculated from ${from}: ${n.abv}% alcohol and ${n.residual_sugar_g_l} g/L sugar. Calculated, not published, so it earns no points.`,
+        detail: `About ${n.calories_5oz} calories per 5 oz, calculated from ${from}: ${n.abv}% alcohol and ${n.residual_sugar_g_l} g/L sugar. Calculated, not published, so it is not marked verified.`,
         origin: `Calculated from ${from}`, source_url: sc.source_url || "" });
     }
 
@@ -407,19 +387,8 @@
     // The list shown on the result: the 12 scored standards, in order.
     const top = std.map((x, i) => ({ id: x.id, label: x.name, top: i + 1, status: x.state === "unverified" ? "unknown" : x.state,
       evidence: x.evidence, detail: x.basis || "Not verified.", origin: x.state === "unverified" ? "No source found yet" : x.origin, source_url: x.url, scope: x.scope }));
-    const score = std.reduce((t, x) => t + (x.state !== "unverified" ? x.pts : 0), 0);
-    const transparency = score;
-    const missing = std.filter((x) => x.state === "unverified" && x.pts >= 10).map((x) => x.short);
-    const missingTxt = missing.length ? ` Still not found: ${missing.join(", ").replace(/, ([^,]*)$/, " and $1")}.` : "";
-    let tier, blurb;
-    if (score >= 80) { tier = "Fully transparent"; blurb = "Nearly everything about what's in this bottle is published and verified." + missingTxt; }
-    else if (score >= 60) { tier = "Mostly transparent"; blurb = "Most of what's in this bottle is published and verified." + missingTxt; }
-    else if (score >= 40) { tier = "Partly transparent"; blurb = "Some of what's in this bottle is published, but key details are missing." + missingTxt; }
-    else { tier = "Low transparency"; blurb = "Very little about what's in this bottle is published." + missingTxt; }
     const known = std.filter((x) => x.state !== "unverified");
-    const applicable = std;
-    const verification = transparency;
-    return { n, est, checks, score, top, tier, blurb, knownCount: known.length, applicableCount: applicable.length, verification, transparency, std };
+    return { n, est, checks, top, knownCount: known.length, applicableCount: std.length, std };
   }
 
   // ---------- sulfites ----------
@@ -449,6 +418,21 @@
           ${c.status === "na" ? `<span class="chip none">Not applicable</span>` : `<span class="chip ${c.evidence}">${esc(EVIDENCE[c.evidence]?.label || "Not verified")}</span>`}
           ${SCOPE[c.scope] ? `<span class="chip scope">${SCOPE[c.scope]}</span>` : ""}</div>
         <div class="detail">${esc(c.detail)}${c.as_of ? ` <span class="asof">(${esc(c.as_of)})</span>` : ""}${c.origin || url ? `<div class="origin">${c.origin ? `From: ${esc(c.origin)}` : ""}${url ? ` · <a href="${esc(url)}" target="_blank" rel="noopener">Source</a>` : ""}</div>` : ""}</div>
+      </div>
+    </li>`;
+  }
+
+  // One row of "What we looked for": a green Verified button when reliable
+  // public information was found (whether the wine meets it or not), a gray
+  // Not verified otherwise. No points and no score.
+  function topRow(c) {
+    const url = safeUrl(c.source_url);
+    const yes = c.status === "pass" || c.status === "fail";
+    return `<li class="check">
+      <span class="dot ${yes ? "pass" : "unknown"}" aria-hidden="true">${yes ? "✓" : "–"}</span>
+      <div class="body">
+        <div class="name">${esc(c.label)} <span class="vchip ${yes ? "yes" : "no"}">${yes ? "Verified" : "Not verified"}</span></div>
+        <div class="detail">${esc(yes ? c.detail : "No reliable public information found yet.")}${yes && (c.origin || url) ? `<div class="origin">${c.origin ? `From: ${esc(c.origin)}` : ""}${url ? ` · <a href="${esc(url)}" target="_blank" rel="noopener">Source</a>` : ""}</div>` : ""}</div>
       </div>
     </li>`;
   }
@@ -510,7 +494,7 @@
     const w = data.wine || {};
     const n = r.n;
     if (isNew && data.identified) {
-      saveHistory({ key: [w.producer, w.name, w.vintage].join("|").toLowerCase(), score: r.score, data, at: Date.now() });
+      saveHistory({ key: [w.producer, w.name, w.vintage].join("|").toLowerCase(), data, at: Date.now() });
     }
 
     const sugar = n.sugar_5oz;
@@ -563,30 +547,23 @@
           <button type="button" class="info-btn" aria-label="See the score breakdown" aria-expanded="false" aria-controls="scoreInfo">i</button>
         </div>
         <div class="score-info" id="scoreInfo" role="dialog" aria-label="Transparency Scanner breakdown" hidden>
-          <p><b>Transparency breakdown</b> · ${r.score} / 100 points</p>
+          <p><b>What we looked for</b> · ${r.knownCount} of ${r.applicableCount} verified</p>
           <ul class="std-list">
             ${r.std.map((x) => `<li class="std ${x.state}">
-              <div class="std__top"><span class="std__mark">${x.state === "pass" ? "✓" : x.state === "fail" ? "✕" : "?"}</span>
+              <div class="std__top"><span class="std__mark">${x.state === "unverified" ? "–" : "✓"}</span>
                 <span class="std__name">${esc(x.name)}</span>
-                <span class="std__pts">${x.state !== "unverified" ? x.pts : 0} / ${x.pts}</span></div>
-              <div class="std__state">${x.state === "pass" ? "Found, and it meets this" : x.state === "fail" ? "Found, and it does not meet this" : "Not found yet (no points)"}</div>
+                <span class="vchip ${x.state === "unverified" ? "no" : "yes"}">${x.state === "unverified" ? "Not verified" : "Verified"}</span></div>
               ${x.basis ? `<div class="std__basis">${esc(x.basis)}${x.origin ? ` · ${esc(x.origin)}` : ""}${safeUrl(x.url) ? ` · <a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener">Source</a>` : ""}</div>` : ""}
               <div class="std__rule">${esc(x.rule)}</div>
             </li>`).join("")}
           </ul>
-          <p class="std__foot">The score measures how much we could find and verify about this wine, not whether it is a good or bad choice. Each item earns its points once the information is published and verified, whether the wine meets it or not. The ingredient list counts the most. Rescans add anything new that has been published since.</p>
+          <p class="std__foot">"Verified" means we found reliable public information for that item. "Not verified" means we couldn't find any yet. It says nothing about whether the wine is good or bad. Rescan to look for anything new.</p>
           <button type="button" class="info-close">Got it</button>
         </div>
-        <div class="score-body">
-          <button type="button" class="ring info-btn" aria-label="See the score breakdown" aria-controls="scoreInfo">
-            <svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="42" /><circle class="fg" cx="50" cy="50" r="42"
-              stroke-dasharray="${circ}" stroke-dashoffset="${circ}" data-to="${circ * (1 - (r.score ?? 0) / 100)}" /></svg>
-            <b>${r.score}</b>
-          </button>
-          <div><p class="tier">${esc(r.tier)}</p><p>${esc(r.blurb)}</p>
-            <p class="verif"><b>${r.knownCount} of ${r.applicableCount} items found</b> · ingredient list ${r.std.find((x) => x.id === "ingredient_transparency")?.state === "unverified" ? "not found" : "found"}</p>
-            <p class="tap-hint">Tap the score for the full breakdown.</p></div>
-        </div>
+        <button type="button" class="verified-count info-btn" aria-label="See what we looked for" aria-controls="scoreInfo">
+          <b>${r.knownCount} of ${r.applicableCount}</b> items verified
+          <span class="tap-hint">Tap for the full list</span>
+        </button>
       </div>
 
       <div class="card sugar">
@@ -632,7 +609,7 @@
 
       <div class="block">
         <h2>What we looked for</h2>
-        <div class="card"><ul class="checks">${r.top.map((c) => checkRow(c, true)).join("")}</ul></div>
+        <div class="card"><ul class="checks">${r.top.map((c) => topRow(c)).join("")}</ul></div>
       </div>
 
       ${ingredientsCard(data.ingredients)}
@@ -665,7 +642,7 @@
         <label class="btn" for="photo">Scan another bottle</label>
         <button class="btn ghost" id="backHome">Home</button>
       </div>
-      <p class="fine">The Transparency Scanner shows how much about a wine we could find and verify from published information. It is not medical advice. Sulfite ratings are a Wine Babe comparison scale, not a regulatory classification. Results can vary by vintage.</p>
+      <p class="fine">The Transparency Scanner shows what we could find and verify about a wine from published information. It is not medical advice and says nothing about whether a wine is good or bad. Sulfite ratings are a comparison scale, not a regulatory classification. Results can vary by vintage. It is not medical advice. Sulfite ratings are a Wine Babe comparison scale, not a regulatory classification. Results can vary by vintage.</p>
     `;
     $("#backHome").onclick = goHome;
     const rb = $("#rescan");
