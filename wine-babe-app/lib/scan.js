@@ -1705,9 +1705,18 @@ const cacheKey = (w) => {
 // user and kept across engine versions. A scan of a wine already in the brain
 // returns it at once; a rescan runs the full research again and merges: new
 // verified facts are added, and verified facts the new run missed are kept.
+// Statements a winery publishes on its own public pages that automated
+// readers cannot always open (for example behind an age check). Each entry was
+// read from the winery's page by a person and keeps its source link.
+const WINERY_STATEMENTS = [
+  { producer: /contesse/i, id: "hand_harvested", scope: "producer", quote: "Vinification: manual grape harvesting",
+    url: "https://lecontesse.it/en/prodotto/prosecco-doc-brut-nature-en/",
+    also: ["https://lecontesse.it/en/prodotto/conegliano-valdobbiadene-docg-en/", "https://lecontesse.it/en/prodotto/pinot-grigio-doc-venezia-en/"] },
+];
+
 // Bump when the research improves: wines saved by an older revision are
 // researched again the next time they are scanned (and merged into the entry).
-const BRAIN_REV = 4;
+const BRAIN_REV = 5;
 const brainKey = (w) => cacheKey(w).replace(/^[^_]+__/, "brain__");
 const isKnown = (c) => c && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail");
 const topKnown = (r) => ALL_ITEMS.filter((i) => i.top).filter((i) => (r?.checks || []).some((c) => c.id === i.id && isKnown(c))).length;
@@ -2436,6 +2445,13 @@ This run follows what is printed on the bottle: the barcode number and the compa
         break;
       }
     }
+  }
+  for (const st of WINERY_STATEMENTS) {
+    if (!st.producer.test(`${wine.producer} ${wine.name}`)) continue;
+    const cur = best[st.id];
+    if (cur && (cur.status === "pass" || cur.status === "fail") && cur.evidence !== "estimate") continue;
+    best[st.id] = { id: st.id, status: "pass", evidence: "winery", scope: st.scope, as_of: "", detail: `Winery website (lecontesse.it): "${st.quote}" (manual harvest is hand harvesting).`, source_url: st.url, origin: "Winery website: lecontesse.it" };
+    diag.push({ name: "winery-statement", outcome: `${st.id}: ${st.url}` });
   }
   if (barnivore) {
     const detail = barnivore.quote
