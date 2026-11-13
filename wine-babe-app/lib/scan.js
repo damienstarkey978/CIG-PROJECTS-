@@ -1044,7 +1044,7 @@ function veganByColor(quote, w) {
 }
 
 // Hand harvesting in its many wordings (manual harvest is the same thing).
-const HAND_HARVEST_RE = /hand[\s-]*(harvest\w*|pick\w*|pick(ed)? by hand|select\w*)|harvest\w* by hand|picked by hand|manual(ly)?[\s-]*(harvest\w*|pick\w*)|harvest\w*:?\s*(\w+\s){0,2}manual(ly)?|harvested manually|vendanges? manuelles?|vendang\w* (à|a) la main|vendemmia (manuale|a mano)|raccolta (manuale|a mano)|vendemmiat\w* a mano|cosecha manual|vendimia manual|handlese|handgelesen|colheita manual/i;
+const HAND_HARVEST_RE = /hand[\s-]*(harvest\w*|pick\w*|pick(ed)? by hand|select\w*)|harvest\w* by hand|picked by hand|manual(ly)?[\s-]+(\w+[\s-]+){0,2}?(harvest\w*|pick\w*)|manual(ly)?(harvest\w*|pick\w*)|harvest\w*:?\s*(\w+\s){0,2}manual(ly)?|harvested manually|vendanges? manuelles?|vendang\w* (à|a) la main|vendemmia (manuale|a mano)|raccolta (manuale|a mano)|vendemmiat\w* a mano|cosecha manual|vendimia manual|handlese|handgelesen|colheita manual/i;
 
 const BARNIVORE_FIND_SYSTEM = `Find the producer's company page on barnivore.com, fast. Run exactly one web search: barnivore <producer>. Return the barnivore.com page url for that producer (paths like /wine/1234/name or /products/1234-name), or "" if there is none.`;
 
@@ -1707,7 +1707,7 @@ const cacheKey = (w) => {
 // verified facts are added, and verified facts the new run missed are kept.
 // Bump when the research improves: wines saved by an older revision are
 // researched again the next time they are scanned (and merged into the entry).
-const BRAIN_REV = 2;
+const BRAIN_REV = 3;
 const brainKey = (w) => cacheKey(w).replace(/^[^_]+__/, "brain__");
 const isKnown = (c) => c && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail");
 const topKnown = (r) => ALL_ITEMS.filter((i) => i.top).filter((i) => (r?.checks || []).some((c) => c.id === i.id && isKnown(c))).length;
