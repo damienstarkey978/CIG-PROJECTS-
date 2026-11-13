@@ -1699,6 +1699,57 @@ const cacheKey = (w) => {
   return `${ENGINE_VERSION}__${keyWords(w.producer)}__${keyWords(w.name)}__${vintage}`;
 };
 
+// ---------- shared brain ----------
+// One permanent entry per wine (producer + name + vintage), shared by every
+// user and kept across engine versions. A scan of a wine already in the brain
+// returns it at once; a rescan runs the full research again and merges: new
+// verified facts are added, and verified facts the new run missed are kept.
+const brainKey = (w) => cacheKey(w).replace(/^[^_]+__/, "brain__");
+const isKnown = (c) => c && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail");
+const topKnown = (r) => ALL_ITEMS.filter((i) => i.top).filter((i) => (r?.checks || []).some((c) => c.id === i.id && isKnown(c))).length;
+const NUTRITION_FIELDS = ["abv", "residual_sugar_g_l", "sugar_below_g_l", "calories_5oz", "carbs_5oz", "total_so2_mg_l", "free_so2_mg_l", "ph", "ta_g_l"];
+
+function mergeBrain(fresh, old) {
+  if (!old) return { result: fresh, added: 0 };
+  let added = 0;
+  const oldChecks = new Map((old.checks || []).map((c) => [c.id, c]));
+  const checks = (fresh.checks || []).map((c) => {
+    const o = oldChecks.get(c.id);
+    oldChecks.delete(c.id);
+    if (isKnown(c)) { if (!isKnown(o)) added++; return c; }
+    return isKnown(o) ? o : c;
+  });
+  for (const o of oldChecks.values()) if (isKnown(o)) checks.push(o);
+  const n = { ...(fresh.nutrition || EMPTY_NUTRITION) };
+  const on = old.nutrition || {};
+  for (const f of NUTRITION_FIELDS) {
+    if (n[f] == null && on[f] != null) n[f] = on[f];
+    else if (n[f] != null && on[f] == null) added++;
+  }
+  if ((!n.source || n.source === "none") && on.source && on.source !== "none") n.source = on.source;
+  const wine = { ...fresh.wine };
+  for (const k of ["tech_sheet_url", "tech_sheet_vintage", "bottled_by"]) if (!wine[k] && old.wine?.[k]) wine[k] = old.wine[k];
+  const hasIng = (x) => Array.isArray(x?.ingredients) && x.ingredients.length && x.source !== "typical";
+  if (hasIng(fresh.ingredients) && !hasIng(old.ingredients)) added++;
+  const seen = new Set();
+  const sources = [...(fresh.sources || []), ...(old.sources || [])].filter((s) => s?.url && !seen.has(s.url) && seen.add(s.url));
+  return {
+    added,
+    result: {
+      ...fresh,
+      wine,
+      checks,
+      nutrition: n,
+      ingredients: hasIng(fresh.ingredients) ? fresh.ingredients : hasIng(old.ingredients) ? old.ingredients : fresh.ingredients,
+      ratings: fresh.ratings?.length ? fresh.ratings : old.ratings || fresh.ratings,
+      tasting: fresh.tasting || old.tasting || null,
+      eu_disclosure: fresh.eu_disclosure?.sugar || !old.eu_disclosure?.sugar ? fresh.eu_disclosure : old.eu_disclosure,
+      sources,
+      summary: summarize(wine, checks, n),
+    },
+  };
+}
+
 // ---------- main ----------
 
 LABEL_READ_SCHEMA.properties.label_claims = IDENTIFY_SCHEMA.properties.label_claims;
@@ -1768,14 +1819,25 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   }
   send({ type: "status", text: `Found ${[wine.producer, wine.name].filter(Boolean).join(" ")}` });
 
-  // 2. Cache.
-  const key = cacheKey(wine);
-  if (cache && !fresh && key.replace(/_/g, "")) {
-    const hit = await cache.get(key).catch(() => null);
-    const ttlDays = hit?.result?.partial ? 1 : CACHE_DAYS;
-    if (hit && Date.now() - (hit.cached_at || 0) < ttlDays * 864e5) {
-      send({ type: "status", text: "Already checked this wine" });
-      return applyLabelClaims({ ...hit.result, cached: true }, id.label_claims, image);
+  // 2. Shared brain. Served unless this is a rescan, the stored answer is
+  // thin (under 4 of the top 10 known), or it is partial and over a day old;
+  // in those cases the full research runs and is merged into it.
+  const key = brainKey(wine);
+  let prior = null;
+  if (cache && key.replace(/_/g, "")) {
+    prior = await cache.get(key).catch(() => null);
+    if (!prior?.result) {
+      // Seed from the older per-version cache, so earlier scans are not lost.
+      const old = await cache.get(cacheKey(wine)).catch(() => null);
+      prior = old?.result ? { first_at: old.cached_at, updated_at: old.cached_at, scans: 1, result: old.result } : null;
+    }
+    const thin = prior && topKnown(prior.result) < 4;
+    const stale = prior?.result?.partial && Date.now() - (prior.updated_at || 0) > 864e5;
+    diag.push({ name: "brain", outcome: !prior ? "new wine" : fresh ? "rescan requested" : thin ? "thin entry, researching again" : stale ? "partial entry over a day old, researching again" : `hit (${prior.scans || 1} scans)` });
+    if (prior && !fresh && !thin && !stale) {
+      send({ type: "status", text: "Found it in our shared wine brain" });
+      const brain = { first_at: prior.first_at, updated_at: prior.updated_at, scans: prior.scans || 1 };
+      return applyLabelClaims({ ...prior.result, cached: true, brain, debug: [...diag, ...(prior.result.debug || [])] }, id.label_claims, image);
     }
   }
 
@@ -2824,10 +2886,15 @@ This run follows what is printed on the bottle: the barcode number and the compa
       if (!result.wine.tech_sheet_url) result.wine = { ...result.wine, tech_sheet_url: sn.url };
     }
   }
-  const knownTop = ALL_ITEMS.filter((i) => i.top).filter((i) => result.checks.some((c) => c.id === i.id && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail"))).length;
-  diag.push({ name: "cache", outcome: knownTop >= 4 ? `stored (${knownTop}/10 known)` : `skipped, thin result (${knownTop}/10 known)` });
-  if (cache && knownTop >= 4) await cache.set(key, { cached_at: Date.now(), result }).catch(() => {});
-  return applyLabelClaims(result, id.label_claims, image);
+  // Everything goes into the brain, merged with what it already knew. A thin
+  // entry is stored too, but the next scan researches it again (see step 2).
+  const merged = mergeBrain(result, prior?.result);
+  const final = merged.result;
+  const now = Date.now();
+  const entry = { first_at: prior?.first_at || now, updated_at: now, cached_at: now, scans: (prior?.scans || 0) + 1 };
+  diag.push({ name: "brain-store", outcome: `${prior ? `merged, ${merged.added} new facts` : "new entry"} (${topKnown(final)}/10 known)` });
+  if (cache && key.replace(/_/g, "")) await cache.set(key, { ...entry, result: { ...final, debug: undefined } }).catch(() => {});
+  return applyLabelClaims({ ...final, debug: diag, brain: { ...entry, added: prior ? merged.added : null, rescan: Boolean(prior) } }, id.label_claims, image);
 }
 
 // What the bottle itself prints (front and back label) counts as the winery's
@@ -2962,4 +3029,4 @@ async function runDemo(send) {
   return demoResult();
 }
 
-module.exports = { runScan, runDemo, HAS_KEY, HAS_UNLOCKER };
+module.exports = { runScan, runDemo, HAS_KEY, HAS_UNLOCKER, mergeBrain, brainKey };
