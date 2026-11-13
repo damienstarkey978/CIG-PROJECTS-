@@ -530,6 +530,8 @@
       ${savedNote}
       <div class="card score">
         <img class="score-heart" src="/images/heart.png" alt="" aria-hidden="true" />
+        <img class="score-watermark" src="/images/heart.png" alt="" aria-hidden="true" />
+        <span class="spark s1" aria-hidden="true">✦</span><span class="spark s2" aria-hidden="true">♡</span><span class="spark s3" aria-hidden="true">✦</span><span class="spark s4" aria-hidden="true">♡</span>
         <div class="score-head">
           <span class="score-title">Transparency Scanner<span class="score-slogan">Know what's in your glass</span></span>
           <button type="button" class="info-btn" aria-label="See the score breakdown" aria-expanded="false" aria-controls="scoreInfo">i</button>
@@ -549,7 +551,7 @@
           <p class="std__foot">"Verified" means we found reliable public information for that item. "Not verified" means we couldn't find any yet. It says nothing about whether the wine is good or bad. Rescan to look for anything new.</p>
           <button type="button" class="info-close">Got it</button>
         </div>
-        <div class="verdict-big ${r.verified ? "yes" : "no"}">${r.verified ? "Verified" : "Not verified"}</div>
+        <div class="verdict-big ${r.verified ? "yes" : "no"}">${r.verified ? `<img class="vheart" src="/images/heart.png" alt="" aria-hidden="true" />Verified<img class="vheart" src="/images/heart.png" alt="" aria-hidden="true" />` : "Not verified"}</div>
         <p class="verdict-sub">${r.verified
           ? `We found and verified ${r.knownCount} things about this wine.`
           : `We found ${r.knownCount === 0 ? "nothing" : r.knownCount === 1 ? "only 1 thing" : "only " + r.knownCount + " things"} about this wine. At least ${VERIFIED_MIN} are needed to verify it.`}</p>
