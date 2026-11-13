@@ -1682,7 +1682,7 @@ function summarize(wine, checks, nutrition) {
     rs == null ? "We could not find a published sugar number."
     : Math.round(rs * 14.787) / 100 <= 1 ? `It has about ${(rs * 0.14787).toFixed(1)} g of sugar per 5 oz glass, at or under the 1 g mark.`
     : `It has about ${(rs * 0.14787).toFixed(1)} g of sugar per 5 oz glass, over the 1 g mark.`;
-  return `${[wine.producer, wine.name].filter(Boolean).join(" ")}${wine.vintage ? ` ${wine.vintage}` : ""}: ${ok} of the Wine Babe top 10 are backed by a source. ${sugar}`;
+  return `${[wine.producer, wine.name].filter(Boolean).join(" ")}${wine.vintage ? ` ${wine.vintage}` : ""}: ${ok} of the items we look for are backed by a source. ${sugar}`;
 }
 
 const EMPTY_NUTRITION = { abv: null, residual_sugar_g_l: null, calories_5oz: null, carbs_5oz: null, total_so2_mg_l: null, free_so2_mg_l: null, ph: null, ta_g_l: null, source: "none" };
