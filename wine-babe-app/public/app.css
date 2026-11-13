@@ -479,3 +479,16 @@ button.ring { border: 0; background: none; padding: 0; cursor: pointer; }
 .score .verified-count.info-btn { display: block; position: static; width: auto; height: auto; margin: 0.2rem auto 0; padding: 0.3rem 0.6rem; border: 0; border-radius: 8px; background: none; font: inherit; font-style: normal; font-size: 0.9rem; font-weight: 400; color: var(--ink); text-align: center; line-height: 1.4; }
 .score .verified-count b { font-weight: 600; font-style: normal; }
 .score .verified-count .tap-hint { display: block; font-style: normal; text-decoration: underline; text-underline-offset: 3px; }
+
+/* Transparency Scanner card: lifted, blush, with hearts */
+.card.score { margin-top: 1.6rem; padding: 1.7rem 1.2rem 1.3rem; background: linear-gradient(180deg, #fffaf8 0%, var(--blush-soft, #f8e4e7) 160%); border: 1.5px solid var(--blush-deep, #e8b9c2); border-radius: 26px; box-shadow: 0 2px 0 rgba(255,255,255,0.9) inset, 0 22px 44px -18px rgba(176, 82, 104, 0.45), 0 8px 16px -10px rgba(176, 82, 104, 0.3); text-align: center; }
+.card.score::before { content: ""; position: absolute; inset: 5px; border: 1px solid rgba(232, 185, 194, 0.7); border-radius: 21px; pointer-events: none; }
+.score-heart { position: absolute; top: -20px; left: 50%; width: 42px; height: 42px; margin-left: -21px; padding: 7px; border-radius: 50%; background: #fff; box-shadow: 0 6px 14px -4px rgba(176, 82, 104, 0.5); object-fit: contain; }
+.card.score .score-head { display: block; position: static; margin: 0.5rem 0 0; }
+.card.score .score-title { display: block; font-size: 0.8rem; letter-spacing: 0.18em; }
+.card.score .score-slogan { margin-top: 0.3rem; font-size: clamp(2.3rem, 11vw, 3rem); line-height: 1.05; color: var(--wine); text-wrap: balance; }
+.card.score .score-head > .info-btn { position: absolute; top: 0.9rem; right: 0.9rem; }
+.score-divider { display: flex; align-items: center; gap: 0.7rem; margin: 0.9rem auto 0.3rem; max-width: 16rem; }
+.score-divider span { flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--blush-deep, #e8b9c2)); }
+.score-divider span:last-child { background: linear-gradient(270deg, transparent, var(--blush-deep, #e8b9c2)); }
+.score-divider img { width: 22px; height: 22px; object-fit: contain; }

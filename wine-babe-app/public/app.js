@@ -529,10 +529,12 @@
 
       ${savedNote}
       <div class="card score">
+        <img class="score-heart" src="/images/heart.png" alt="" aria-hidden="true" />
         <div class="score-head">
           <span class="score-title">Transparency Scanner<span class="score-slogan">Know what's in your glass</span></span>
           <button type="button" class="info-btn" aria-label="See the score breakdown" aria-expanded="false" aria-controls="scoreInfo">i</button>
         </div>
+        <div class="score-divider" aria-hidden="true"><span></span><img src="/images/heart.png" alt="" /><span></span></div>
         <div class="score-info" id="scoreInfo" role="dialog" aria-label="Transparency Scanner breakdown" hidden>
           <p><b>${r.verified ? "Verified" : "Not verified"}</b> · ${r.knownCount} of ${r.applicableCount} items found. A wine is Verified when at least ${VERIFIED_MIN} are found.</p>
           <ul class="std-list">
