@@ -2387,6 +2387,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
     const nameWords = norm(wine.name).split(" ").filter((w) => w.length > 2 && !VARIETIES.some((v) => v.split(" ").includes(w)));
     const ppWords = new Set(norm(ppText).split(" "));
     const ppIsThisWine = ppText && (nameWords.length === 0 || nameWords.some((w) => ppWords.has(w)) || norm(ppText).includes(norm(wine.name)));
+    diag.push({ name: "product-page", outcome: `${page || "none"}: ${ppText.length} chars, this wine: ${Boolean(ppIsThisWine)}, harvest words: ${Boolean(String(ppText).match(HAND_HARVEST_RE))}` });
     const pools = [
       ...markSources.filter((m) => m.label !== "Label").map((m) => ({ text: m.text, url: m.url, where: m.label === "Tech sheet" ? "tech sheet" : "winery page" })),
       ...(ppIsThisWine ? [{ text: ppText, url: page, where: "winery product page" }] : []),
