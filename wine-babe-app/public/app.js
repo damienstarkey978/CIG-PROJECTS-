@@ -1,7 +1,7 @@
 /* Wine Babe scanner front end. Needs checklist.js loaded first. */
 (() => {
   const $ = (s) => document.querySelector(s);
-  const screens = { home: $("#home"), scanning: $("#scanning"), result: $("#result"), toppours: $("#toppours") };
+  const screens = { home: $("#home"), scanning: $("#scanning"), result: $("#result") };
   const HISTORY_KEY = "winebabe.history.v1";
   const SERVING_ML = 147.87; // 5 oz
 
@@ -38,36 +38,6 @@
       )
       .join("");
   }
-  // ---------- Top Pours (shared top 10) ----------
-  function renderTopPours(list) {
-    const items = Array.isArray(list) ? list : [];
-    $("#topPoursBtn").textContent = items.length ? `Top Pours (${items.length})` : "Top Pours";
-    $("#topPoursEmpty").hidden = items.length > 0;
-    $("#topPoursList").innerHTML = items
-      .map((e, i) => `<li><button data-tp="${esc(e.id)}" data-q="${esc([e.wine.producer, e.wine.name, e.wine.vintage].filter(Boolean).join(" "))}">
-          <span class="tp-rank">${i + 1}</span>
-          <span class="tp-wine"><span class="r-name">${esc(e.wine.name || "Unknown wine")}</span><br />
-          <span class="r-sub">${esc([e.wine.producer, e.wine.vintage].filter(Boolean).join(" · "))}</span></span>
-          <span class="mini-score">${esc(String(e.score))}</span>
-        </button></li>`)
-      .join("");
-  }
-  async function loadTopPours() {
-    try { const r = await fetch("/api/top-pours", { cache: "no-store" }); if (r.ok) renderTopPours((await r.json()).list); } catch {}
-  }
-  $("#topPoursBtn").addEventListener("click", () => { show("toppours"); loadTopPours(); });
-  $("#topPoursBack").addEventListener("click", () => show("home"));
-  $("#topPoursList").addEventListener("click", async (ev) => {
-    const b = ev.target.closest("button[data-tp]");
-    if (!b) return;
-    try {
-      const r = await fetch(`/api/scan-status/${encodeURIComponent(b.dataset.tp)}`, { cache: "no-store" });
-      const job = r.ok ? await r.json() : null;
-      if (job && job.result) return renderResult(job.result, false, job.at);
-    } catch {}
-    if (b.dataset.q) scan({ query: b.dataset.q }, null);
-  });
-
   $("#recentList").addEventListener("click", (ev) => {
     const b = ev.target.closest("button[data-i]");
     if (b) { const e = loadHistory()[+b.dataset.i]; renderResult(e.data, false, e.at); }
