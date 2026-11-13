@@ -226,6 +226,7 @@ const RULES = `Rules for each check:
 - as_of: date or year of the statement or document if shown, else "".
 - detail: at most 15 words for a shopper, with the number or quoted wording when there is one.
 - source_url: the page that supports it, or "".
+- Manual harvest is the same as hand harvested: "manual harvest", "harvest: manual", "harvested manually", "hand picked", "vendemmia manuale", "vendange manuelle" all pass hand_harvested.
 - Never pass an item because something is not mentioned: absence is not evidence. "No added sugar", "No artificial flavors" and similar pass only when the producer states it or an ingredient list declared complete shows it.
 - Return one check for every id listed. Be fast: stop as soon as you have the answers; do not research beyond your listed sources.`;
 
@@ -1704,6 +1705,9 @@ const cacheKey = (w) => {
 // user and kept across engine versions. A scan of a wine already in the brain
 // returns it at once; a rescan runs the full research again and merges: new
 // verified facts are added, and verified facts the new run missed are kept.
+// Bump when the research improves: wines saved by an older revision are
+// researched again the next time they are scanned (and merged into the entry).
+const BRAIN_REV = 2;
 const brainKey = (w) => cacheKey(w).replace(/^[^_]+__/, "brain__");
 const isKnown = (c) => c && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail");
 const topKnown = (r) => ALL_ITEMS.filter((i) => i.top).filter((i) => (r?.checks || []).some((c) => c.id === i.id && isKnown(c))).length;
@@ -1831,9 +1835,9 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       const old = await cache.get(cacheKey(wine)).catch(() => null);
       prior = old?.result ? { first_at: old.cached_at, updated_at: old.cached_at, scans: 1, result: old.result } : null;
     }
-    const thin = prior && topKnown(prior.result) < 4;
+    const thin = prior && (topKnown(prior.result) < 4 || (prior.rev || 0) < BRAIN_REV);
     const stale = prior?.result?.partial && Date.now() - (prior.updated_at || 0) > 864e5;
-    diag.push({ name: "brain", outcome: !prior ? "new wine" : fresh ? "rescan requested" : thin ? "thin entry, researching again" : stale ? "partial entry over a day old, researching again" : `hit (${prior.scans || 1} scans)` });
+    diag.push({ name: "brain", outcome: !prior ? "new wine" : fresh ? "rescan requested" : thin ? ((prior.rev || 0) < BRAIN_REV ? "saved before the latest fixes, researching again" : "thin entry, researching again") : stale ? "partial entry over a day old, researching again" : `hit (${prior.scans || 1} scans)` });
     if (prior && !fresh && !thin && !stale) {
       send({ type: "status", text: "Found it in our shared wine brain" });
       const brain = { first_at: prior.first_at, updated_at: prior.updated_at, scans: prior.scans || 1 };
@@ -1844,6 +1848,9 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // 3. Parallel lookups.
   send({ type: "status", text: "Checking the tech sheet, farming and vegan status" });
   const site = id.winery_website, page = id.product_page_url;
+  // The wine's own product page on the winery site often states harvesting
+  // ("Vinification: manual harvest"); read its text for that.
+  const productPageText = page ? pageText(page, 9000).catch(() => "") : Promise.resolve("");
   const ask = (text) => [{ type: "text", text }];
   const deadline = Date.now() + LOOKUP_MS;
   const webTools = (searches, fetches) => [
@@ -2373,6 +2380,27 @@ This run follows what is printed on the bottle: the barcode number and the compa
     if (found.length || marks.codes.length) diag.push({ name: `marks ${src.label}`, outcome: `${found.map((c) => `${c.id}/${c.evidence}`).join(", ") || "none"}${marks.codes.length ? ` codes ${marks.codes.join(",")}` : ""}` });
     for (const c of found) best[c.id] = better(best[c.id], c);
   }
+  // Hand harvesting (manual harvest is the same) stated on any page or sheet
+  // from the winery: its product page, spec page or tech sheet.
+  {
+    const ppText = await productPageText;
+    const nameWords = norm(wine.name).split(" ").filter((w) => w.length > 2 && !VARIETIES.some((v) => v.split(" ").includes(w)));
+    const ppWords = new Set(norm(ppText).split(" "));
+    const ppIsThisWine = ppText && (nameWords.length === 0 || nameWords.some((w) => ppWords.has(w)) || norm(ppText).includes(norm(wine.name)));
+    const pools = [
+      ...markSources.filter((m) => m.label !== "Label").map((m) => ({ text: m.text, url: m.url, where: m.label === "Tech sheet" ? "tech sheet" : "winery page" })),
+      ...(ppIsThisWine ? [{ text: ppText, url: page, where: "winery product page" }] : []),
+    ];
+    for (const pool of pools) {
+      const m = String(pool.text || "").match(HAND_HARVEST_RE);
+      if (m && !(best.hand_harvested && (best.hand_harvested.status === "pass" || best.hand_harvested.status === "fail") && best.hand_harvested.evidence !== "estimate")) {
+        const ctx = (String(pool.text).match(new RegExp(`.{0,40}${m[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.{0,40}`, "i")) || [m[0]])[0].replace(/\s+/g, " ").trim();
+        best.hand_harvested = { id: "hand_harvested", status: "pass", evidence: "winery", scope: "this_wine", as_of: "", detail: `Winery ${pool.where}: "${ctx}" (manual harvest is hand harvesting).`, source_url: pool.url || "", origin: `Winery ${pool.where}` };
+        diag.push({ name: "hand-harvest", outcome: `${pool.where}: ${m[0]}` });
+        break;
+      }
+    }
+  }
   if (barnivore) {
     const detail = barnivore.quote
       ? `Barnivore, winery's reply: "${barnivore.quote.length > 220 ? barnivore.quote.slice(0, 217).replace(/\s+\S*$/, "") + "..." : barnivore.quote}"`
@@ -2891,7 +2919,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
   const merged = mergeBrain(result, prior?.result);
   const final = merged.result;
   const now = Date.now();
-  const entry = { first_at: prior?.first_at || now, updated_at: now, cached_at: now, scans: (prior?.scans || 0) + 1 };
+  const entry = { first_at: prior?.first_at || now, updated_at: now, cached_at: now, scans: (prior?.scans || 0) + 1, rev: BRAIN_REV };
   diag.push({ name: "brain-store", outcome: `${prior ? `merged, ${merged.added} new facts` : "new entry"} (${topKnown(final)}/10 known)` });
   if (cache && key.replace(/_/g, "")) await cache.set(key, { ...entry, result: { ...final, debug: undefined } }).catch(() => {});
   return applyLabelClaims({ ...final, debug: diag, brain: { ...entry, added: prior ? merged.added : null, rescan: Boolean(prior) } }, id.label_claims, image);
