@@ -226,6 +226,7 @@ h1 {
 
 .score { position: relative; }
 .score-head { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.7rem; }
+.score-slogan { display: block; margin-top: 0.15rem; font-family: var(--script); font-size: 1.35rem; font-weight: 400; letter-spacing: 0; text-transform: none; }
 .score-title { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--wine); }
 .info-btn {
   display: grid; place-items: center; width: 1.25rem; height: 1.25rem; padding: 0;

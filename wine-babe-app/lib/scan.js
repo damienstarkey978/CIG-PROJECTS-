@@ -245,7 +245,7 @@ Then find the winery's official website and this wine's product page on it, with
 A name without a vintage is fine: identify the wine and leave vintage "" (non vintage or latest).
 No producer given (e.g. "Pinot Noir Rosé Single Fermentation"): use your web search on the exact name to find which winery makes it. If the results point to one producer's wine, identify it with that producer. If several fit, pick the most popular one and say so in note. Watch for different wineries sharing a family name (e.g. Ciccio Zaccagnini in Abruzzo makes the "Zeta" line; Fratelli Zaccagnini in Marche makes Rosso Piceno): match the wine line and appellation to the right producer and its own website (Ciccio Zaccagnini is cantinazaccagnini.it, Fratelli Zaccagnini is zaccagnini.it), and say in note if the name mixes them. winery_website must belong to the producer you named.
 From a label photo, also list in label_marks every certification logo, code and claim you can see: EU organic leaf (Euroleaf), AB Agriculture Biologique, Demeter, codes like IT-BIO-006 or FR-BIO-01, and words like Sans OGM, Senza OGM, Privo di OGM, Non OGM, Vino biologico, Uve biologiche, Da agricoltura biologica, Vin biologique. If the barcode is visible, put its printed digits in ean. Say whether a QR code is visible (qr_visible) and where (qr_box, fractions of the photo). Read any nutrition printed on the label into label_nutrition exactly: EU labels show energy per 100 ml (e.g. "E (100 ml) = 357 kJ / 85 kcal"); copy the printed text into printed_text, kcal per 100 ml into energy_kcal_100ml (kJ / 4.184 if only kJ), and sugars or carbohydrates per 100 ml only if printed. Never estimate these. With text input only, label_marks is [] and ean is "".
-There may be two photos: the front label and the back label of the same bottle. Read both. In label_claims, copy what the label itself prints: alcohol (ABV %), calories per serving (US labels give it per 5 oz serving; use it as calories_per_5oz when the serving is 5 oz or not stated; convert per 100 ml x 1.4787), sugar per 5 oz in grams (sugar_under_1g true for "<1g sugar", "less than 1 g sugar", "zero sugar"), carbs per 5 oz, and every claim printed (vegan, gluten free, sustainably farmed / sustainable, organic, non GMO, hand harvested, no added sugar, no added flavors, and the rest of the list). printed_text: the claim line(s) word for word. bottled_by: the "Produced / Vinted / Bottled / Imported by" line as printed. barcode: the digits under the barcode. Only what is printed on this bottle; nothing from memory or the web. With text input only, label_claims is all null, false and empty.
+There may be two photos: the front label and the back label of the same bottle. Read both. In label_claims, copy what the label itself prints: alcohol (ABV %), calories per serving (US labels give it per 5 oz serving; use it as calories_per_5oz when the serving is 5 oz or not stated; convert per 100 ml x 1.4787), sugar per 5 oz in grams (sugar_under_1g true for "<1g sugar", "less than 1 g sugar", "zero sugar"), carbs per 5 oz, and every claim printed (vegan, gluten free, sustainably farmed / sustainable, organic, non GMO, hand harvested or manual harvest (the same claim, flag it as hand harvested), no added sugar, no added flavors, and the rest of the list). printed_text: the claim line(s) word for word. bottled_by: the "Produced / Vinted / Bottled / Imported by" line as printed. barcode: the digits under the barcode. Only what is printed on this bottle; nothing from memory or the web. With text input only, label_claims is all null, false and empty.
 Never ask for a photo or more details. Always give your best guess for anything that looks like a wine (even just a grape or style, e.g. "Pinot Grigio"): fill what you can and leave the rest "". Only set identified false when the input is clearly not a wine at all (a person, a scene, a different product), and explain in note. Unknown text fields are "".`;
 
 const PDF_URLS_SCHEMA = {
@@ -702,7 +702,7 @@ const LABEL_READ_SCHEMA = {
   type: "object", additionalProperties: false, required: ["this_wine", "label_claims"],
   properties: { this_wine: { type: "boolean" }, label_claims: null },
 };
-const LABEL_READ_SYSTEM = `You read photos of a wine bottle's labels found online, for the Wine Babe app. First check they show the wine named: same brand, same wine and same style or dosage (Brut is not Extra Brut, Brut Nature or Extra Dry; a Rosé is not the white). this_wine false if any label is a different wine or version, or not a label. Then fill label_claims with what is printed on these labels, exactly as on a bottle: alcohol, calories per 5 oz serving (US labels give it per serving; convert per 100 ml x 1.4787), sugar per 5 oz, sugar_under_1g for "<1g sugar", carbs per 5 oz, and every claim printed (vegan, gluten free, sustainable, organic, non GMO, hand harvested, no added sugar, no added flavors...). printed_text: the claim lines word for word. bottled_by: the "Produced / Vinted / Bottled / Imported by" line as printed. barcode: the digits under the barcode if readable. Only what is printed and readable; never guess.`;
+const LABEL_READ_SYSTEM = `You read photos of a wine bottle's labels found online, for the Wine Babe app. First check they show the wine named: same brand, same wine and same style or dosage (Brut is not Extra Brut, Brut Nature or Extra Dry; a Rosé is not the white). this_wine false if any label is a different wine or version, or not a label. Then fill label_claims with what is printed on these labels, exactly as on a bottle: alcohol, calories per 5 oz serving (US labels give it per serving; convert per 100 ml x 1.4787), sugar per 5 oz, sugar_under_1g for "<1g sugar", carbs per 5 oz, and every claim printed (vegan, gluten free, sustainable, organic, non GMO, hand harvested or manual harvest (the same claim), no added sugar, no added flavors...). printed_text: the claim lines word for word. bottled_by: the "Produced / Vinted / Bottled / Imported by" line as printed. barcode: the digits under the barcode if readable. Only what is printed and readable; never guess.`;
 
 const FIND_LINKS_TOOL = {
   name: "find_page_links",
@@ -1699,6 +1699,57 @@ const cacheKey = (w) => {
   return `${ENGINE_VERSION}__${keyWords(w.producer)}__${keyWords(w.name)}__${vintage}`;
 };
 
+// ---------- shared brain ----------
+// One permanent entry per wine (producer + name + vintage), shared by every
+// user and kept across engine versions. A scan of a wine already in the brain
+// returns it at once; a rescan runs the full research again and merges: new
+// verified facts are added, and verified facts the new run missed are kept.
+const brainKey = (w) => cacheKey(w).replace(/^[^_]+__/, "brain__");
+const isKnown = (c) => c && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail");
+const topKnown = (r) => ALL_ITEMS.filter((i) => i.top).filter((i) => (r?.checks || []).some((c) => c.id === i.id && isKnown(c))).length;
+const NUTRITION_FIELDS = ["abv", "residual_sugar_g_l", "sugar_below_g_l", "calories_5oz", "carbs_5oz", "total_so2_mg_l", "free_so2_mg_l", "ph", "ta_g_l"];
+
+function mergeBrain(fresh, old) {
+  if (!old) return { result: fresh, added: 0 };
+  let added = 0;
+  const oldChecks = new Map((old.checks || []).map((c) => [c.id, c]));
+  const checks = (fresh.checks || []).map((c) => {
+    const o = oldChecks.get(c.id);
+    oldChecks.delete(c.id);
+    if (isKnown(c)) { if (!isKnown(o)) added++; return c; }
+    return isKnown(o) ? o : c;
+  });
+  for (const o of oldChecks.values()) if (isKnown(o)) checks.push(o);
+  const n = { ...(fresh.nutrition || EMPTY_NUTRITION) };
+  const on = old.nutrition || {};
+  for (const f of NUTRITION_FIELDS) {
+    if (n[f] == null && on[f] != null) n[f] = on[f];
+    else if (n[f] != null && on[f] == null) added++;
+  }
+  if ((!n.source || n.source === "none") && on.source && on.source !== "none") n.source = on.source;
+  const wine = { ...fresh.wine };
+  for (const k of ["tech_sheet_url", "tech_sheet_vintage", "bottled_by"]) if (!wine[k] && old.wine?.[k]) wine[k] = old.wine[k];
+  const hasIng = (x) => Array.isArray(x?.ingredients) && x.ingredients.length && x.source !== "typical";
+  if (hasIng(fresh.ingredients) && !hasIng(old.ingredients)) added++;
+  const seen = new Set();
+  const sources = [...(fresh.sources || []), ...(old.sources || [])].filter((s) => s?.url && !seen.has(s.url) && seen.add(s.url));
+  return {
+    added,
+    result: {
+      ...fresh,
+      wine,
+      checks,
+      nutrition: n,
+      ingredients: hasIng(fresh.ingredients) ? fresh.ingredients : hasIng(old.ingredients) ? old.ingredients : fresh.ingredients,
+      ratings: fresh.ratings?.length ? fresh.ratings : old.ratings || fresh.ratings,
+      tasting: fresh.tasting || old.tasting || null,
+      eu_disclosure: fresh.eu_disclosure?.sugar || !old.eu_disclosure?.sugar ? fresh.eu_disclosure : old.eu_disclosure,
+      sources,
+      summary: summarize(wine, checks, n),
+    },
+  };
+}
+
 // ---------- main ----------
 
 LABEL_READ_SCHEMA.properties.label_claims = IDENTIFY_SCHEMA.properties.label_claims;
@@ -1768,14 +1819,25 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   }
   send({ type: "status", text: `Found ${[wine.producer, wine.name].filter(Boolean).join(" ")}` });
 
-  // 2. Cache.
-  const key = cacheKey(wine);
-  if (cache && !fresh && key.replace(/_/g, "")) {
-    const hit = await cache.get(key).catch(() => null);
-    const ttlDays = hit?.result?.partial ? 1 : CACHE_DAYS;
-    if (hit && Date.now() - (hit.cached_at || 0) < ttlDays * 864e5) {
-      send({ type: "status", text: "Already checked this wine" });
-      return applyLabelClaims({ ...hit.result, cached: true }, id.label_claims, image);
+  // 2. Shared brain. Served unless this is a rescan, the stored answer is
+  // thin (under 4 of the top 10 known), or it is partial and over a day old;
+  // in those cases the full research runs and is merged into it.
+  const key = brainKey(wine);
+  let prior = null;
+  if (cache && key.replace(/_/g, "")) {
+    prior = await cache.get(key).catch(() => null);
+    if (!prior?.result) {
+      // Seed from the older per-version cache, so earlier scans are not lost.
+      const old = await cache.get(cacheKey(wine)).catch(() => null);
+      prior = old?.result ? { first_at: old.cached_at, updated_at: old.cached_at, scans: 1, result: old.result } : null;
+    }
+    const thin = prior && topKnown(prior.result) < 4;
+    const stale = prior?.result?.partial && Date.now() - (prior.updated_at || 0) > 864e5;
+    diag.push({ name: "brain", outcome: !prior ? "new wine" : fresh ? "rescan requested" : thin ? "thin entry, researching again" : stale ? "partial entry over a day old, researching again" : `hit (${prior.scans || 1} scans)` });
+    if (prior && !fresh && !thin && !stale) {
+      send({ type: "status", text: "Found it in our shared wine brain" });
+      const brain = { first_at: prior.first_at, updated_at: prior.updated_at, scans: prior.scans || 1 };
+      return applyLabelClaims({ ...prior.result, cached: true, brain, debug: [...diag, ...(prior.result.debug || [])] }, id.label_claims, image);
     }
   }
 
@@ -2824,10 +2886,15 @@ This run follows what is printed on the bottle: the barcode number and the compa
       if (!result.wine.tech_sheet_url) result.wine = { ...result.wine, tech_sheet_url: sn.url };
     }
   }
-  const knownTop = ALL_ITEMS.filter((i) => i.top).filter((i) => result.checks.some((c) => c.id === i.id && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail"))).length;
-  diag.push({ name: "cache", outcome: knownTop >= 4 ? `stored (${knownTop}/10 known)` : `skipped, thin result (${knownTop}/10 known)` });
-  if (cache && knownTop >= 4) await cache.set(key, { cached_at: Date.now(), result }).catch(() => {});
-  return applyLabelClaims(result, id.label_claims, image);
+  // Everything goes into the brain, merged with what it already knew. A thin
+  // entry is stored too, but the next scan researches it again (see step 2).
+  const merged = mergeBrain(result, prior?.result);
+  const final = merged.result;
+  const now = Date.now();
+  const entry = { first_at: prior?.first_at || now, updated_at: now, cached_at: now, scans: (prior?.scans || 0) + 1 };
+  diag.push({ name: "brain-store", outcome: `${prior ? `merged, ${merged.added} new facts` : "new entry"} (${topKnown(final)}/10 known)` });
+  if (cache && key.replace(/_/g, "")) await cache.set(key, { ...entry, result: { ...final, debug: undefined } }).catch(() => {});
+  return applyLabelClaims({ ...final, debug: diag, brain: { ...entry, added: prior ? merged.added : null, rescan: Boolean(prior) } }, id.label_claims, image);
 }
 
 // What the bottle itself prints (front and back label) counts as the winery's
@@ -2877,6 +2944,10 @@ function applyLabelClaims(result, lc, image, src = { name: "Bottle label", url: 
     const id = LABEL_CLAIM_MAP[claim];
     if (id) put(id, "pass", `${W} says "${CLAIM_TEXT[claim] || claim}"${quote}.`);
   }
+  // Manual harvest on the label is the same as hand harvested, whatever the
+  // model flagged.
+  const hhLabel = String(lc.printed_text || "").match(HAND_HARVEST_RE);
+  if (hhLabel && !used.includes("hand_harvested")) put("hand_harvested", "pass", `${W} says "${hhLabel[0]}" (manual harvest is hand harvesting)${quote}.`);
   out.debug = [...(out.debug || []), { name: W === "Bottle label" ? "label-claims" : "online-label-claims", outcome: `${used.join(", ") || "none"}: ${lc.printed_text || ""}`.slice(0, 300) }];
   return out;
 }
@@ -2958,4 +3029,4 @@ async function runDemo(send) {
   return demoResult();
 }
 
-module.exports = { runScan, runDemo, HAS_KEY, HAS_UNLOCKER };
+module.exports = { runScan, runDemo, HAS_KEY, HAS_UNLOCKER, mergeBrain, brainKey };

@@ -539,7 +539,16 @@
 
     const sources = (data.sources || []).map((s) => ({ ...s, url: safeUrl(s.url) })).filter((s) => s.url);
     const techUrl = safeUrl(w.tech_sheet_url);
-    const savedNote = isNew ? "" : `<div class="saved-note">Saved scan${savedAt ? ` from ${new Date(savedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}. Rescan to get the latest results. <button type="button" class="btn small" id="rescan">Rescan for the latest</button></div>`;
+    const when = (t) => new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const rescanBtn = `<button type="button" class="btn small" id="rescan">Rescan for new info</button>`;
+    const b = data.brain || {};
+    const savedNote = !isNew
+      ? `<div class="saved-note">Saved scan${savedAt ? ` from ${when(savedAt)}` : ""}. Rescan to look for anything new. ${rescanBtn}</div>`
+      : data.cached
+      ? `<div class="saved-note">Pulled from our shared wine brain${b.updated_at ? `, last researched ${when(b.updated_at)}` : ""}${b.scans > 1 ? ` (researched ${b.scans} times)` : ""}. Rescan to look for anything new. ${rescanBtn}</div>`
+      : b.rescan
+      ? `<div class="saved-note">${b.added ? `Rescan found ${b.added} new fact${b.added === 1 ? "" : "s"}, added to the shared wine brain.` : "Rescan done. Nothing new found this time; everything already known is kept."}</div>`
+      : "";
 
     screens.result.innerHTML = `
       <div class="wine-head">
@@ -552,10 +561,10 @@
       ${savedNote}
       <div class="card score">
         <div class="score-head">
-          <span class="score-title">Wine Babe score</span>
+          <span class="score-title">Transparency Scanner<span class="score-slogan">Know what's in your glass</span></span>
           <button type="button" class="info-btn" aria-label="See the score breakdown" aria-expanded="false" aria-controls="scoreInfo">i</button>
         </div>
-        <div class="score-info" id="scoreInfo" role="dialog" aria-label="Wine Babe score breakdown" hidden>
+        <div class="score-info" id="scoreInfo" role="dialog" aria-label="Transparency Scanner breakdown" hidden>
           <p><b>Score breakdown</b> · ${r.score} / 100 points · Transparency ${r.transparency}%</p>
           <ul class="std-list">
             ${r.std.map((x) => `<li class="std ${x.state}">
@@ -658,7 +667,7 @@
         <label class="btn" for="photo">Scan another bottle</label>
         <button class="btn ghost" id="backHome">Home</button>
       </div>
-      <p class="fine">The Wine Babe score shows how a wine measures up to the Wine Babe standards based on published information. It is not medical advice. Sulfite ratings are a Wine Babe comparison scale, not a regulatory classification. Results can vary by vintage.</p>
+      <p class="fine">The Transparency Scanner shows how a wine measures up to our standards based on published information. It is not medical advice. Sulfite ratings are a Wine Babe comparison scale, not a regulatory classification. Results can vary by vintage.</p>
     `;
     $("#backHome").onclick = goHome;
     const rb = $("#rescan");
@@ -741,7 +750,7 @@
 
   $("#homeBtn").addEventListener("click", goHome);
 
-  // Wine Babe score info pop up: the ⓘ button toggles it; Got it, Escape or a tap outside closes it.
+  // Transparency Scanner info pop up: the ⓘ button toggles it; Got it, Escape or a tap outside closes it.
   const scoreInfo = (open) => {
     const box = screens.result.querySelector(".score-info");
     const btn = screens.result.querySelector(".info-btn");
