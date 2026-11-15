@@ -228,14 +228,20 @@
       rule: "Pass: an explicit statement that no sugar is added. Fail: verified dosage or sweetening. Sugar used during fermentation is neutral; low sugar or zero dosage alone never passes." },
     { id: "sulfites", short: "sulfite level", name: "Sulfite transparency",
       rule: "Pass: a verified source publishes the total sulfite level (mg/L). 'Contains sulfites' alone is a legal minimum and does not pass." },
-    { id: "vegan", short: "vegan", name: "Vegan friendly", rule: "Pass: the producer or the label states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
+    { id: "vegan", short: "vegan", name: "Vegan Status", rule: "Verified Vegan: the producer or the label states no animal products (directly or via Barnivore). Verified Non-Vegan: a source says it is not vegan (e.g. Barnivore lists it as not vegan) or animal fining agents are declared. Otherwise Not Verified." },
     { id: "farming", from: ["sustainable", "organic"], short: "sustainable or organic farming", name: "Sustainable or organic farming practices",
       rule: "Pass: sustainable farming or organic farming, either one, by certification or the producer's documented practices." },
-    { id: "certified_organic", from: "organic", short: "certified organic", name: "Certified organic",
-      rule: "Pass: an organic certification (USDA Organic, EU organic leaf, AB, CCOF, a control body code on the bottle, or a named certifier). Documented organic practices without a certificate do not count here." },
+    { id: "certified_organic", from: "organic", short: "organic certification", name: "Organic Certification Status",
+      rule: "Certified Organic: an organic certification (USDA Organic, EU organic leaf, AB, CCOF, a control body code on the bottle, or a named certifier). Not Certified Organic: a source says the wine or winery is not certified organic. Documented organic practices without a certificate are Not Verified here." },
     { id: "hand_harvested", short: "hand harvest", name: "Hand harvested grapes", rule: "Pass: the producer states the grapes are picked by hand. Manual harvest (harvested manually, vendemmia manuale, vendange manuelle) is the same thing." },
     { id: "non_gmo", short: "non GMO", name: "Non GMO", rule: "Pass: the producer, the label or a certifier states non GMO (e.g. NO OGM on the tech sheet)." },
   ];
+
+  // A verified source that says the opposite ("not vegan", "we are not
+  // certified organic") is a verified negative, never a pass.
+  const NOT_VEGAN_RE = /\bnot (?:be |been |all |always )?vegan\b|\bnon[\s-]?vegan\b|not suitable for vegans|\bnot vegan[\s-]friendly\b/i;
+  const NOT_CERTIFIED_RE = /\b(?:not|never|isn'?t|aren'?t|no longer)\b[^.;]{0,25}\bcertified\b|\bno\b[^.;]{0,20}\bcertification\b|\buncertified\b|\bwithout\b[^.;]{0,20}\bcertifi|\bnot (?:an? )?organic\b/i;
+  const ORG_CERT_RE = /certif|usda|euroleaf|organic leaf|\bAB\b|agriculture biologique|ccof|ecocert|demeter|[A-Z]{2}-BIO-\d|organic seal|control body/i;
 
   // Decide each standard: "pass", "fail" or "unverified", with the evidence used.
   function judgeStandards(byId, n, est) {
@@ -264,9 +270,15 @@
         else { c = sus || org; state = "unverified"; basis = "No sustainable or organic farming information found."; }
       } else if (s.id === "certified_organic") {
         c = byId.organic;
-        const certified = isVerified(c) && c.status === "pass" && (c.evidence === "certified" || /certif|usda|euroleaf|organic leaf|\bAB\b|agriculture biologique|ccof|ecocert|demeter|[A-Z]{2}-BIO-\d|organic seal|control body/i.test(`${c.detail} ${c.origin || ""}`));
-        state = certified ? "pass" : isVerified(c) && c.status === "fail" ? "fail" : "unverified";
-        basis = certified ? c.detail : isVerified(c) && c.status === "pass" ? "Organic practices documented, but no organic certificate found." : c?.detail || "No organic certification found.";
+        const said = `${c?.detail || ""} ${c?.origin || ""}`;
+        const notCertified = isVerified(c) && NOT_CERTIFIED_RE.test(said);
+        const certified = !notCertified && isVerified(c) && c.status === "pass" && (c.evidence === "certified" || ORG_CERT_RE.test(said));
+        state = certified ? "pass" : notCertified || (isVerified(c) && c.status === "fail") ? "fail" : "unverified";
+        basis = certified || state === "fail" ? c.detail : isVerified(c) && c.status === "pass" ? "Organic practices documented, but no organic certificate found." : c?.detail || "No organic certification found.";
+      } else if (s.id === "vegan") {
+        const notVegan = isVerified(c) && NOT_VEGAN_RE.test(`${c.detail || ""}`);
+        state = notVegan ? "fail" : isVerified(c) ? c.status : "unverified";
+        basis = c?.detail || "";
       } else if (s.id === "sugar_under_1g" && isVerified(c) && (n.sugar_5oz != null || n.sugar_below_5oz != null)) {
         // 1 gram or less per 5 oz passes (rounded to 0.01 g).
         const g = n.sugar_5oz != null ? Math.round(n.sugar_5oz * 100) / 100 : null;
@@ -409,16 +421,25 @@
     </li>`;
   }
 
-  // One row of "What we looked for": a green Verified button when reliable
-  // public information was found (whether the wine meets it or not), a gray
-  // Not verified otherwise. No points and no score.
+  // One row of "What we looked for", in three states: green when a source
+  // confirms the wine meets it, red when a source confirms it does not
+  // (a verified negative, e.g. Barnivore lists it as not vegan), gray when no
+  // reliable public information was found. "Verified" means a source was
+  // found, never that the answer is yes. No points and no score.
+  const STATE_LABELS = {
+    vegan: { pass: "Verified Vegan", fail: "Verified Non-Vegan", unknown: "Not Verified" },
+    certified_organic: { pass: "Certified Organic", fail: "Not Certified Organic", unknown: "Not Verified" },
+  };
+  const DEFAULT_STATE_LABELS = { pass: "Verified", fail: "Verified: does not meet", unknown: "Not verified" };
+  const stateLabel = (id, status) => (STATE_LABELS[id] || DEFAULT_STATE_LABELS)[status === "pass" || status === "fail" ? status : "unknown"];
   function topRow(c) {
     const url = safeUrl(c.source_url);
-    const yes = c.status === "pass" || c.status === "fail";
+    const st = c.status === "pass" || c.status === "fail" ? c.status : "unknown";
+    const yes = st !== "unknown";
     return `<li class="check">
-      <span class="dot ${yes ? "pass" : "unknown"}" aria-hidden="true">${yes ? "✓" : "–"}</span>
+      <span class="dot ${st}" aria-hidden="true">${st === "pass" ? "✓" : st === "fail" ? "✕" : "–"}</span>
       <div class="body">
-        <div class="name">${esc(c.label)} <span class="vchip ${yes ? "yes" : "no"}">${yes ? "Verified" : "Not verified"}</span></div>
+        <div class="name">${esc(c.label)} <span class="vchip ${st === "pass" ? "yes" : st === "fail" ? "neg" : "no"}">${esc(stateLabel(c.id, st))}</span></div>
         <div class="detail">${esc(yes ? c.detail : "No reliable public information found yet.")}${yes && (c.origin || url) ? `<div class="origin">${c.origin ? `From: ${esc(c.origin)}` : ""}${url ? ` · <a href="${esc(url)}" target="_blank" rel="noopener">Source</a>` : ""}</div>` : ""}</div>
       </div>
     </li>`;
@@ -541,14 +562,14 @@
           <p><b>${r.verified ? "Verified" : "Not verified"}</b> · ${r.knownCount} of ${r.applicableCount} items found. A wine is Verified when at least ${VERIFIED_MIN} are found.</p>
           <ul class="std-list">
             ${r.std.map((x) => `<li class="std ${x.state}">
-              <div class="std__top"><span class="std__mark">${x.state === "unverified" ? "–" : "✓"}</span>
+              <div class="std__top"><span class="std__mark">${x.state === "pass" ? "✓" : x.state === "fail" ? "✕" : "–"}</span>
                 <span class="std__name">${esc(x.name)}</span>
-                <span class="vchip ${x.state === "unverified" ? "no" : "yes"}">${x.state === "unverified" ? "Not verified" : "Verified"}</span></div>
+                <span class="vchip ${x.state === "pass" ? "yes" : x.state === "fail" ? "neg" : "no"}">${esc(stateLabel(x.id, x.state))}</span></div>
               ${x.basis ? `<div class="std__basis">${esc(x.basis)}${x.origin ? ` · ${esc(x.origin)}` : ""}${safeUrl(x.url) ? ` · <a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener">Source</a>` : ""}</div>` : ""}
               <div class="std__rule">${esc(x.rule)}</div>
             </li>`).join("")}
           </ul>
-          <p class="std__foot">"Verified" means we found reliable public information for that item. "Not verified" means we couldn't find any yet. It says nothing about whether the wine is good or bad. Rescan to look for anything new.</p>
+          <p class="std__foot">Green means a reliable public source confirms the wine meets that item. Red means a reliable source confirms it does not. Gray "Not verified" means we couldn't find reliable information yet. Rescan to look for anything new.</p>
           <button type="button" class="info-close">Got it</button>
         </div>
         <div class="verdict-big ${r.verified ? "yes" : "no"}">${r.verified ? `<img class="vheart" src="/images/heart.png" alt="" aria-hidden="true" />Verified<img class="vheart" src="/images/heart.png" alt="" aria-hidden="true" />` : "Not verified"}</div>
