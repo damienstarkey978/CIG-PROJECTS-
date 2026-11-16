@@ -513,3 +513,16 @@ button.ring { border: 0; background: none; padding: 0; cursor: pointer; }
 @keyframes heartbeat { 0%, 60%, 100% { transform: scale(1); } 70% { transform: scale(1.1); } 80% { transform: scale(1); } 90% { transform: scale(1.07); } }
 @keyframes twinkle { 0%, 100% { opacity: 0.35; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1.15); } }
 @media (prefers-reduced-motion: reduce) { .card.score .score-heart, .card.score .spark { animation: none; } }
+
+/* Skinny Sip Approved badge in the score card */
+.skinny { position: relative; margin: 0.7rem auto 0.3rem; width: max-content; max-width: 100%; text-align: center; }
+.skinny__badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1.2rem; border-radius: 999px; font-family: var(--serif); font-size: 1.15rem; font-weight: 600; letter-spacing: 0.01em; color: #8a2f4d; background: linear-gradient(180deg, #fff3f6, #fbd9e2); border: 1.5px solid #e9a9ba; box-shadow: 0 8px 16px -10px rgba(180, 70, 100, 0.65), 0 0 0 3px rgba(255, 255, 255, 0.85); animation: skinny-pop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.skinny__badge .vheart { width: 1.05rem; height: 1.05rem; object-fit: contain; }
+.skinny__sub { margin-top: 0.35rem; font-size: 0.78rem; color: #9a6b78; }
+.skinny__spark { position: absolute; color: #e7a3b6; font-size: 0.8rem; animation: skinny-twinkle 2.4s ease-in-out infinite; }
+.skinny__spark.s1 { left: -0.7rem; top: -0.2rem; }
+.skinny__spark.s2 { right: -0.6rem; top: 0.1rem; font-size: 0.65rem; animation-delay: 0.8s; }
+.skinny__spark.s3 { right: 1.4rem; top: -0.55rem; font-size: 0.55rem; animation-delay: 1.5s; }
+@keyframes skinny-pop { 0% { transform: scale(0.4) rotate(-6deg); opacity: 0; } 100% { transform: scale(1) rotate(0); opacity: 1; } }
+@keyframes skinny-twinkle { 0%, 100% { opacity: 0.25; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.15); } }
+@media (prefers-reduced-motion: reduce) { .skinny__badge, .skinny__spark { animation: none; } }

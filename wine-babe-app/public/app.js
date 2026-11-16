@@ -498,6 +498,8 @@
     }
 
     const sugar = n.sugar_5oz;
+    // Skinny Sip Approved: verified sugar of 1 g or less per 5 oz serving.
+    const skinnySip = sugar != null ? Math.round(sugar * 100) / 100 <= 1 : n.sugar_below_5oz != null && n.sugar_below_5oz <= 1.0001;
     const typ = (n.typical && n.typical.fields) || [];
     const sugarCheck = r.checks.find((c) => c.id === "sugar_under_1g");
     const byId = Object.fromEntries(r.checks.map((c) => [c.id, c]));
@@ -568,6 +570,11 @@
         <p class="verdict-sub">${r.verified
           ? `We found and verified ${r.knownCount} things about this wine.`
           : `We found ${r.knownCount === 0 ? "nothing" : r.knownCount === 1 ? "only 1 thing" : "only " + r.knownCount + " things"} about this wine. At least ${VERIFIED_MIN} are needed to verify it.`}</p>
+        ${skinnySip ? `<div class="skinny" role="status">
+          <span class="skinny__spark s1" aria-hidden="true">✦</span><span class="skinny__spark s2" aria-hidden="true">✦</span><span class="skinny__spark s3" aria-hidden="true">✦</span>
+          <div class="skinny__badge"><img class="vheart" src="/images/heart.png" alt="" aria-hidden="true" /><span>Skinny Sip Approved</span><img class="vheart" src="/images/heart.png" alt="" aria-hidden="true" /></div>
+          <div class="skinny__sub">1 g of sugar or less per 5 oz</div>
+        </div>` : ""}
         <button type="button" class="verified-count info-btn" aria-label="See what we looked for" aria-controls="scoreInfo">
           <b>${r.knownCount} of ${r.applicableCount}</b> items found
           <span class="tap-hint">Tap for the full list</span>
