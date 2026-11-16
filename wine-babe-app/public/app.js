@@ -228,7 +228,7 @@
       rule: "Pass: an explicit statement that no sugar is added. Fail: verified dosage or sweetening. Sugar used during fermentation is neutral; low sugar or zero dosage alone never passes." },
     { id: "sulfites", short: "sulfite level", name: "Sulfite transparency",
       rule: "Pass: a verified source publishes the total sulfite level (mg/L). 'Contains sulfites' alone is a legal minimum and does not pass." },
-    { id: "vegan", short: "vegan", name: "Vegan friendly", rule: "Pass: the producer or the label states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
+    { id: "vegan", short: "vegan", name: "Vegan status", rule: "Pass: the producer or the label states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
     { id: "farming", from: ["sustainable", "organic"], short: "sustainable or organic farming", name: "Sustainable or organic farming practices",
       rule: "Pass: sustainable farming or organic farming, either one, by certification or the producer's documented practices." },
     { id: "certified_organic", from: "organic", short: "certified organic", name: "Certified organic",

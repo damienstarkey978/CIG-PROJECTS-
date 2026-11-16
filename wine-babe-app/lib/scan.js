@@ -80,7 +80,7 @@ const LABEL_CLAIM_MAP = {
 };
 const LABEL_CLAIMS = Object.keys(LABEL_CLAIM_MAP);
 const CLAIM_TEXT = {
-  vegan: "Vegan friendly", gluten_free: "Gluten free", sustainable: "Sustainably farmed", organic: "Organic", non_gmo: "Non GMO",
+  vegan: "Vegan status", gluten_free: "Gluten free", sustainable: "Sustainably farmed", organic: "Organic", non_gmo: "Non GMO",
   hand_harvested: "Hand harvested", no_added_sugar: "No added sugar", no_added_flavors: "No added flavors", no_artificial_colors: "No artificial colors",
   no_artificial_sweeteners: "No artificial sweeteners", estate_grown: "Estate grown", family_owned: "Family owned", single_vineyard: "Single vineyard",
   native_yeast: "Native yeast", no_added_water: "No added water",
