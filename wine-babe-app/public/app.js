@@ -231,7 +231,7 @@
     { id: "vegan", short: "vegan", name: "Vegan status", rule: "Pass: the producer or the label states no animal products (directly or via Barnivore). Fail: animal fining agents declared." },
     { id: "farming", from: ["sustainable", "organic"], short: "sustainable or organic farming", name: "Sustainable or organic farming practices",
       rule: "Pass: sustainable farming or organic farming, either one, by certification or the producer's documented practices." },
-    { id: "certified_organic", from: "organic", short: "certified organic", name: "Certified organic",
+    { id: "certified_organic", from: "organic", short: "organic certification", name: "Organic Certification Status",
       rule: "Pass: an organic certification (USDA Organic, EU organic leaf, AB, CCOF, a control body code on the bottle, or a named certifier). Documented organic practices without a certificate do not count here." },
     { id: "hand_harvested", short: "hand harvest", name: "Hand harvested grapes", rule: "Pass: the producer states the grapes are picked by hand. Manual harvest (harvested manually, vendemmia manuale, vendange manuelle) is the same thing." },
     { id: "non_gmo", short: "non GMO", name: "Non GMO", rule: "Pass: the producer, the label or a certifier states non GMO (e.g. NO OGM on the tech sheet)." },
@@ -412,13 +412,26 @@
   // One row of "What we looked for": a green Verified button when reliable
   // public information was found (whether the wine meets it or not), a gray
   // Not verified otherwise. No points and no score.
+  // Status wording for items that can honestly come back either way: the chip
+  // says what was found, in color, so "Verified" never hides a negative.
+  const STATUS_WORDS = {
+    vegan: { pass: "Verified Vegan", fail: "Verified Non-Vegan" },
+    certified_organic: { pass: "Verified Certified Organic", fail: "Verified Not Certified Organic" },
+  };
+  function chipFor(id, status) {
+    const w = STATUS_WORDS[id];
+    if (status === "fail") return { text: w ? w.fail : "Verified", cls: w ? "bad" : "yes" };
+    if (status === "pass") return { text: w ? w.pass : "Verified", cls: "yes" };
+    return { text: "Not verified", cls: "no" };
+  }
   function topRow(c) {
     const url = safeUrl(c.source_url);
     const yes = c.status === "pass" || c.status === "fail";
+    const chip = chipFor(c.id, c.status);
     return `<li class="check">
-      <span class="dot ${yes ? "pass" : "unknown"}" aria-hidden="true">${yes ? "✓" : "–"}</span>
+      <span class="dot ${yes ? (chip.cls === "bad" ? "fail" : "pass") : "unknown"}" aria-hidden="true">${yes ? (chip.cls === "bad" ? "✕" : "✓") : "–"}</span>
       <div class="body">
-        <div class="name">${esc(c.label)} <span class="vchip ${yes ? "yes" : "no"}">${yes ? "Verified" : "Not verified"}</span></div>
+        <div class="name">${esc(c.label)} <span class="vchip ${chip.cls}">${esc(chip.text)}</span></div>
         <div class="detail">${esc(yes ? c.detail : "No reliable public information found yet.")}${yes && (c.origin || url) ? `<div class="origin">${c.origin ? `From: ${esc(c.origin)}` : ""}${url ? ` · <a href="${esc(url)}" target="_blank" rel="noopener">Source</a>` : ""}</div>` : ""}</div>
       </div>
     </li>`;
@@ -541,9 +554,9 @@
           <p><b>${r.verified ? "Verified" : "Not verified"}</b> · ${r.knownCount} of ${r.applicableCount} items found. A wine is Verified when at least ${VERIFIED_MIN} are found.</p>
           <ul class="std-list">
             ${r.std.map((x) => `<li class="std ${x.state}">
-              <div class="std__top"><span class="std__mark">${x.state === "unverified" ? "–" : "✓"}</span>
+              <div class="std__top"><span class="std__mark">${x.state === "unverified" ? "–" : x.state === "fail" && STATUS_WORDS[x.id] ? "✕" : "✓"}</span>
                 <span class="std__name">${esc(x.name)}</span>
-                <span class="vchip ${x.state === "unverified" ? "no" : "yes"}">${x.state === "unverified" ? "Not verified" : "Verified"}</span></div>
+                <span class="vchip ${chipFor(x.id, x.state === "unverified" ? "unknown" : x.state).cls}">${esc(chipFor(x.id, x.state === "unverified" ? "unknown" : x.state).text)}</span></div>
               ${x.basis ? `<div class="std__basis">${esc(x.basis)}${x.origin ? ` · ${esc(x.origin)}` : ""}${safeUrl(x.url) ? ` · <a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener">Source</a>` : ""}</div>` : ""}
               <div class="std__rule">${esc(x.rule)}</div>
             </li>`).join("")}
