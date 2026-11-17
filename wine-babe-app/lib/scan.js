@@ -246,7 +246,7 @@ Then find the winery's official website and this wine's product page on it, with
 A name without a vintage is fine: identify the wine and leave vintage "" (non vintage or latest).
 No producer given (e.g. "Pinot Noir Rosé Single Fermentation"): use your web search on the exact name to find which winery makes it. If the results point to one producer's wine, identify it with that producer. If several fit, pick the most popular one and say so in note. Watch for different wineries sharing a family name (e.g. Ciccio Zaccagnini in Abruzzo makes the "Zeta" line; Fratelli Zaccagnini in Marche makes Rosso Piceno): match the wine line and appellation to the right producer and its own website (Ciccio Zaccagnini is cantinazaccagnini.it, Fratelli Zaccagnini is zaccagnini.it), and say in note if the name mixes them. winery_website must belong to the producer you named.
 From a label photo, also list in label_marks every certification logo, code and claim you can see: EU organic leaf (Euroleaf), AB Agriculture Biologique, Demeter, codes like IT-BIO-006 or FR-BIO-01, and words like Sans OGM, Senza OGM, Privo di OGM, Non OGM, Vino biologico, Uve biologiche, Da agricoltura biologica, Vin biologique. If the barcode is visible, put its printed digits in ean. Say whether a QR code is visible (qr_visible) and where (qr_box, fractions of the photo). Read any nutrition printed on the label into label_nutrition exactly: EU labels show energy per 100 ml (e.g. "E (100 ml) = 357 kJ / 85 kcal"); copy the printed text into printed_text, kcal per 100 ml into energy_kcal_100ml (kJ / 4.184 if only kJ), and sugars or carbohydrates per 100 ml only if printed. Never estimate these. With text input only, label_marks is [] and ean is "".
-There may be two photos: the front label and the back label of the same bottle. Read both. In label_claims, copy what the label itself prints: alcohol (ABV %), calories per serving (US labels give it per 5 oz serving; use it as calories_per_5oz when the serving is 5 oz or not stated; convert per 100 ml x 1.4787), sugar per 5 oz in grams (sugar_under_1g true for "<1g sugar", "less than 1 g sugar", "zero sugar"), carbs per 5 oz, and every claim printed (vegan, gluten free, sustainably farmed / sustainable, organic, non GMO, hand harvested or manual harvest (the same claim, flag it as hand harvested), no added sugar, no added flavors, and the rest of the list). printed_text: the claim line(s) word for word. bottled_by: the "Produced / Vinted / Bottled / Imported by" line as printed. barcode: the digits under the barcode. Only what is printed on this bottle; nothing from memory or the web. With text input only, label_claims is all null, false and empty.
+There may be two photos: the front label and the back label of the same bottle. Read both. In label_claims, copy what the label itself prints ("Made with organic grapes" and "Organic" count as the organic claim): alcohol (ABV %), calories per serving (US labels give it per 5 oz serving; use it as calories_per_5oz when the serving is 5 oz or not stated; convert per 100 ml x 1.4787), sugar per 5 oz in grams (sugar_under_1g true for "<1g sugar", "less than 1 g sugar", "zero sugar"), carbs per 5 oz, and every claim printed (vegan, gluten free, sustainably farmed / sustainable, organic, non GMO, hand harvested or manual harvest (the same claim, flag it as hand harvested), no added sugar, no added flavors, and the rest of the list). printed_text: the claim line(s) word for word. bottled_by: the "Produced / Vinted / Bottled / Imported by" line as printed. barcode: the digits under the barcode. Only what is printed on this bottle; nothing from memory or the web. With text input only, label_claims is all null, false and empty.
 Never ask for a photo or more details. Always give your best guess for anything that looks like a wine (even just a grape or style, e.g. "Pinot Grigio"): fill what you can and leave the rest "". Only set identified false when the input is clearly not a wine at all (a person, a scene, a different product), and explain in note. Unknown text fields are "".`;
 
 const PDF_URLS_SCHEMA = {
@@ -1046,6 +1046,17 @@ function veganByColor(quote, w) {
 // Hand harvesting in its many wordings (manual harvest is the same thing).
 const HAND_HARVEST_RE = /hand[\s-]*(harvest\w*|pick\w*|pick(ed)? by hand|select\w*)|harvest\w* by hand|picked by hand|manual(ly)?[\s-]+(\w+[\s-]+){0,2}?(harvest\w*|pick\w*)|manual(ly)?(harvest\w*|pick\w*)|harvest\w*:?\s*(\w+\s){0,2}manual(ly)?|harvested manually|vendanges? manuelles?|vendang\w* (à|a) la main|vendemmia (manuale|a mano)|raccolta (manuale|a mano)|vendemmiat\w* a mano|cosecha manual|vendimia manual|handlese|handgelesen|colheita manual/i;
 
+// "Made with organic grapes" and similar organic wording on a label or page.
+const LABEL_ORGANIC_RE = /made with (?:100% )?(?:certified )?organic grapes|(?:100% )?organic grapes|organic wine|usda organic|certified organic|vin biologique|vino biologico|vino da uve biologiche/i;
+// A winery's vegan answer that covers only its wines made with organic grapes
+// ("All Bonterra wines made with organic grapes are vegan friendly"):
+// vegan for a wine that is made with organic grapes.
+const VEGAN_IF_ORGANIC = /\b(?:all|every|any|our)\b[^.]{0,80}?\bmade with (?:100% )?(?:certified )?organic grapes\b[^.]{0,80}?\bvegan/i;
+function veganByOrganic(quote, organic) {
+  const q = String(quote || "").replace(/[\u2010-\u2015]/g, "-");
+  return organic && VEGAN_IF_ORGANIC.test(q) ? { status: "pass" } : null;
+}
+
 const BARNIVORE_FIND_SYSTEM = `Find the producer's company page on barnivore.com, fast. Run exactly one web search: barnivore <producer>. Return the barnivore.com page url for that producer (paths like /wine/1234/name or /products/1234-name), or "" if there is none.`;
 
 async function readBarnivore(url) {
@@ -1716,7 +1727,7 @@ const WINERY_STATEMENTS = [
 
 // Bump when the research improves: wines saved by an older revision are
 // researched again the next time they are scanned (and merged into the entry).
-const BRAIN_REV = 5;
+const BRAIN_REV = 6;
 const brainKey = (w) => cacheKey(w).replace(/^[^_]+__/, "brain__");
 const isKnown = (c) => c && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail");
 const topKnown = (r) => ALL_ITEMS.filter((i) => i.top).filter((i) => (r?.checks || []).some((c) => c.id === i.id && isKnown(c))).length;
@@ -2460,7 +2471,14 @@ This run follows what is printed on the bottle: the barcode number and the compa
     best.vegan = { id: "vegan", status: barnivore.status, evidence: "winery", scope: "producer", as_of: barnivore.as_of, detail, source_url: barnivore.url };
     // Replies that depend on the wine's color ("Only our red wines are
     // vegan") are judged against this wine's color.
-    const byColor = veganByColor(barnivore.quote || "", wine);
+    const orgNow = (best.organic?.status === "pass" && ["winery", "certified", "lab"].includes(best.organic.evidence) && best.organic.scope === "this_wine")
+      || LABEL_ORGANIC_RE.test(String(id.label_claims?.printed_text || "")) || (id.label_claims?.claims || []).includes("organic");
+    const byOrganic = veganByOrganic(barnivore.quote || "", orgNow);
+    if (byOrganic) {
+      best.vegan = { ...best.vegan, status: "pass", scope: "this_wine", detail: `${detail} This wine is made with organic grapes, so it is vegan by the winery's answer.` };
+      diag.push({ name: "vegan-by-organic", outcome: "made with organic grapes: pass" });
+    }
+    const byColor = byOrganic ? null : veganByColor(barnivore.quote || "", wine);
     if (byColor) {
       best.vegan = { ...best.vegan, status: byColor.status, scope: "this_wine", detail: `${detail} This is a ${byColor.color} wine, so it ${byColor.status === "pass" ? "is vegan" : "is not vegan"} by the winery's answer.` };
       diag.push({ name: "vegan-by-color", outcome: `${byColor.color}: ${byColor.status}` });
@@ -3023,6 +3041,20 @@ function applyLabelClaims(result, lc, image, src = { name: "Bottle label", url: 
   for (const claim of lc.claims || []) {
     const id = LABEL_CLAIM_MAP[claim];
     if (id) put(id, "pass", `${W} says "${CLAIM_TEXT[claim] || claim}"${quote}.`);
+  }
+  // "Made with organic grapes" printed on the label is an organic claim, even
+  // when it was not tagged as one.
+  const orgWords = String(lc.printed_text || "").match(LABEL_ORGANIC_RE);
+  if (orgWords) put("organic", "pass", `${W} says "${orgWords[0]}"${quote}.`);
+  // A winery vegan answer that covers its wines made with organic grapes
+  // applies to a bottle that says so.
+  {
+    const vg = out.checks.find((c) => c.id === "vegan");
+    const org = out.checks.some((c) => c.id === "organic" && c.status === "pass");
+    if (vg && vg.status === "fail" && /barnivore/i.test(`${vg.origin || ""} ${vg.detail || ""}`) && veganByOrganic(vg.detail, org)) {
+      Object.assign(vg, { status: "pass", scope: "this_wine", detail: `${vg.detail} This bottle is made with organic grapes, so it is vegan by the winery's answer.` });
+      used.push("vegan");
+    }
   }
   // Manual harvest on the label is the same as hand harvested, whatever the
   // model flagged.

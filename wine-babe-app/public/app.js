@@ -264,7 +264,7 @@
         else { c = sus || org; state = "unverified"; basis = "No sustainable or organic farming information found."; }
       } else if (s.id === "certified_organic") {
         c = byId.organic;
-        const certified = isVerified(c) && c.status === "pass" && (c.evidence === "certified" || /certif|usda|euroleaf|organic leaf|\bAB\b|agriculture biologique|ccof|ecocert|demeter|[A-Z]{2}-BIO-\d|organic seal|control body/i.test(`${c.detail} ${c.origin || ""}`));
+        const certified = isVerified(c) && c.status === "pass" && (c.evidence === "certified" || /certif|usda|made with (100% )?organic grapes|euroleaf|organic leaf|\bAB\b|agriculture biologique|ccof|ecocert|demeter|[A-Z]{2}-BIO-\d|organic seal|control body/i.test(`${c.detail} ${c.origin || ""}`));
         state = certified ? "pass" : isVerified(c) && c.status === "fail" ? "fail" : "unverified";
         basis = certified ? c.detail : isVerified(c) && c.status === "pass" ? "Organic practices documented, but no organic certificate found." : c?.detail || "No organic certification found.";
       } else if (s.id === "sugar_under_1g" && isVerified(c) && (n.sugar_5oz != null || n.sugar_below_5oz != null)) {
