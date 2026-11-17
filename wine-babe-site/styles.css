@@ -364,16 +364,73 @@ footer {
   padding: 1rem 1.25rem 4rem;
 }
 
+.gifting .section-head {
+  margin-bottom: 2rem;
+}
+
 .gifting__bag {
-  margin: 0 auto;
+  margin: 0 auto 2.75rem;
   width: min(28rem, 100%);
 }
 
-.gifting__bag img {
+.gifting__bag img,
+.gift-grid img {
   width: 100%;
   height: auto;
-  aspect-ratio: 1086 / 1448;
   object-fit: contain;
+}
+
+.gifting__bag img {
+  aspect-ratio: 1086 / 1448;
+}
+
+.gift-grid {
+  width: min(68rem, 100%);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2.75rem 1.5rem;
+}
+
+.gift-grid figure {
+  margin: 0;
+}
+
+.gift__views {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.gifting__bag figcaption,
+.gift-grid figcaption {
+  margin: 0.8rem 0 0;
+  text-align: center;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: clamp(1.25rem, 2.4vw, 1.65rem);
+  line-height: 1.2;
+}
+
+@media (min-width: 800px) {
+  .gift-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .gift--wide {
+    grid-column: 1 / -1;
+  }
+
+  .gift--wide > img {
+    width: min(52rem, 100%);
+    margin-inline: auto;
+  }
+
+  .gift__views {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+    width: min(52rem, 100%);
+    margin-inline: auto;
+  }
 }
 
 .club {

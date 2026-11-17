@@ -227,6 +227,7 @@ const RULES = `Rules for each check:
 - detail: at most 15 words for a shopper, with the number or quoted wording when there is one.
 - source_url: the page that supports it, or "".
 - Manual harvest is the same as hand harvested: "manual harvest", "harvest: manual", "harvested manually", "hand picked", "vendemmia manuale", "vendange manuelle" all pass hand_harvested.
+- A source that states the opposite is a verified negative: status "fail" with the quoted wording in detail, never "pass". E.g. Barnivore "Not Vegan" or "not vegan" is vegan "fail"; "we are not certified organic" with no documented organic farming is organic "fail" (if organic farming is documented, organic "pass" and the detail says "not certified organic").
 - Never pass an item because something is not mentioned: absence is not evidence. "No added sugar", "No artificial flavors" and similar pass only when the producer states it or an ingredient list declared complete shows it.
 - Return one check for every id listed. Be fast: stop as soon as you have the answers; do not research beyond your listed sources.`;
 
@@ -1104,10 +1105,20 @@ function findMarks(text) {
     const m = t.match(re);
     return m ? m[0].replace(/\s+/g, " ").trim() : "";
   };
+  // An organic phrase right after a negation ("we are not certified
+  // organic", "non certifié bio") is a verified negative, not an organic claim.
+  const affirmed = (re) => {
+    const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
+    for (const m of t.matchAll(g)) {
+      const before = t.slice(Math.max(0, m.index - 30), m.index);
+      if (!/\b(not|no|non|never|nor|isn'?t|aren'?t|without|pas|senza|sin|kein\w*)\b[^.;]{0,25}$/i.test(before)) return m[0].replace(/\s+/g, " ").trim();
+    }
+    return "";
+  };
   const codes = [...new Set([...t.matchAll(CONTROL_CODE_RE)].map((m) => `${m[1]}-${m[2]}-${m[3]}`.toUpperCase()))];
   return {
     nonGmo: snippet(NON_GMO_RE),
-    organic: snippet(ORGANIC_RE),
+    organic: affirmed(ORGANIC_RE),
     bioWord: snippet(/\b(bio|biologico|biologique|organic)\b/i),
     organicLogo: snippet(ORGANIC_LOGO_RE),
     codes,

@@ -476,6 +476,7 @@ button.ring { border: 0; background: none; padding: 0; cursor: pointer; }
 .vchip.yes { background: var(--pass-bg); color: var(--pass); }
 .vchip.no { background: var(--unk-bg); color: var(--unk); }
 .vchip.bad { background: var(--fail-bg); color: var(--fail); }
+.vchip.neg { background: var(--fail-bg); color: var(--fail); }
 /* The "N of 11 items found" link under the verdict (shares the info button's behavior, not its round look). */
 .score .verified-count.info-btn { display: block; position: static; width: auto; height: auto; margin: 0.2rem auto 0; padding: 0.3rem 0.6rem; border: 0; border-radius: 8px; background: none; font: inherit; font-style: normal; font-size: 0.9rem; font-weight: 400; color: var(--ink); text-align: center; line-height: 1.4; }
 .score .verified-count b { font-weight: 600; font-style: normal; }
