@@ -19,6 +19,10 @@
 </head>
 <body>
   <header class="top">
+    <nav class="top__links" aria-label="Help and account">
+      <button type="button" data-open="feedback">Share feedback</button>
+      <button type="button" id="acctBtn" data-open="account">Sign in</button>
+    </nav>
     <button class="top__home" id="homeBtn" aria-label="Wine Babe home">
       <img src="/images/logo-small.png" alt="Wine Babe" width="700" height="161" />
     </button>
@@ -41,6 +45,7 @@
       <input id="photoLib" type="file" accept="image/*" hidden />
       <p class="hint">Point at the front label. Good light helps.</p>
       <label class="upload-link" for="photoLib">Or upload a photo of the label</label>
+      <p id="freeNote" class="free-note" hidden></p>
 
       <form id="searchForm" class="search" autocomplete="off">
         <input id="query" type="search" placeholder="Or type brand + wine name" aria-label="Wine name" />
@@ -69,9 +74,11 @@
     <section id="result" class="screen" aria-label="Result"></section>
   </main>
   <p id="appVersion" class="app-version"></p>
+  <p class="app-links"><a href="/privacy">Privacy</a> · <a href="/support">Support</a></p>
 
   <script src="/version.js"></script>
   <script src="/checklist.js"></script>
+  <script src="/account.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

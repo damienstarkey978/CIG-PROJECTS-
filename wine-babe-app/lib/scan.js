@@ -13,6 +13,11 @@
 // Used by server.js (Fly / local) and the Netlify functions.
 
 const { CHECKLIST, ALL_ITEMS, EVIDENCE } = require("../public/checklist.js");
+const { AsyncLocalStorage } = require("async_hooks");
+const { createUsage, addUsage, summarizeUsage } = require("./cost.js");
+
+// Collects token and web search usage for the scan running in this async context.
+const usageScope = new AsyncLocalStorage();
 
 // Haiku 5.5 is the fastest model and every step is a simple job. If a Haiku
 // call errors, that step retries once on Sonnet 5.5.
@@ -1617,7 +1622,10 @@ async function runAgent({ name, system, content, schema, tools = [], effort = "l
         if (block.input.url) send({ type: "fetch", text: block.input.url });
       }
     });
-    return stream.finalMessage();
+    return stream.finalMessage().then((msg) => {
+      addUsage(usageScope.getStore(), msg);
+      return msg;
+    });
   };
   const parse = (msg) => {
     if (!msg) { note("no message"); return null; }
@@ -1789,7 +1797,7 @@ function mergeBrain(fresh, old) {
 
 LABEL_READ_SCHEMA.properties.label_claims = IDENTIFY_SCHEMA.properties.label_claims;
 
-async function runScan({ image, image2, mediaType, query, fresh }, send, cache) {
+async function runScanInner({ image, image2, mediaType, query, fresh }, send, cache) {
   // QR code on the label (usually the EU e-label): read it from the photos
   // (the back label first, where it usually is).
   let qrRaw = (image2 ? await decodeQr(image2) : "") || (image ? await decodeQr(image) : "");
@@ -3150,6 +3158,14 @@ async function runDemo(send) {
     await new Promise((r) => setTimeout(r, 700));
   }
   return demoResult();
+}
+
+// Runs a scan and attaches what it cost (tokens, web searches, dollars) as result.cost.
+async function runScan(input, send, cache) {
+  const usage = createUsage();
+  const result = await usageScope.run(usage, () => runScanInner(input, send, cache));
+  if (result && typeof result === "object") result.cost = summarizeUsage(usage);
+  return result;
 }
 
 module.exports = { runScan, runDemo, HAS_KEY, HAS_UNLOCKER, mergeBrain, brainKey };

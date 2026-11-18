@@ -1,0 +1,110 @@
+name: Wine Babe iPhone app (TestFlight)
+
+# Builds the Wine Babe Scanner phone app shell (wine-babe-app/mobile, Capacitor)
+# for iPhone and uploads it to TestFlight. Run by hand (Actions tab).
+# Repository secrets it needs:
+#   APPLE_TEAM_ID            10 character team id (developer.apple.com > Membership)
+#   ASC_KEY_ID               App Store Connect API key id
+#   ASC_ISSUER_ID            App Store Connect API issuer id
+#   ASC_KEY_P8               contents of the AuthKey_XXXX.p8 file
+# Same Apple Developer team as the WCI OS app (individual account).
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "Build number (must go up every upload)"
+        required: true
+      compile_only:
+        description: "Compile without signing or uploading (works before the Apple account is active)"
+        type: boolean
+        default: false
+
+jobs:
+  compile:
+    name: Compile check (no signing)
+    if: ${{ inputs.compile_only }}
+    runs-on: macos-26
+    defaults:
+      run:
+        working-directory: wine-babe-app/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode version (App Store needs the iOS 26 SDK, Xcode 26+)
+        run: xcodebuild -version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: wine-babe-app/mobile/package-lock.json
+      - run: npm ci
+      - run: npx cap sync ios
+      - name: Build for device without signing
+        working-directory: wine-babe-app/mobile/ios/App
+        run: |
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build | tail -40
+
+
+  ios:
+    name: Build and upload to TestFlight
+    if: ${{ !inputs.compile_only }}
+    runs-on: macos-26
+    defaults:
+      run:
+        working-directory: wine-babe-app/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode version (App Store needs the iOS 26 SDK, Xcode 26+)
+        run: xcodebuild -version
+
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: wine-babe-app/mobile/package-lock.json
+
+      - run: npm ci
+      - run: npx cap sync ios
+
+      - name: Write App Store Connect key
+        run: |
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey.p8"
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+
+      - name: Archive
+        working-directory: wine-babe-app/mobile/ios/App
+        run: |
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey.p8" \
+            -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
+            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+            CODE_SIGN_STYLE=Automatic \
+            CURRENT_PROJECT_VERSION="${{ inputs.build_number }}" \
+            archive
+
+      - name: Upload to TestFlight
+        working-directory: wine-babe-app/mobile/ios/App
+        run: |
+          cat > "$RUNNER_TEMP/export.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>${{ secrets.APPLE_TEAM_ID }}</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey.p8" \
+            -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}"

@@ -88,9 +88,12 @@ button { width: 100%; margin-top: 22px; padding: 14px; border: 0; border-radius:
 </form></body></html>`;
 }
 
+const isPublic = (env) => String(env.WB_PUBLIC ?? "").trim() === "true";
+export const isAdminPath = (p) => p === "/admin" || p.startsWith("/admin/") || p.startsWith("/api/admin/");
+
 // Shared request handler. Returns a Response to send, or null to let the
 // request through.
-export async function gate(req, secret) {
+export async function gate(req, secret, env = {}) {
   const url = new URL(req.url);
   const p = url.pathname;
   const html = (body, status = 200, extra = {}) => new Response(body, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...extra } });
@@ -98,6 +101,10 @@ export async function gate(req, secret) {
 
   // The login page needs its logo before sign in.
   if (p === "/images/logo-small.png") return null;
+  // Privacy and support pages are public (the App Store links to them).
+  // Privacy, support and the feedback form are public (the App Store links
+  // to them); feedback is rate limited per internet address.
+  if (["/privacy", "/privacy.html", "/support", "/support.html", "/api/feedback"].includes(p)) return null;
   if (p === "/logout") return new Response(null, { status: 302, headers: { Location: "/login", "Set-Cookie": clearCookie() } });
   if (p === "/login") {
     if (req.method === "POST") {
@@ -110,6 +117,10 @@ export async function gate(req, secret) {
     return html(loginPage("", safeNext(url.searchParams.get("next"))));
   }
   if (await sessionUser(req.headers.get("cookie"), secret)) return null;
+  // Public mode (WB_PUBLIC=true, needed for the App Store): anyone can use
+  // the app, with free scan limits. Only the team pages under /admin still
+  // need the password. Unset, the whole site stays behind the password.
+  if (isPublic(env) && !isAdminPath(p)) return null;
   if (p.startsWith("/api/")) return Response.json({ error: "Please sign in again." }, { status: 401 });
   return new Response(null, { status: 302, headers: { Location: `/login?next=${encodeURIComponent(p + url.search)}`, "Cache-Control": "no-store" } });
 }

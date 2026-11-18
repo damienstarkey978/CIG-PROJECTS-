@@ -1,0 +1,15 @@
+{
+  "appId": "com.winebabescanner.app",
+  "appName": "Wine Babe",
+  "webDir": "www",
+  "server": {
+    "url": "https://winebabescanner.com",
+    "cleartext": false,
+    "errorPath": "offline.html",
+    "allowNavigation": ["winebabescanner.com", "www.winebabescanner.com"]
+  },
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#f3ebe3"
+  }
+}

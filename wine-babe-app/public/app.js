@@ -90,7 +90,13 @@
       });
       if (res.status === 401) { location.href = "/login"; return; }
       const start = await res.json().catch(() => ({}));
+      if (start.needAccount && window.WB_ACCOUNT) {
+        goHome();
+        window.WB_ACCOUNT.needAccount(start.error);
+        return;
+      }
       if (!res.ok || !start.id) throw new Error(start.error || "The scanner is not reachable right now.");
+      window.WB_ACCOUNT?.setAllowance(start.allowance);
 
       // Poll for progress until the job is done (under a minute, cap at 3).
       let seen = 0, misses = 0, job = null;

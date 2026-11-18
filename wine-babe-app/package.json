@@ -4,7 +4,8 @@
   "description": "Wine Babe bottle scanner",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",

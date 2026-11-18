@@ -1,9 +1,9 @@
-// Password gate in front of every page and API route.
+// Password gate. In public mode only /admin pages need the team password.
 import { gate, renewCookie } from "../../lib/auth.mjs";
 
 export default async (req, context) => {
   const secret = Netlify.env.get("AUTH_SECRET");
-  const res = await gate(req, secret);
+  const res = await gate(req, secret, { WB_PUBLIC: Netlify.env.get("WB_PUBLIC") });
   if (res) return res;
   const page = await context.next();
   const cookie = await renewCookie(req, secret);

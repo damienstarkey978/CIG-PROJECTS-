@@ -1,0 +1,16 @@
+{
+  "name": "wine-babe-mobile",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Wine Babe Scanner iPhone app: a native shell around winebabescanner.com.",
+  "scripts": {
+    "sync": "cap sync"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.6.2",
+    "@capacitor/ios": "8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.2"
+  }
+}

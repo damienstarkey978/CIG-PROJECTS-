@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Support · Wine Babe Scanner</title>
+  <link rel="icon" href="/images/heart.png" type="image/png" />
+  <style>
+    body { margin: 0; padding: 1.5rem 1rem 3rem; background: #f3ebe3; color: #141210; font: 16px/1.6 system-ui, -apple-system, sans-serif; }
+    main { max-width: 42rem; margin: 0 auto; }
+    h1 { font-size: 1.8rem; margin: 0 0 0.25rem; }
+    h2 { font-size: 1.15rem; margin: 1.8rem 0 0.4rem; }
+    a { color: #7a2e3b; }
+    form { display: grid; gap: 0.8rem; margin-top: 1rem; padding: 1rem; border-radius: 16px; background: #fffaf6; border: 1px solid #e8ddd3; }
+    label { display: grid; gap: 0.3rem; font-size: 0.9rem; font-weight: 600; }
+    input, textarea, select { font: inherit; font-size: 16px; padding: 0.7rem; border: 1px solid #e8ddd3; border-radius: 10px; background: #fff; }
+    button { font: inherit; padding: 0.85rem; border: 0; border-radius: 999px; background: #141210; color: #fff; font-weight: 600; }
+    .hp { position: absolute; left: -9999px; }
+    #msg { margin: 0; }
+    .ok { color: #3f7d58; } .bad { color: #b04a4a; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Wine Babe Scanner support</h1>
+  <p>Need help, found a bug, or have an idea? Send us a note below. Add your email if you'd like a reply.</p>
+
+  <form id="f" novalidate>
+    <label>What is it about?
+      <select name="type"><option value="bug">Something isn't working</option><option value="idea">An idea</option><option value="other" selected>Something else</option></select>
+    </label>
+    <label>Message<textarea name="text" rows="6" maxlength="4000" required></textarea></label>
+    <label>Your email (optional)<input name="email" type="email" autocomplete="email" /></label>
+    <label class="hp" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off" /></label>
+    <p id="msg" role="status"></p>
+    <button type="submit">Send</button>
+  </form>
+
+  <h2>Common questions</h2>
+  <p><strong>How many free scans do I get?</strong> Five scans without an account. After that, a free account (name and email) keeps you scanning.</p>
+  <p><strong>How do I sign in on a new phone?</strong> Tap Sign in at the top of the app and enter your email. We'll email you a 6 digit code.</p>
+  <p><strong>How do I delete my account?</strong> In the app, tap Account at the top, then Delete my account.</p>
+  <p><strong>Privacy:</strong> see our <a href="/privacy">privacy policy</a>.</p>
+</main>
+<script>
+  const f = document.getElementById("f"), msg = document.getElementById("msg");
+  f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const body = Object.fromEntries(new FormData(f));
+    body.platform = "Support page";
+    body.screen = "support";
+    f.querySelector("button").disabled = true;
+    try {
+      const res = await fetch("/api/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "We couldn't send that. Please try again.");
+      f.reset();
+      msg.className = "ok"; msg.textContent = "Thanks! We got your message.";
+    } catch (e) {
+      msg.className = "bad"; msg.textContent = e.message;
+    }
+    f.querySelector("button").disabled = false;
+  };
+</script>
+</body>
+</html>

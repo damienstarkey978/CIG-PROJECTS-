@@ -66,6 +66,7 @@ function handleStatus(res, id) {
 function serveStatic(req, res) {
   let p = decodeURIComponent(new URL(req.url, "http://x").pathname);
   if (p === "/") p = "/index.html";
+  if (p === "/privacy" || p === "/support") p += ".html";
   const file = path.normalize(path.join(PUBLIC, p));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403).end(); return; }
   fs.readFile(file, (err, buf) => {
@@ -88,11 +89,22 @@ http
     const { gate } = await import("./lib/auth.mjs");
     const isLogin = req.url.split("?")[0] === "/login";
     const body = isLogin && req.method === "POST" ? await readBody(req) : undefined;
-    const r = await gate(new Request(`http://${req.headers.host || "localhost"}${req.url}`, { method: req.method, headers: req.headers, body }), process.env.AUTH_SECRET);
+    const r = await gate(new Request(`http://${req.headers.host || "localhost"}${req.url}`, { method: req.method, headers: req.headers, body }), process.env.AUTH_SECRET, { WB_PUBLIC: process.env.WB_PUBLIC });
     if (r) {
       // Local http: drop Secure so the cookie works on localhost.
       const headers = Object.fromEntries([...r.headers].map(([k, v]) => [k, k === "set-cookie" ? v.replace("; Secure", "") : v]));
       return void res.writeHead(r.status, headers).end(Buffer.from(await r.arrayBuffer()));
+    }
+    // Accounts, feedback and the team admin page run the Netlify functions
+    // themselves (in-memory storage locally). Local scans aren't counted.
+    const fn = req.url.startsWith("/api/account") ? "account" : req.url.startsWith("/api/feedback") ? "feedback" : /^\/admin(\/|$|\?)/.test(req.url) ? "admin" : null;
+    if (fn) {
+      const { default: handler } = await import(`./netlify/functions/${fn}.mjs`);
+      const raw = req.method === "POST" ? await readBody(req) : undefined;
+      const out = await handler(new Request(`http://${req.headers.host || "localhost"}${req.url}`, { method: req.method, headers: req.headers, body: raw }));
+      const headers = {};
+      out.headers.forEach((v, k) => { headers[k] = k === "set-cookie" ? out.headers.getSetCookie().map((c) => c.replace("; Secure", "")) : v; });
+      return void res.writeHead(out.status, headers).end(Buffer.from(await out.arrayBuffer()));
     }
     if (req.url === "/api/top-pours") {
       const tp = require("./lib/toppours.js");
