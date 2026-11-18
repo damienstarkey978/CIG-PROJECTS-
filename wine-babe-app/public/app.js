@@ -4,6 +4,15 @@
   const screens = { home: $("#home"), scanning: $("#scanning"), result: $("#result") };
   const HISTORY_KEY = "winebabe.history.v1";
   const SERVING_ML = 147.87; // 5 oz
+  // Scalloped seal for the Wine Babe Score: 18 bumps around a center circle.
+  const SCALLOP = (() => {
+    let c = "";
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2;
+      c += `<circle cx="${(60 + 50 * Math.cos(a)).toFixed(2)}" cy="${(60 + 50 * Math.sin(a)).toFixed(2)}" r="9.5" fill="url(#wbScallop)"/>`;
+    }
+    return `<g stroke="#e49bb0" stroke-width="1.6">${c}</g><circle cx="60" cy="60" r="51" fill="url(#wbScallop)"/><circle cx="60" cy="60" r="43" fill="none" stroke="#d98aa1" stroke-width="1.2" stroke-dasharray="2.5 3"/>`;
+  })();
 
   const esc = (s) =>
     String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -562,9 +571,18 @@
         <img class="score-watermark" src="/images/heart.png" alt="" aria-hidden="true" />
         <span class="spark s1" aria-hidden="true">✦</span><span class="spark s2" aria-hidden="true">♡</span><span class="spark s3" aria-hidden="true">✦</span><span class="spark s4" aria-hidden="true">♡</span>
         <div class="score-head">
-          <span class="score-title">Transparency Scanner<span class="score-slogan">Know what's in your glass</span></span>
+          <span class="score-title">Transparency Scanner<span class="score-slogan">Know What's in Your Glass</span></span>
           <button type="button" class="info-btn" aria-label="See the score breakdown" aria-expanded="false" aria-controls="scoreInfo">i</button>
         </div>
+        ${skinnySip ? `<div class="wb-score" role="img" aria-label="Wine Babe Score 100 out of 100. Skinny Sip Approved, 1 g of sugar or less per 5 oz.">
+          <span class="wb-score__spark p1" aria-hidden="true">✦</span><span class="wb-score__spark p2" aria-hidden="true">♡</span><span class="wb-score__spark p3" aria-hidden="true">✦</span><span class="wb-score__spark p4" aria-hidden="true">✦</span>
+          <div class="wb-score__seal" aria-hidden="true">
+            <svg viewBox="0 0 120 120" class="wb-score__scallop"><defs><radialGradient id="wbScallop" cx="50%" cy="35%" r="70%"><stop offset="0" stop-color="#fff6f8"/><stop offset="0.6" stop-color="#fbd6df"/><stop offset="1" stop-color="#f2b4c3"/></radialGradient></defs>${SCALLOP}</svg>
+            <div class="wb-score__face"><span class="wb-score__heart"><img src="/images/heart.png" alt="" /></span><span class="wb-score__num">100</span></div>
+          </div>
+          <div class="wb-score__ribbon" aria-hidden="true"><span>Wine Babe Score</span></div>
+          <div class="wb-score__why" aria-hidden="true"><b>Skinny Sip Approved</b> · 1 g of sugar or less per 5 oz</div>
+        </div>` : ""}
         <div class="score-divider" aria-hidden="true"><span></span><img src="/images/heart.png" alt="" /><span></span></div>
         <div class="score-info" id="scoreInfo" role="dialog" aria-label="Transparency Scanner breakdown" hidden>
           <p><b>${r.verified ? "Verified" : "Not verified"}</b> · ${r.knownCount} of ${r.applicableCount} items found. A wine is Verified when at least ${VERIFIED_MIN} are found.</p>
@@ -584,11 +602,6 @@
         <p class="verdict-sub">${r.verified
           ? `We found and verified ${r.knownCount} things about this wine.`
           : `We found ${r.knownCount === 0 ? "nothing" : r.knownCount === 1 ? "only 1 thing" : "only " + r.knownCount + " things"} about this wine. At least ${VERIFIED_MIN} are needed to verify it.`}</p>
-        ${skinnySip ? `<div class="skinny" role="status">
-          <span class="skinny__spark s1" aria-hidden="true">✦</span><span class="skinny__spark s2" aria-hidden="true">✦</span><span class="skinny__spark s3" aria-hidden="true">✦</span>
-          <div class="skinny__badge"><img class="vheart" src="/images/heart.png" alt="" aria-hidden="true" /><span>Skinny Sip Approved</span><img class="vheart" src="/images/heart.png" alt="" aria-hidden="true" /></div>
-          <div class="skinny__sub">1 g of sugar or less per 5 oz</div>
-        </div>` : ""}
         <button type="button" class="verified-count info-btn" aria-label="See what we looked for" aria-controls="scoreInfo">
           <b>${r.knownCount} of ${r.applicableCount}</b> items found
           <span class="tap-hint">Tap for the full list</span>
