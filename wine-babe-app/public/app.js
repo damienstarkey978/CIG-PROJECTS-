@@ -577,8 +577,9 @@
         ${skinnySip ? `<div class="wb-score" role="img" aria-label="Wine Babe Score 100 out of 100. Skinny Sip Approved, 1 g of sugar or less per 5 oz.">
           <span class="wb-score__spark p1" aria-hidden="true">✦</span><span class="wb-score__spark p2" aria-hidden="true">♡</span><span class="wb-score__spark p3" aria-hidden="true">✦</span><span class="wb-score__spark p4" aria-hidden="true">✦</span>
           <div class="wb-score__seal" aria-hidden="true">
-            <svg viewBox="0 0 120 120" class="wb-score__scallop"><defs><radialGradient id="wbScallop" cx="50%" cy="35%" r="70%"><stop offset="0" stop-color="#fff6f8"/><stop offset="0.6" stop-color="#fbd6df"/><stop offset="1" stop-color="#f2b4c3"/></radialGradient></defs>${SCALLOP}</svg>
-            <div class="wb-score__face"><span class="wb-score__heart"><img src="/images/heart.png" alt="" /></span><span class="wb-score__num">100</span></div>
+            <span class="wb-score__fill"></span>
+            <img class="wb-score__frame" src="/images/heart.png" alt="" />
+            <div class="wb-score__face"><span class="wb-score__num">100</span></div>
           </div>
           <div class="wb-score__ribbon" aria-hidden="true"><span>Wine Babe Score</span></div>
           <div class="wb-score__why" aria-hidden="true"><b>Skinny Sip Approved</b> · 1 g of sugar or less per 5 oz</div>

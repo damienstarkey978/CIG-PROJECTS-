@@ -598,3 +598,11 @@ a.btn { text-decoration: none; }
 .card.score .verdict-sub { font-size: 0.9rem; margin-bottom: 0.6rem; }
 .score .verified-count.info-btn { display: inline-block; margin: 0.2rem auto 0; padding: 0.5rem 1.1rem; border: 1px solid #f0c9d3; border-radius: 14px; background: rgba(255, 255, 255, 0.75); }
 .score .verified-count .tap-hint { display: block; margin-top: 0.1rem; font-size: 0.78rem; color: #a14a63; }
+
+/* The 100 sits inside the Wine Babe heart (no scalloped seal) */
+.wb-score__seal { width: 12rem; height: 10.6rem; filter: drop-shadow(0 10px 14px rgba(176, 70, 100, 0.22)); }
+.wb-score__fill { position: absolute; inset: 0; background: radial-gradient(circle at 50% 35%, #fff6f8, #fbd6df 70%); -webkit-mask: url(/images/heart.png) center / contain no-repeat; mask: url(/images/heart.png) center / contain no-repeat; }
+.wb-score__frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; animation: none; }
+.wb-score__seal .wb-score__face { padding-top: 1.5rem; }
+.wb-score__seal .wb-score__num { font-size: 3.2rem; margin-top: 0; }
+.wb-score__ribbon { margin-top: -0.9rem; }
