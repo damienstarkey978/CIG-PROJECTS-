@@ -10,6 +10,12 @@ name: Wine Babe iPhone app (TestFlight)
 # Same Apple Developer team as the WCI OS app (individual account).
 
 on:
+  # Pushing a tag like wine-babe-ios-2 also runs the TestFlight upload, with
+  # the run number as the build number. GitHub only offers "Run workflow" for
+  # a workflow on the default branch, which this one isn't on.
+  push:
+    tags:
+      - "wine-babe-ios-*"
   workflow_dispatch:
     inputs:
       build_number:
@@ -87,7 +93,7 @@ jobs:
             -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
             DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
             CODE_SIGN_STYLE=Automatic \
-            CURRENT_PROJECT_VERSION="${{ inputs.build_number }}" \
+            CURRENT_PROJECT_VERSION="${{ inputs.build_number || github.run_number }}" \
             archive
 
       - name: Upload to TestFlight
