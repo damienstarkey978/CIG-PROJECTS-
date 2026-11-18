@@ -566,24 +566,26 @@
       </div>
 
       ${savedNote}
+      ${skinnySip ? `<div class="card wbs">
+        <div class="wbs__head"><span class="wbs__title">Wine Babe Score</span>
+          <button type="button" class="wbs__i" aria-label="What the Wine Babe Score means" aria-expanded="false">i</button></div>
+        <div class="wbs__row">
+          <div class="wbs__heart" role="img" aria-label="Wine Babe Score 100">
+            <span class="wb-score__fill"></span><img class="wb-score__frame" src="/images/heart.png" alt="" /><span class="wbs__num">100</span>
+          </div>
+          <span class="wbs__rule" aria-hidden="true"></span>
+          <div class="wbs__text">
+            <div class="wbs__approved"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" /><path d="m7.3 12.4 3.3 3.3 6.2-6.7" /></svg><span>Skinny Sip Approved</span></div>
+            <div class="wbs__pill">Verified &le; 1 g Sugar per 5 oz</div>
+          </div>
+        </div>
+        <p class="wbs__note" hidden>The Wine Babe Score is 100 when a reliable public source verifies 1 g of sugar or less per 5 oz serving.</p>
+      </div>` : ""}
       <div class="card score">
-        <img class="score-heart" src="/images/heart.png" alt="" aria-hidden="true" />
-        <img class="score-watermark" src="/images/heart.png" alt="" aria-hidden="true" />
-        <span class="spark s1" aria-hidden="true">✦</span><span class="spark s2" aria-hidden="true">♡</span><span class="spark s3" aria-hidden="true">✦</span><span class="spark s4" aria-hidden="true">♡</span>
         <div class="score-head">
           <span class="score-title">Transparency Scanner<span class="score-slogan">Know What's in Your Glass</span></span>
           <button type="button" class="info-btn" aria-label="See the score breakdown" aria-expanded="false" aria-controls="scoreInfo">i</button>
         </div>
-        ${skinnySip ? `<div class="wb-score" role="img" aria-label="Wine Babe Score 100 out of 100. Skinny Sip Approved, 1 g of sugar or less per 5 oz.">
-          <span class="wb-score__spark p1" aria-hidden="true">✦</span><span class="wb-score__spark p2" aria-hidden="true">♡</span><span class="wb-score__spark p3" aria-hidden="true">✦</span><span class="wb-score__spark p4" aria-hidden="true">✦</span>
-          <div class="wb-score__seal" aria-hidden="true">
-            <span class="wb-score__fill"></span>
-            <img class="wb-score__frame" src="/images/heart.png" alt="" />
-            <div class="wb-score__face"><span class="wb-score__num">100</span></div>
-          </div>
-          <div class="wb-score__ribbon" aria-hidden="true"><span>Wine Babe Score</span></div>
-          <div class="wb-score__why" aria-hidden="true"><b>Skinny Sip Approved</b> · 1 g of sugar or less per 5 oz</div>
-        </div>` : ""}
         <div class="score-divider" aria-hidden="true"><span></span><img src="/images/heart.png" alt="" /><span></span></div>
         <div class="score-info" id="scoreInfo" role="dialog" aria-label="Transparency Scanner breakdown" hidden>
           <p><b>${r.verified ? "Verified" : "Not verified"}</b> · ${r.knownCount} of ${r.applicableCount} items found. A wine is Verified when at least ${VERIFIED_MIN} are found.</p>
@@ -782,6 +784,14 @@
     } else if (ev.target.closest(".info-close") || !ev.target.closest(".score-info")) {
       scoreInfo(false);
     }
+  });
+  screens.result.addEventListener("click", (ev) => {
+    const b = ev.target.closest(".wbs__i");
+    if (!b) return;
+    const note = screens.result.querySelector(".wbs__note");
+    if (!note) return;
+    note.hidden = !note.hidden;
+    b.setAttribute("aria-expanded", String(!note.hidden));
   });
   document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") scoreInfo(false); });
 
