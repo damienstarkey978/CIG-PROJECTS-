@@ -599,11 +599,6 @@
           <p class="std__foot">Green means a reliable public source confirms the wine meets that item. Red means a reliable source confirms it does not. Gray "Not verified" means we couldn't find reliable information yet. Rescan to look for anything new.</p>
           <button type="button" class="info-close">Got it</button>
         </div>
-        <button type="button" class="verified-count info-btn vline-btn" aria-label="See what we looked for" aria-controls="scoreInfo">
-          <span class="vline ${r.verified ? "yes" : "no"}">${r.verified ? "&#10003; Verified" : "Not verified"}</span>
-          <span class="vline-sep">&middot;</span> <b>${r.knownCount} of ${r.applicableCount}</b> items found
-          <span class="tap-hint">Tap for the full list</span>
-        </button>
       </div>
 
       ${(() => {
