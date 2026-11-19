@@ -570,7 +570,7 @@
         <div class="wbs__head"><span class="wbs__title">Wine Babe Score</span>
           <button type="button" class="wbs__i" aria-label="What the Wine Babe Score means" aria-expanded="false">i</button></div>
         <div class="wbs__row">
-          <div class="wbs__heart" role="img" aria-label="Wine Babe Score 100"><span class="wb-score__fill"></span><img class="wb-score__frame" src="/images/heart.png" alt="" /><span class="wbs__num">100</span></div>
+          <div class="wbs__ring" role="img" aria-label="Wine Babe Score 100"><span class="wbs__num">100</span></div>
           <span class="wbs__rule" aria-hidden="true"></span>
           <div class="wbs__text">
             <div class="wbs__approved"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" /><path d="m7.3 12.4 3.3 3.3 6.2-6.7" /></svg><span>Skinny Sip Approved</span></div>
