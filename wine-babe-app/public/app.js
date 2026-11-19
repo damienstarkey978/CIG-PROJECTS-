@@ -570,9 +570,7 @@
         <div class="wbs__head"><span class="wbs__title">Wine Babe Score</span>
           <button type="button" class="wbs__i" aria-label="What the Wine Babe Score means" aria-expanded="false">i</button></div>
         <div class="wbs__row">
-          <div class="wbs__heart" role="img" aria-label="Wine Babe Score 100">
-            <span class="wb-score__fill"></span><img class="wb-score__frame" src="/images/heart.png" alt="" /><span class="wbs__num">100</span>
-          </div>
+          <div class="wbs__ring" role="img" aria-label="Wine Babe Score 100"><span class="wbs__num">100</span></div>
           <span class="wbs__rule" aria-hidden="true"></span>
           <div class="wbs__text">
             <div class="wbs__approved"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" /><path d="m7.3 12.4 3.3 3.3 6.2-6.7" /></svg><span>Skinny Sip Approved</span></div>
@@ -601,33 +599,28 @@
           <p class="std__foot">Green means a reliable public source confirms the wine meets that item. Red means a reliable source confirms it does not. Gray "Not verified" means we couldn't find reliable information yet. Rescan to look for anything new.</p>
           <button type="button" class="info-close">Got it</button>
         </div>
-        <div class="verdict-big ${r.verified ? "yes" : "no"}">${r.verified ? `<img class="vheart" src="/images/heart.png" alt="" aria-hidden="true" />Verified<img class="vheart" src="/images/heart.png" alt="" aria-hidden="true" />` : "Not verified"}</div>
-        <p class="verdict-sub">${r.verified
-          ? `We found and verified ${r.knownCount} things about this wine.`
-          : `We found ${r.knownCount === 0 ? "nothing" : r.knownCount === 1 ? "only 1 thing" : "only " + r.knownCount + " things"} about this wine. At least ${VERIFIED_MIN} are needed to verify it.`}</p>
-        <button type="button" class="verified-count info-btn" aria-label="See what we looked for" aria-controls="scoreInfo">
-          <b>${r.knownCount} of ${r.applicableCount}</b> items found
+        <button type="button" class="verified-count info-btn vline-btn" aria-label="See what we looked for" aria-controls="scoreInfo">
+          <span class="vline ${r.verified ? "yes" : "no"}">${r.verified ? "&#10003; Verified" : "Not verified"}</span>
+          <span class="vline-sep">&middot;</span> <b>${r.knownCount} of ${r.applicableCount}</b> items found
           <span class="tap-hint">Tap for the full list</span>
         </button>
       </div>
 
-      <div class="card sugar">
-        <div>
-          <div class="lbl">Sugar per 5 oz</div>
-          <div class="big">${sugar != null ? `${fmt(sugar, 1)}<small> g</small>` : n.sugar_below_5oz != null ? `&lt;${fmt(n.sugar_below_5oz, 1)}<small> g</small>` : "—"}</div>
-        </div>
-        <div>
-          <div class="verdict ${sugar == null ? (n.sugar_below_5oz != null && n.sugar_below_5oz <= 1.0001 ? "ok" : "") : Math.round(sugar * 100) / 100 <= 1 ? "ok" : "no"}">
-            ${sugar == null && n.sugar_below_5oz != null ? (n.sugar_below_5oz <= 1.0001 ? "1 g or less. Skinny sip approved." : `Under ${fmt(n.sugar_below_5oz, 1)} g per glass`) : sugar == null ? "Unverified" : typ.includes("sugar") ? (sugar < 1 ? "Likely under 1 g per glass" : "Likely over 1 g per glass") : Math.round(sugar * 100) / 100 <= 1 ? "1 g or less. Skinny sip approved." : "Over 1 g per glass"}
-          </div>
-          <div class="detail" style="font-size:.82rem;color:var(--muted)">
-            ${data.eu_disclosure?.sugar ? `${esc(data.eu_disclosure.sugar.original)} (${esc(data.eu_disclosure.sugar.kind)})` : n.residual_sugar_g_l != null ? `${fmt(n.residual_sugar_g_l, 1)} g/L residual sugar` : n.sugar_below_g_l != null ? `Under ${fmt(n.sugar_below_g_l, 1)} g/L residual sugar` : ""}
-            ${sugar == null && n.sugar_below_5oz == null ? (data.eu_disclosure?.applicable ? esc(sugarCheck?.detail || "Not yet verified — EU nutritional disclosure search completed.") : "The winery hasn't published a sugar figure we can verify.") : sugarCheck ? ` <span class="chip ${sugarCheck.evidence}">${EVIDENCE[sugarCheck.evidence].label}</span>` : ""}
-          </div>
-          ${sugarTiers}
-
-        </div>
-      </div>
+      ${(() => {
+        const sugarFound = sugarCheck && (sugarCheck.status === "pass" || sugarCheck.status === "fail") && sugarCheck.evidence !== "none";
+        const amount = sugar != null ? `${fmt(sugar, 1)} g per 5 oz`
+          : n.sugar_below_5oz != null ? `Under ${fmt(n.sugar_below_5oz, 1)} g per 5 oz`
+          : data.eu_disclosure?.sugar ? `${esc(data.eu_disclosure.sugar.original)} (${esc(data.eu_disclosure.sugar.kind)})`
+          : "No published figure";
+        const over = sugarFound && sugarCheck.status === "fail";
+        const pill = !sugarFound ? `<span class="sugarbar__pill no">Not verified</span>` : over ? `<span class="sugarbar__pill neg">&#10005; Over 1 g</span>` : `<span class="sugarbar__pill yes">&#10003; Verified</span>`;
+        const note = !sugarFound && data.eu_disclosure?.applicable ? `<div class="sugarbar__note">${esc(sugarCheck?.detail || "Not yet verified. EU nutritional disclosure search completed.")}</div>` : "";
+        return `<div class="card sugarbar">
+        <div class="sugarbar__lbl">Sugar per 5 oz</div>
+        <div class="sugarbar__mid"><div class="sugarbar__state">${sugarFound ? "Verified" : "Not verified"}</div><div class="sugarbar__amt">${amount}</div>${note}</div>
+        ${pill}
+      </div>`;
+      })()}
 
       ${euCard(data.eu_disclosure)}
 
