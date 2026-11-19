@@ -704,3 +704,19 @@ a.btn { text-decoration: none; }
 .card.sugarbar .sugarbar__state { font-family: var(--sans, inherit); font-size: 1.12rem; font-weight: 600; letter-spacing: 0; }
 .card.sugarbar .sugarbar__amt { font-size: 0.9rem; color: var(--muted); }
 .card.sugarbar .sugarbar__pill { font-size: 0.88rem; padding: 0.4rem 0.8rem; }
+
+/* ===== Final size pass against the screenshot ===== */
+.card.wbs { padding: 0.8rem 1.1rem 0.65rem; }
+.card.wbs .wbs__row { margin-top: 0.3rem; }
+.card.wbs .wbs__heart { width: 6.2rem; height: 5.6rem; }
+.card.wbs .wbs__pill { margin-top: 0.45rem; padding: 0.42rem 0.4rem; }
+
+.card.score { padding: 0.7rem 1rem 0.55rem; }
+.card.score .score-slogan { font-size: 2.6rem; line-height: 0.66; padding-bottom: 0.1rem; margin-top: 0.2rem; }
+.card.score .score-title { font-size: 0.74rem; }
+.card.score .score-divider { margin: 0.3rem auto 0; }
+
+.card.sugarbar { padding: 0.55rem 1rem; }
+.card.sugarbar .sugarbar__state { line-height: 1.15; }
+.card.sugarbar .sugarbar__amt { line-height: 1.2; margin-top: 0; }
+.card.sugarbar .sugarbar__lbl { line-height: 1.25; }
