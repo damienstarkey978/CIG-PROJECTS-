@@ -50,7 +50,8 @@ h1,h2{font-weight:600}h2{margin-top:28px}
 td,th{border-bottom:1px solid #eadfd8;padding:8px;text-align:left;vertical-align:top}.t{white-space:pre-wrap;min-width:240px}
 a{color:#7a2e3b}
 </style></head><body>
-<h1>Wine Babe admin</h1>
+<p style="margin:0 0 4px"><a href="/" style="display:inline-block;padding:10px 16px;border-radius:999px;background:#2b1d1f;color:#fff;text-decoration:none;font-weight:500">← Back to the App</a></p>
+<h1>Wine Babe Admin</h1>
 <h2>Scan costs, last 30 days</h2>
 <div class="cards">
 <div class="card"><b>${c.scans}</b>scans</div>
