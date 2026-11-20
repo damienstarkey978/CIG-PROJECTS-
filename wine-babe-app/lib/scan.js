@@ -25,6 +25,10 @@ const MODEL = process.env.WINE_BABE_MODEL || "claude-sonnet-5-5";
 // Steps that need judgment (naming the wine and its site, choosing sources)
 // run on Sonnet: in live tests Haiku often refused to name a wine from text.
 const SMART_MODEL = process.env.WINE_BABE_SMART_MODEL || "claude-sonnet-5-5";
+// The search and read lookups (the bulk of a scan's cost) run on the much
+// cheaper Haiku model; Sonnet stays for naming the wine and reading sheets.
+const LOOKUP_MODEL = process.env.WINE_BABE_LOOKUP_MODEL || "claude-haiku-5-5";
+const lookupModel = () => (usageScope.getStore()?.testSonnet ? SMART_MODEL : LOOKUP_MODEL);
 const BACKUP_MODEL = process.env.WINE_BABE_BACKUP_MODEL || "claude-sonnet-5-5";
 // Reading an attached tech sheet is simple extraction, so it uses the fastest model.
 const READ_MODEL = process.env.WINE_BABE_READ_MODEL || "claude-sonnet-5-5";
@@ -1799,7 +1803,7 @@ function mergeBrain(fresh, old) {
 
 LABEL_READ_SCHEMA.properties.label_claims = IDENTIFY_SCHEMA.properties.label_claims;
 
-async function runScanInner({ image, image2, mediaType, query, fresh }, send, cache) {
+async function runScanInner({ image, image2, mediaType, query, fresh, nobrain }, send, cache) {
   // QR code on the label (usually the EU e-label): read it from the photos
   // (the back label first, where it usually is).
   let qrRaw = (image2 ? await decodeQr(image2) : "") || (image ? await decodeQr(image) : "");
@@ -1869,7 +1873,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // in those cases the full research runs and is merged into it.
   const key = brainKey(wine);
   let prior = null;
-  if (cache && key.replace(/_/g, "")) {
+  if (cache && !nobrain && key.replace(/_/g, "")) {
     prior = await cache.get(key).catch(() => null);
     if (!prior?.result) {
       // Seed from the older per-version cache, so earlier scans are not lost.
@@ -1937,20 +1941,20 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   let sheetNumsSeen = null;
   // Started up front so it runs alongside everything else.
   const nutritionSearch = runAgent({ diag,
-    name: "nutrition-search", model: SMART_MODEL, system: NUTRITION_SEARCH_SYSTEM, schema: NUTRITION_SCHEMA, send, deadline: deadline - 4000,
+    name: "nutrition-search", model: lookupModel(), system: NUTRITION_SEARCH_SYSTEM, schema: NUTRITION_SCHEMA, send, deadline: deadline - 4000,
     content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. Search exactly: ${brandAndName(wine)} nutrition facts`),
     tools: webTools(2, 1),
   });
 
   const abvLookup = runAgent({ diag,
-    name: "abv-search", model: SMART_MODEL, system: ABV_SYSTEM, schema: ABV_SCHEMA, send, deadline: deadline - 4000,
+    name: "abv-search", model: lookupModel(), system: ABV_SYSTEM, schema: ABV_SCHEMA, send, deadline: deadline - 4000,
     content: ask(`Wine: ${wineLine(wine)}. Search exactly: ${brandAndName(wine)} ABV`),
     tools: webTools(1, 1),
   }).catch(() => null);
 
   const techLookup = async () => {
     const searched = runAgent({ diag,
-      name: "sheet-search", model: SMART_MODEL, system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline,
+      name: "sheet-search", model: lookupModel(), system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline,
       content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. Search exactly: ${brandAndName(wine)} tech specs`),
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
     });
@@ -2048,7 +2052,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       let host = "";
       try { host = new URL(site).hostname.replace(/^www\./, ""); } catch {}
       const retry = await runAgent({ diag,
-        name: "sheet-search-2", model: SMART_MODEL, system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline: deadline - 5000,
+        name: "sheet-search-2", model: lookupModel(), system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline: deadline - 5000,
         content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. A first search found nothing usable${searchSeen.length ? ` (already tried: ${searchSeen.join(", ")})` : ""}. Use different wording this time, for example "${wine.producer} ${wine.name} fact sheet pdf"${host ? ` or site:${host} pdf` : ""}.`),
         tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
       });
@@ -2166,14 +2170,14 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // Second pass when the first finds nothing: many winery sites block
   // fetching, but the importer usually publishes the same notes.
   const ingredientsLookup = runAgent({ diag,
-    name: "ingredients", model: SMART_MODEL, system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline,
+    name: "ingredients", model: lookupModel(), system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline,
     content: ask(`Wine: ${wineLine(wine)}. Search exactly: ${brandAndName(wine)} ingredients`),
     tools: webTools(1, 1),
   }).catch(() => null);
 
   // Claims published online (brand, winery, distributor, retailers).
   const claimsLookup = runAgent({ diag,
-    name: "online-claims", model: SMART_MODEL, system: ONLINE_CLAIMS_SYSTEM, schema: ONLINE_CLAIMS_SCHEMA, send, deadline,
+    name: "online-claims", model: lookupModel(), system: ONLINE_CLAIMS_SYSTEM, schema: ONLINE_CLAIMS_SCHEMA, send, deadline,
     content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} non GMO vegan gluten free\n2. ${brandAndName(wine)} organic sustainable no added sugar flavors\n3. ${brandAndName(wine)} walmart whole foods`),
     tools: webTools(3, 3),
   }).catch(() => null);
@@ -2182,7 +2186,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // pages, pull the label images, and read them like a bottle photo.
   const onlineLabelLookup = (async () => {
     const found = await runAgent({ diag,
-      name: "label-pages", model: SMART_MODEL, system: LABEL_PAGES_SYSTEM, schema: LABEL_PAGES_SCHEMA, send, deadline: deadline - 9000,
+      name: "label-pages", model: lookupModel(), system: LABEL_PAGES_SYSTEM, schema: LABEL_PAGES_SCHEMA, send, deadline: deadline - 9000,
       content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} back label\n2. ${brandAndName(wine)} distributor\n3. ${brandAndName(wine)} tech sheet store`),
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
     }).catch(() => null);
@@ -2210,7 +2214,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     if (!imgs.length && !sheets.length) return null;
     const sheetText = sheets.map((x) => `Tech sheet (${x.url}):\n${x.text.slice(0, 5000)}`).join("\n\n");
     const read = await runAgent({ diag,
-      name: "label-read", model: SMART_MODEL, system: LABEL_READ_SYSTEM, schema: LABEL_READ_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 12000),
+      name: "label-read", model: lookupModel(), system: LABEL_READ_SYSTEM, schema: LABEL_READ_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 12000),
       content: [...imgs.map((c) => ({ type: "image", source: { type: "base64", ...c.img } })), { type: "text", text: `Wine: ${wineLine(wine)}. Read these ${imgs.length ? "label photos" : ""}${imgs.length && sheets.length ? " and " : ""}${sheets.length ? "tech sheets found on store and distributor pages (treat what they state like a label)" : ""}.${sheetText ? `\n\n${sheetText}` : ""}` }],
       tools: [],
     }).catch(() => null);
@@ -2227,14 +2231,14 @@ This is a second try: you MUST run a web search for the exact wine name first. I
 
   // Walmart and Whole Foods list full ingredient panels for many wines.
   const wfLookup = runAgent({ diag,
-    name: "wholefoods-find", model: SMART_MODEL, schema: URL_LIST_SCHEMA, send, deadline,
+    name: "wholefoods-find", model: lookupModel(), schema: URL_LIST_SCHEMA, send, deadline,
     system: `Find this exact wine's product page on Whole Foods Market (wholefoodsmarket.com/grocery/product/...). Same brand, same wine and variety (a brand's Chardonnay page is not its Pinot Noir). Return up to 2 urls, best first; empty if none.`,
     content: ask(`Wine: ${wineLine(wine)}. Search: ${brandAndName(wine)}`),
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2, allowed_domains: ["wholefoodsmarket.com"] }],
   }).then((r) => (r?.urls || []).filter((u) => /wholefoodsmarket\.com\/(grocery\/)?product\//.test(u)).slice(0, 2)).catch(() => []);
 
   const grocerIngredientsLookup = runAgent({ diag,
-    name: "ingredients-grocers", model: SMART_MODEL, system: INGREDIENTS_SYSTEM + `
+    name: "ingredients-grocers", model: lookupModel(), system: INGREDIENTS_SYSTEM + `
 This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and Thrive Market usually show the full ingredient panel, so look there first. Find this exact wine's product pages on those stores and their Ingredients section; fetch a page to read the panel. Source is "retailer" with that page as source_url. In product_urls list every product page for this exact wine you found on those stores (best ingredient panel first, Whole Foods first), even when you could not read them.`,
     schema: GROCER_INGREDIENTS_SCHEMA, send, deadline,
     content: ask(`Wine: ${wineLine(wine)}. Search exactly:\n1. ${brandAndName(wine)} whole foods market ingredients\n2. ${brandAndName(wine)} ingredients walmart target kroger\n3. ${brandAndName(wine)} thrive market total wine instacart\n4. ${brandAndName(wine)} trader joes sprouts wegmans publix`),
@@ -2258,7 +2262,7 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
     diag.push({ name: "grocer-unlocked", outcome: texts.map((x) => `${x.text.length}c ${/ingredients?\s*:/i.test(x.text) ? "with ingredients" : "no ingredients"}: ${x.u}`).join(" | ").slice(0, 500) });
     for (const x of texts.filter((t) => /ingredient/i.test(t.text)).sort((p, q) => Number(/ingredients?\s*:/i.test(q.text)) - Number(/ingredients?\s*:/i.test(p.text)))) {
       const read = await runAgent({ diag,
-        name: "ingredients-grocer-read", model: SMART_MODEL, system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 10000),
+        name: "ingredients-grocer-read", model: lookupModel(), system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 10000),
         content: ask(`Wine: ${wineLine(wine)}. Read the ingredient list from this product page (${x.u}). Source "retailer", source_url that page. If the page is for a different wine, found false.\n\n${x.text.slice(0, 9000)}`),
         tools: [],
       }).catch(() => null);
@@ -2282,7 +2286,7 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
       const text = await pageText(q, 9000);
       if (!/ingredi|zutaten|ingr[eé]dients|ingredientes/i.test(text)) continue;
       const read = await runAgent({ diag,
-        name: "ingredients-qr", model: SMART_MODEL, system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 10000),
+        name: "ingredients-qr", model: lookupModel(), system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 10000),
         content: ask(`Wine: ${wineLine(wine)}. This page is behind the QR code on the bottle (${q}). Read its ingredient list. Source "elabel", source_url ${q}. If it is a different wine, found false.\n\n${text.slice(0, 9000)}`),
         tools: [],
       }).catch(() => null);
@@ -2291,7 +2295,7 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
     if (!bottler && !barcode) return null;
     const queries = [barcode ? `${barcode} wine ingredients` : "", bottler ? `${bottler} ${wine.name} ingredients` : ""].filter(Boolean);
     return runAgent({ diag,
-      name: "ingredients-bottler", model: SMART_MODEL, system: INGREDIENTS_SYSTEM + `
+      name: "ingredients-bottler", model: lookupModel(), system: INGREDIENTS_SYSTEM + `
 This run follows what is printed on the bottle: the barcode number and the company that made or bottled it${bottler ? ` ("${bottler}")` : ""}. Find that company's page or a listing for this exact wine (barcode matches) with its ingredient list.`,
       schema: INGREDIENTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 12000),
       content: ask(`Wine: ${wineLine(wine)}. Search exactly:\n${queries.map((x, i) => `${i + 1}. ${x}`).join("\n")}`),
@@ -2332,7 +2336,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
     const round = async (plans, carried) => {
       status.rounds += 1;
       const results = await Promise.all(plans.map((p) => runAgent({ diag,
-        name: p.name, model: SMART_MODEL, system: euSearchSystem(wine, p.queries), schema: EU_SEARCH_SCHEMA, send, deadline: deadline - 5000,
+        name: p.name, model: lookupModel(), system: euSearchSystem(wine, p.queries), schema: EU_SEARCH_SCHEMA, send, deadline: deadline - 5000,
         content: ask("Run the searches and return the pages."),
         tools: [{ type: "web_search_20250305", name: "web_search", max_uses: p.queries.length }],
       }).catch(() => null)));
@@ -2355,7 +2359,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
         ? `\n\nSugar figures seen in search results (use only if no page confirms better; the page url is the source):\n${snippets.map((x) => `- ${x.sugars_original} (vintage ${x.vintage || "not shown"}, ${x.kind}) at ${x.url}`).join("\n")}`
         : "";
       const facts = await runAgent({ diag,
-        name: `eu-read r${status.rounds}`, model: SMART_MODEL, system: EU_READ_SYSTEM, schema: EU_FACTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + (unread.length ? 12000 : 8000)),
+        name: `eu-read r${status.rounds}`, model: lookupModel(), system: EU_READ_SYSTEM, schema: EU_FACTS_SCHEMA, send, deadline: Math.max(deadline, Date.now() + (unread.length ? 12000 : 8000)),
         content: ask(`Wine: ${wineLine(wine)}${id.bottle_size ? `, ${id.bottle_size}` : ""}.\n\n${useful.map((x) => `Page (${x.p.kind}) ${x.p.url}:\n${x.t.slice(0, 5000)}`).join("\n\n")}${unread.length ? `\n\nThese pages could not be read directly; fetch them with web_fetch if the pages above don't settle it:\n${unread.map((p) => `- (${p.kind}) ${p.url}`).join("\n")}` : ""}${snippetText}`),
         tools: unread.length ? [{ type: "web_fetch_20250910", name: "web_fetch", max_uses: unread.length }] : [],
       });
@@ -2380,26 +2384,26 @@ This run follows what is printed on the bottle: the barcode number and the compa
 
   const tastingLookup = (async () => {
     const first = await runAgent({ diag,
-      name: "tasting", model: SMART_MODEL, system: tastingPrompt(wine, site, page), schema: TASTING_SCHEMA, send, deadline,
+      name: "tasting", model: lookupModel(), system: tastingPrompt(wine, site, page), schema: TASTING_SCHEMA, send, deadline,
       content: ask("Find the winery's tasting notes and food pairings for this wine."), tools: webTools(2, 2),
     }).catch(() => null);
     if (cleanTasting(first) || Date.now() > deadline - 6000) return first;
     return runAgent({ diag,
-      name: "tasting-importer", model: SMART_MODEL, system: tastingPrompt(wine, "", ""), schema: TASTING_SCHEMA, send, deadline: deadline + 4000,
+      name: "tasting-importer", model: lookupModel(), system: tastingPrompt(wine, "", ""), schema: TASTING_SCHEMA, send, deadline: deadline + 4000,
       content: ask(`The winery's own site gave nothing. Search "${[wine.producer, wine.name].filter(Boolean).join(" ")} importer tasting notes food pairing" and use the official importer's or distributor's page for this exact wine.`),
       tools: webTools(2, 2),
     }).catch(() => null);
   })();
 
   const ratingsLookup = runAgent({ diag,
-    name: "ratings", model: SMART_MODEL, system: ratingsPrompt(wine), schema: RATINGS_SCHEMA, send, deadline,
+    name: "ratings", model: lookupModel(), system: ratingsPrompt(wine), schema: RATINGS_SCHEMA, send, deadline,
     content: ask("Find this wine's professional critic ratings."), tools: webTools(1, 1),
   }).catch(() => null);
 
   let [tech, farm, vegan, cert, barnivore] = await Promise.all([
     techLookup(),
     runAgent({ diag,
-      name: "farm", model: SMART_MODEL, system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline,
+      name: "farm", model: lookupModel(), system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline,
       content: ask("Check farming and certifications and fill the items."), tools: webTools(1, 2),
     }),
     runAgent({ diag,
@@ -3012,7 +3016,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
   const now = Date.now();
   const entry = { first_at: prior?.first_at || now, updated_at: now, cached_at: now, scans: (prior?.scans || 0) + 1, rev: BRAIN_REV };
   diag.push({ name: "brain-store", outcome: `${prior ? `merged, ${merged.added} new facts` : "new entry"} (${topKnown(final)}/10 known)` });
-  if (cache && key.replace(/_/g, "")) await cache.set(key, { ...entry, result: { ...final, debug: undefined } }).catch(() => {});
+  if (cache && !nobrain && key.replace(/_/g, "")) await cache.set(key, { ...entry, result: { ...final, debug: undefined } }).catch(() => {});
   return applyLabelClaims({ ...final, debug: diag, brain: { ...entry, added: prior ? merged.added : null, rescan: Boolean(prior) } }, id.label_claims, image);
 }
 
@@ -3165,6 +3169,7 @@ async function runDemo(send) {
 // Runs a scan and attaches what it cost (tokens, web searches, dollars) as result.cost.
 async function runScan(input, send, cache) {
   const usage = createUsage();
+  usage.testSonnet = Boolean(input && input.testSonnet);
   const result = await usageScope.run(usage, () => runScanInner(input, send, cache));
   if (result && typeof result === "object") result.cost = summarizeUsage(usage);
   return result;
