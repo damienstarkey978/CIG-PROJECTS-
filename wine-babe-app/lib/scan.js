@@ -1826,7 +1826,8 @@ async function gatherEvidence(wine, site, diag) {
   const resolved = await Promise.all(picks.map(async (r) => ({ ...r, real: await resolveResultUrl(r.url) })));
   const pagesToRead = resolved.filter((r) => /^https?:\/\//.test(r.real) && !/\.pdf(\?|$)/i.test(r.real) && !/(^|\.)kroger\.com$/.test(hostOf(r.real)));
   const t1 = Date.now();
-  const read = await Promise.all(pagesToRead.map(async (r) => ({ ...r, text: await pageText(r.real, 14000).catch(() => "") })));
+  const slow = (ms) => new Promise((res) => setTimeout(() => res(""), ms));
+  const read = await Promise.all(pagesToRead.map(async (r) => ({ ...r, text: await Promise.race([pageText(r.real, 9000).catch(() => ""), slow(11000)]) })));
   const usable = read.filter((r) => r.text && textFitsWine(r.text, wine));
   diag.push({ name: "pages", ms: Date.now() - t1, outcome: `${usable.length}/${read.length} read and about this wine: ${usable.map((r) => hostOf(r.real)).join(", ")}`.slice(0, 300) });
   return {
@@ -2141,7 +2142,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     try {
       const packet = await gatherEvidence(wine, site, diag);
       if (!packet.pages.length && !packet.serp.length) { diag.push({ name: "packet", outcome: "no results, using the search agents" }); return null; }
-      const out = await readEvidence(wine, packet, diag, send, deadline);
+      const out = await readEvidence(wine, packet, diag, send, Date.now() + 35000);
       if (!out) { diag.push({ name: "packet", outcome: "evidence read failed, using the search agents" }); return null; }
       return { packet, out };
     } catch (err) { diag.push({ name: "packet", outcome: `error ${String(err.message || err).slice(0, 120)}, using the search agents` }); return null; }
