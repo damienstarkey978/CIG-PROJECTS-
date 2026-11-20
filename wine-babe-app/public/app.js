@@ -52,6 +52,42 @@
     if (b) { const e = loadHistory()[+b.dataset.i]; renderResult(e.data, false, e.at); }
   });
 
+  // ---------- Skinny Sip Approved list ----------
+  $("#ssLink").onclick = async () => {
+    let d = document.getElementById("ssList");
+    if (!d) {
+      d = document.createElement("dialog");
+      d.id = "ssList"; d.className = "sheet";
+      document.body.append(d);
+      d.addEventListener("click", (ev) => { if (ev.target === d) d.close(); });
+    }
+    const draw = (inner) => {
+      d.innerHTML = `<div class="sheet__body"><div class="sheet__head"><h2>Skinny Sip Approved</h2><button type="button" class="sheet__x" aria-label="Close">×</button></div>
+        <p class="sheet__lead">Wines with verified sugar of 1 g or less per 5 oz. Tap one to see its full scan.</p>${inner}</div>`;
+      d.querySelector(".sheet__x").onclick = () => d.close();
+    };
+    draw('<p class="muted">Loading…</p>');
+    if (!d.open) d.showModal();
+    try {
+      const r = await fetch("/api/skinny-sip");
+      const { list } = await r.json();
+      if (!list || !list.length) { draw('<p class="muted">No approved wines yet. Scan a bottle and it will show up here when it qualifies.</p>'); return; }
+      draw(`<ul class="ss-items">${list.map((e) => `<li><button type="button" data-k="${esc(e.key)}"><span><span class="r-name">${esc(e.name || "Unknown wine")}</span><br /><span class="r-sub">${esc([e.producer, e.vintage].filter(Boolean).join(" · "))}</span></span><span class="ss-sugar">${e.sugar5.toFixed(1)} g</span></button></li>`).join("")}</ul>`);
+      d.querySelector(".ss-items").onclick = async (ev) => {
+        const b = ev.target.closest("button[data-k]");
+        if (!b) return;
+        b.disabled = true;
+        try {
+          const res = await fetch(`/api/skinny-sip?key=${encodeURIComponent(b.dataset.k)}`);
+          const { result } = await res.json();
+          if (!result) throw new Error();
+          d.close();
+          renderResult(result, false);
+        } catch { b.disabled = false; }
+      };
+    } catch { draw('<p class="muted">Could not load the list. Please try again.</p>'); }
+  };
+
   // ---------- image prep ----------
   // Larger photos keep small back-label QR codes decodable.
   function shrink(file, max = 2400) {

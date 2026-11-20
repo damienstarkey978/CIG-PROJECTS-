@@ -4,6 +4,7 @@
 import { getStore } from "@netlify/blobs";
 import jobs from "../../lib/jobs.js";
 import engine from "../../lib/scan.js";
+import { saveIfApproved } from "../../lib/skinny.mjs";
 
 export default async (req) => {
   const { id } = await req.json();
@@ -32,6 +33,7 @@ export default async (req) => {
     await store.delete(`${id}/meta`).catch(() => {});
   }
   const r = last && last.result;
+  if (r) await saveIfApproved(r).catch(() => {});
   if (r && r.cost) {
     const at = new Date().toISOString();
     const w = r.wine || {};
