@@ -74,18 +74,21 @@
 
   // ---------- scanning ----------
   const ICON = { status: "✨", search: "🔎", fetch: "📄" };
+  // Title Case for headings (small words stay lowercase unless first).
+  const SMALL = new Set(["a", "an", "the", "of", "for", "to", "and", "in", "on", "at", "by", "or", "but", "with", "from", "is", "as"]);
+  const titleCase = (t) => String(t).split(" ").map((w, i) => (i > 0 && SMALL.has(w.toLowerCase())) ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   function feed(type, text) {
     const li = document.createElement("li");
     li.innerHTML = `<span>${ICON[type] || "•"}</span><span>${esc(text)}</span>`;
     $("#feed").appendChild(li);
-    if (type === "status") $("#scanTitle").textContent = text;
-    if (type === "search") $("#scanTitle").textContent = "Searching the web";
-    if (type === "fetch") $("#scanTitle").textContent = "Reading the tech sheet";
+    if (type === "status") $("#scanTitle").textContent = titleCase(text);
+    if (type === "search") $("#scanTitle").textContent = "Searching the Web";
+    if (type === "fetch") $("#scanTitle").textContent = "Reading the Tech Sheet";
   }
 
   async function scan(payload, previewSrc) {
     $("#feed").innerHTML = "";
-    $("#scanTitle").textContent = "Reading the label";
+    $("#scanTitle").textContent = "Reading the Label";
     const prev = $("#preview");
     prev.hidden = !previewSrc;
     if (previewSrc) prev.src = previewSrc;
@@ -130,9 +133,9 @@
     } catch (err) {
       const box = document.createElement("div");
       box.className = "error-box";
-      box.innerHTML = `${esc(err.message)}<div class="actions"><button class="btn" id="errBack">Try again</button></div>`;
+      box.innerHTML = `${esc(err.message)}<div class="actions"><button class="btn" id="errBack">Try Again</button></div>`;
       $("#feed").after(box);
-      $("#scanTitle").textContent = "That didn't work";
+      $("#scanTitle").textContent = "That Didn't Work";
       $("#errBack").onclick = () => { box.remove(); goHome(); };
     }
   }
@@ -161,9 +164,9 @@
     d.innerHTML = `<div class="back-ask__card" role="dialog" aria-modal="true" aria-label="Add the back label">
       <p class="back-ask__title">Got the front label</p>
       <p class="back-ask__text">Add the back label too? Nutrition, ingredients, claims and the QR code are usually there.</p>
-      <button type="button" class="btn" data-a="camera">Take back label photo</button>
-      <button type="button" class="btn ghost" data-a="library">Choose from photos</button>
-      <button type="button" class="btn link" data-a="skip">Skip, scan the front only</button></div>`;
+      <button type="button" class="btn" data-a="camera">Take Back Label Photo</button>
+      <button type="button" class="btn ghost" data-a="library">Choose From Photos</button>
+      <button type="button" class="btn link" data-a="skip">Skip, Scan the Front Only</button></div>`;
     document.body.appendChild(d);
     d.addEventListener("click", async (e) => {
       const a = e.target.closest("button")?.dataset.a;
@@ -491,7 +494,7 @@
           ${eu.calories?.origin ? row("Calories from", esc(eu.calories.origin)) : ""}
         </dl>`
         : `<p class="eu__none">${esc(eu.message || "European nutritional information not located online.")}</p>
-           <label class="btn ghost eu__qr" for="photo">Upload a photo of the bottle's QR code</label>`}
+           <label class="btn ghost eu__qr" for="photo">Upload a Photo of the Bottle's QR Code</label>`}
       ${qrNote}
       <p class="eu__note">${esc(eu.note || "")}${eu.checked?.length ? ` Checked: ${esc(eu.checked.slice(0, 8).join(", "))}.` : ""}</p>
     </div>`;
@@ -502,12 +505,12 @@
     // Not identified: no score or checklist, just what happened and what to try.
     if (!data.identified) {
       screens.result.innerHTML = `
-        <div class="wine-head"><h1>We couldn't pin down this wine</h1></div>
+        <div class="wine-head"><h1>We Couldn't Pin Down This Wine</h1></div>
         <div class="card summary"><p>${esc(data.summary || "We couldn't identify this wine.")}</p>
           <p style="margin-top:.6rem">Try again with the winery name first, for example <b>Le Contesse Pinot Noir Rosé</b>, or snap the front label.</p></div>
         <div class="actions">
-          <label class="btn" for="photo">Scan a label</label>
-          <button class="btn ghost" id="backHome">Search again</button>
+          <label class="btn" for="photo">Scan a Label</label>
+          <button class="btn ghost" id="backHome">Search Again</button>
         </div>`;
       $("#backHome").onclick = goHome;
       show("result");
@@ -547,7 +550,7 @@
     const sources = (data.sources || []).map((s) => ({ ...s, url: safeUrl(s.url) })).filter((s) => s.url);
     const techUrl = safeUrl(w.tech_sheet_url);
     const when = (t) => new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-    const rescanBtn = `<button type="button" class="btn small" id="rescan">Rescan for new info</button>`;
+    const rescanBtn = `<button type="button" class="btn small" id="rescan">Rescan for New Info</button>`;
     const b = data.brain || {};
     const savedNote = !isNew
       ? `<div class="saved-note">Saved scan${savedAt ? ` from ${when(savedAt)}` : ""}. Rescan to look for anything new. ${rescanBtn}</div>`
@@ -597,7 +600,7 @@
             </li>`).join("")}
           </ul>
           <p class="std__foot">Green means a reliable public source confirms the wine meets that item. Red means a reliable source confirms it does not. Gray "Not verified" means we couldn't find reliable information yet. Rescan to look for anything new.</p>
-          <button type="button" class="info-close">Got it</button>
+          <button type="button" class="info-close">Got It</button>
         </div>
       </div>
 
@@ -641,7 +644,7 @@
       </div>
 
       <div class="block">
-        <h2>What we looked for</h2>
+        <h2>What We Looked For</h2>
         <div class="card"><ul class="checks">${r.top.map((c) => topRow(c)).join("")}</ul></div>
       </div>
 
@@ -656,7 +659,7 @@
       </div>
 
       <div class="block">
-        <h2>Full checklist</h2>
+        <h2>Full Checklist</h2>
         ${CHECKLIST.map((cat) => {
           const items = r.checks.filter((c) => c.category === cat.id);
           const ok = items.filter((c) => c.status === "pass").length;
@@ -672,7 +675,7 @@
         .join("")}</ol></div>` : ""}
 
       <div class="actions">
-        <label class="btn" for="photo">Scan another bottle</label>
+        <label class="btn" for="photo">Scan Another Bottle</label>
         <button class="btn ghost" id="backHome">Home</button>
       </div>
       <p class="fine">The Transparency Scanner shows what we could find and verify about a wine from published information. It is not medical advice and says nothing about whether a wine is good or bad. Sulfite ratings are a comparison scale, not a regulatory classification. Results can vary by vintage. It is not medical advice. Sulfite ratings are a Wine Babe comparison scale, not a regulatory classification. Results can vary by vintage.</p>
