@@ -1946,11 +1946,8 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     tools: webTools(2, 1),
   });
 
-  const abvLookup = runAgent({ diag,
-    name: "abv-search", model: lookupModel(), system: ABV_SYSTEM, schema: ABV_SCHEMA, send, deadline: deadline - 4000,
-    content: ask(`Wine: ${wineLine(wine)}. Search exactly: ${brandAndName(wine)} ABV`),
-    tools: webTools(1, 1),
-  }).catch(() => null);
+  // ABV comes from the tech sheet, the label and the nutrition lookup: no separate search.
+  const abvLookup = Promise.resolve(null);
 
   const techLookup = async () => {
     const searched = runAgent({ diag,
@@ -2154,7 +2151,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
 
   const barnivoreLookup = async () => {
     const found = await runAgent({ diag,
-      name: "barnivore-find", system: BARNIVORE_FIND_SYSTEM, schema: URL_SCHEMA, send, deadline: deadline - 6000,
+      name: "barnivore-find", model: lookupModel(), system: BARNIVORE_FIND_SYSTEM, schema: URL_SCHEMA, send, deadline: deadline - 6000,
       content: ask(`Producer: ${wine.producer}. Country: ${wine.country || "unknown"}.`),
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
     });
@@ -2178,8 +2175,8 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // Claims published online (brand, winery, distributor, retailers).
   const claimsLookup = runAgent({ diag,
     name: "online-claims", model: lookupModel(), system: ONLINE_CLAIMS_SYSTEM, schema: ONLINE_CLAIMS_SCHEMA, send, deadline,
-    content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} non GMO vegan gluten free\n2. ${brandAndName(wine)} organic sustainable no added sugar flavors\n3. ${brandAndName(wine)} walmart whole foods`),
-    tools: webTools(3, 3),
+    content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} non GMO vegan gluten free\n2. ${brandAndName(wine)} organic sustainable no added sugar flavors`),
+    tools: webTools(2, 3),
   }).catch(() => null);
 
   // Label photos posted online (distributors, importers, shops): find the
@@ -2187,8 +2184,9 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   const onlineLabelLookup = (async () => {
     const found = await runAgent({ diag,
       name: "label-pages", model: lookupModel(), system: LABEL_PAGES_SYSTEM, schema: LABEL_PAGES_SCHEMA, send, deadline: deadline - 9000,
-      content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} back label\n2. ${brandAndName(wine)} distributor\n3. ${brandAndName(wine)} tech sheet store`),
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
+      content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} back label
+2. ${brandAndName(wine)} distributor tech sheet`),
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
     }).catch(() => null);
     if (!found) return null;
     const wfPages = (await wfLookup).map((url) => ({ url, kind: "retailer" }));
@@ -2234,15 +2232,16 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     name: "wholefoods-find", model: lookupModel(), schema: URL_LIST_SCHEMA, send, deadline,
     system: `Find this exact wine's product page on Whole Foods Market (wholefoodsmarket.com/grocery/product/...). Same brand, same wine and variety (a brand's Chardonnay page is not its Pinot Noir). Return up to 2 urls, best first; empty if none.`,
     content: ask(`Wine: ${wineLine(wine)}. Search: ${brandAndName(wine)}`),
-    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2, allowed_domains: ["wholefoodsmarket.com"] }],
+    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1, allowed_domains: ["wholefoodsmarket.com"] }],
   }).then((r) => (r?.urls || []).filter((u) => /wholefoodsmarket\.com\/(grocery\/)?product\//.test(u)).slice(0, 2)).catch(() => []);
 
-  const grocerIngredientsLookup = runAgent({ diag,
+  const GROCER_SEARCH_DOMAINS = ["wholefoodsmarket.com", "thrivemarket.com", "walmart.com", "target.com", "kroger.com", "totalwine.com", "wegmans.com", "albertsons.com", "safeway.com", "publix.com", "meijer.com", "heb.com", "instacart.com", "freshdirect.com", "bevmo.com", "traderjoes.com", "sprouts.com", "amazon.com"];
+  const runGrocers = () => runAgent({ diag,
     name: "ingredients-grocers", model: lookupModel(), system: INGREDIENTS_SYSTEM + `
 This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and Thrive Market usually show the full ingredient panel, so look there first. Find this exact wine's product pages on those stores and their Ingredients section; fetch a page to read the panel. Source is "retailer" with that page as source_url. In product_urls list every product page for this exact wine you found on those stores (best ingredient panel first, Whole Foods first), even when you could not read them.`,
     schema: GROCER_INGREDIENTS_SCHEMA, send, deadline,
-    content: ask(`Wine: ${wineLine(wine)}. Search exactly:\n1. ${brandAndName(wine)} whole foods market ingredients\n2. ${brandAndName(wine)} ingredients walmart target kroger\n3. ${brandAndName(wine)} thrive market total wine instacart\n4. ${brandAndName(wine)} trader joes sprouts wegmans publix`),
-    tools: webTools(4, 3),
+    content: ask(`Wine: ${wineLine(wine)}. Search exactly:\n1. ${brandAndName(wine)} whole foods market ingredients\n2. ${brandAndName(wine)} ingredients walmart target kroger`),
+    tools: [{ ...webTools(2, 3)[0], allowed_domains: GROCER_SEARCH_DOMAINS }, webTools(2, 3)[1]],
   }).catch(() => null).then(async (g0) => {
     // A search limited to Whole Foods' own site finds its page far more
     // reliably than a general search; add what it finds first.
@@ -2270,6 +2269,8 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
     }
     return g;
   });
+  // The grocer search only runs when the winery's own ingredient search found no list.
+  const grocerIngredientsLookup = ingredientsLookup.then((own) => (cleanIngredients(own, wine).ingredients.length ? null : runGrocers())).catch(() => null);
 
   // Anything scannable or traceable on the bottle: QR codes (from the shopper's
   // photo or label photos found online), the barcode number and the
@@ -2385,7 +2386,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
   const tastingLookup = (async () => {
     const first = await runAgent({ diag,
       name: "tasting", model: lookupModel(), system: tastingPrompt(wine, site, page), schema: TASTING_SCHEMA, send, deadline,
-      content: ask("Find the winery's tasting notes and food pairings for this wine."), tools: webTools(2, 2),
+      content: ask("Find the winery's tasting notes and food pairings for this wine."), tools: webTools(1, 2),
     }).catch(() => null);
     if (cleanTasting(first) || Date.now() > deadline - 6000) return first;
     return runAgent({ diag,
@@ -2407,7 +2408,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
       content: ask("Check farming and certifications and fill the items."), tools: webTools(1, 2),
     }),
     runAgent({ diag,
-      name: "vegan", system: veganPrompt(wine, site), schema: agentSchema(VEGAN_IDS, false), send, deadline,
+      name: "vegan", model: lookupModel(), system: veganPrompt(wine, site), schema: agentSchema(VEGAN_IDS, false), send, deadline,
       content: ask("Check vegan status and fill the items."), tools: webTools(1, 1),
     }),
     certScan(site, wine.country, diag),
