@@ -1948,6 +1948,17 @@ const WINERY_STATEMENTS = [
 // researched again the next time they are scanned (and merged into the entry).
 const BRAIN_REV = 6;
 const brainKey = (w) => cacheKey(w).replace(/^[^_]+__/, "brain__");
+// Saved results whose sugar verdict rests on a shop page alone lose that
+// verdict (the figure was never confirmed by the winery or importer).
+function scrubShopSugar(result) {
+  const c = (result?.checks || []).find((x) => x.id === "sugar_under_1g");
+  if (!c || c.evidence !== "third_party" || !/EU nutrition panel shown by/i.test(c.detail || "")) return result;
+  return {
+    ...result,
+    checks: result.checks.map((x) => (x.id === "sugar_under_1g" ? { id: "sugar_under_1g", status: "unknown", evidence: "none", scope: "this_wine", as_of: "", detail: "Unverified: only a shop page lists a sugar figure for this wine.", source_url: "", origin: "No source found yet" } : x)),
+    nutrition: { ...(result.nutrition || {}), residual_sugar_g_l: null, sugar_below_g_l: null },
+  };
+}
 // One wine, one entry, even when the producer is named two ways ("Caves
 // d'Esclans (Sacha Lichine)" and "Château d'Esclans"). An alias list per wine
 // name and year points every spelling at the entry saved first.
@@ -2092,6 +2103,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     key = res.key;
     await rememberAlias(cache, wine, key, res.list);
     prior = await cache.get(key).catch(() => null);
+    if (prior?.result) prior = { ...prior, result: scrubShopSugar(prior.result) };
     if (!prior?.result) {
       // Seed from the older per-version cache, so earlier scans are not lost.
       const old = await cache.get(cacheKey(wine)).catch(() => null);
@@ -2790,7 +2802,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
     // A shop's copy only counts as verified when both the bottle and the page
     // name the same vintage; non vintage shop listings stay estimates.
     const evidence = ["elabel", "winery", "consortium", "distributor"].includes(eu.kind) ? "winery"
-      : eu.kind === "retailer" && (!wineYear0 || !euYear0 || euYear0 === wineYear0 || true) ? "third_party" : "estimate";
+      : eu.kind === "retailer" && wineYear0 && euYear0 === wineYear0 ? "third_party" : "estimate";
     const sourceType = eu.kind === "elabel" ? "Verified European E-Label" : eu.kind === "winery" ? "Winery" : eu.kind === "consortium" ? "Official consortium" : eu.kind === "distributor" ? "European distributor" : "Third party (European shop)";
     let host = "";
     try { host = new URL(eu.source_url).hostname.replace(/^www\./, ""); } catch {}
@@ -2820,7 +2832,8 @@ This run follows what is printed on the bottle: the barcode number and the compa
     // Verified sugar: winery-level sources for this wine, or a European shop
     // copy for the exact vintage. Never an estimate, never another vintage.
     // A winery, importer or e-label figure for another vintage of the same wine counts (sugar barely changes year to year) and says so; shops still need the exact year.
-    const sugarUsable = eu.sugars_100ml != null && (evidence === "winery" || (evidence === "third_party" && eu.kind === "retailer"));
+    // A shop page alone never passes or fails a wine on sugar: shops disagree with each other.
+    const sugarUsable = eu.sugars_100ml != null && evidence === "winery";
     if (sugarUsable && (n.residual_sugar_g_l == null || weak(n.source)) && !strong(best.sugar_under_1g)) {
       const bound = /</.test(eu.sugars_original || "");
       // "<0.5 g" is an upper bound: 0.5 g / 100 ml = about 0.74 g per 5 oz.

@@ -11,6 +11,7 @@ export function approved(result) {
   const sc = (result.checks || []).find((c) => c.id === "sugar_under_1g");
   const n = result.nutrition || {};
   if (!sc || !["pass", "fail"].includes(sc.status) || !VERIFIED.includes(sc.evidence)) return null;
+  if (sc.evidence === "third_party" && /EU nutrition panel shown by/i.test(sc.detail || "")) return null; // shop only
   let g = null;
   if (n.residual_sugar_g_l != null) g = Math.round(n.residual_sugar_g_l * PER_5OZ * 100) / 100;
   else if (n.sugar_below_g_l != null) g = n.sugar_below_g_l * PER_5OZ;
