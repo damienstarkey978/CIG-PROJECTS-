@@ -20,6 +20,12 @@ export default async (req) => {
   const allowance = await scanAllowance(s.usage, limitWho);
   if (!allowance.ok) return json({ error: allowance.error, code: allowance.code, needAccount: Boolean(allowance.needAccount) }, { status: allowance.status, cookies });
 
+  // Daily spend cap (WB_DAILY_CAP dollars, default 10). Team logins skip it.
+  if (!who.team) {
+    const cap = Number(process.env.WB_DAILY_CAP || 10);
+    const t = await getStore("spend").get(`day/${new Date().toISOString().slice(0, 10)}`, { type: "json" }).catch(() => null);
+    if (t && t.dollars >= cap) return json({ error: "Wine Babe has hit its scan limit for today. Please try again tomorrow." }, { status: 429, cookies });
+  }
   const id = jobs.newId();
   const store = getStore("scans");
   await store.setJSON(`${id}/input`, input);

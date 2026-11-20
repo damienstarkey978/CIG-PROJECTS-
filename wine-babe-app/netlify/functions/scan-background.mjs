@@ -43,5 +43,10 @@ export default async (req) => {
       accountId: meta.accountId || null,
       ...r.cost,
     }).catch(() => {});
+    // Running total for the day, read by scan-start for the spend cap.
+    const day = getStore("spend");
+    const key = `day/${at.slice(0, 10)}`;
+    const t = (await day.get(key, { type: "json" }).catch(() => null)) || { dollars: 0, scans: 0 };
+    await day.setJSON(key, { dollars: Math.round((t.dollars + (r.cost.dollars || 0)) * 10000) / 10000, scans: t.scans + 1 }).catch(() => {});
   }
 };
