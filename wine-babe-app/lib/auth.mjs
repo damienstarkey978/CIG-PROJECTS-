@@ -63,7 +63,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 export function loginPage(error = "", next = "/") {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Wine Babe sign in</title>
+<title>Wine Babe Sign In</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet" />
 <style>
 :root { --bg: #f7f1ec; --card: #fffaf6; --ink: #2b1d1f; --muted: #8b7b78; --wine: #8c2f45; --line: #eadfd8; }
@@ -79,7 +79,7 @@ button { width: 100%; margin-top: 22px; padding: 14px; border: 0; border-radius:
 </style></head><body>
 <form class="card" method="post" action="/login">
   <img src="/images/logo-small.png" alt="Wine Babe" />
-  <h1>Sign in</h1>
+  <h1>Sign In</h1>
   ${error ? `<p class="err">${esc(error)}</p>` : ""}
   <input type="hidden" name="next" value="${esc(next)}" />
   <label for="u">Username</label><input id="u" name="username" autocomplete="username" autocapitalize="none" required />
