@@ -2109,7 +2109,8 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       const old = await cache.get(cacheKey(wine)).catch(() => null);
       prior = old?.result ? { first_at: old.cached_at, updated_at: old.cached_at, scans: 1, result: old.result } : null;
     }
-    const thin = prior && (topKnown(prior.result) < 4 || (prior.rev || 0) < BRAIN_REV);
+    // A thin entry is researched again at most once a week (each new research costs money and rarely finds more the same day).
+    const thin = prior && ((prior.rev || 0) < BRAIN_REV || (topKnown(prior.result) < 4 && Date.now() - (prior.updated_at || 0) > 7 * 864e5));
     const stale = prior?.result?.partial && Date.now() - (prior.updated_at || 0) > 864e5;
     diag.push({ name: "brain", outcome: !prior ? "new wine" : fresh ? "rescan requested" : thin ? ((prior.rev || 0) < BRAIN_REV ? "saved before the latest fixes, researching again" : "thin entry, researching again") : stale ? "partial entry over a day old, researching again" : `hit (${prior.scans || 1} scans)` });
     if (prior && !fresh && !thin && !stale) {
