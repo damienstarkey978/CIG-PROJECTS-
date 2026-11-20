@@ -1948,6 +1948,25 @@ const WINERY_STATEMENTS = [
 // researched again the next time they are scanned (and merged into the entry).
 const BRAIN_REV = 6;
 const brainKey = (w) => cacheKey(w).replace(/^[^_]+__/, "brain__");
+// One wine, one entry, even when the producer is named two ways ("Caves
+// d'Esclans (Sacha Lichine)" and "Château d'Esclans"). An alias list per wine
+// name and year points every spelling at the entry saved first.
+const PRODUCER_NOISE = new Set(["chateau", "caves", "cave", "domaine", "domaines", "winery", "wines", "wine", "estate", "estates", "vineyard", "vineyards", "cellars", "cellar", "bodega", "bodegas", "tenuta", "cantina", "cantine", "maison", "family", "organic", "company", "group"]);
+const producerTokens = (w) => norm(w.producer).split(" ").filter((t) => t.length >= 4 && !PRODUCER_NOISE.has(t));
+const aliasKey = (w) => cacheKey(w).replace(/^[^_]+__.*?__/, "alias__");
+async function resolveBrainKey(cache, w) {
+  const own = brainKey(w);
+  const list = (await cache.get(aliasKey(w)).catch(() => null)) || [];
+  const mine = new Set(producerTokens(w));
+  const hit = Array.isArray(list) ? list.find((e) => e.k === own) || list.find((e) => (e.p || []).some((t) => mine.has(t))) : null;
+  return { key: hit ? hit.k : own, list: Array.isArray(list) ? list : [], known: Boolean(hit && (hit.k !== own || list.some((e) => e.k === own && (e.p || []).join() === [...mine].join()))) };
+}
+async function rememberAlias(cache, w, key, list) {
+  const p = producerTokens(w);
+  if (!p.length || list.some((e) => e.k === key && p.every((t) => (e.p || []).includes(t)))) return;
+  const mergedP = [...new Set([...(list.find((e) => e.k === key)?.p || []), ...p])];
+  await cache.set(aliasKey(w), [...list.filter((e) => e.k !== key), { k: key, p: mergedP }]).catch(() => {});
+}
 const isKnown = (c) => c && c.evidence !== "typical" && (c.status === "pass" || c.status === "fail");
 const topKnown = (r) => ALL_ITEMS.filter((i) => i.top).filter((i) => (r?.checks || []).some((c) => c.id === i.id && isKnown(c))).length;
 const NUTRITION_FIELDS = ["abv", "residual_sugar_g_l", "sugar_below_g_l", "calories_5oz", "carbs_5oz", "total_so2_mg_l", "free_so2_mg_l", "ph", "ta_g_l"];
@@ -2065,9 +2084,13 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // 2. Shared brain. Served unless this is a rescan, the stored answer is
   // thin (under 4 of the top 10 known), or it is partial and over a day old;
   // in those cases the full research runs and is merged into it.
-  const key = brainKey(wine);
+  let key = brainKey(wine);
   let prior = null;
   if (cache && !nobrain && key.replace(/_/g, "")) {
+    const res = await resolveBrainKey(cache, wine);
+    if (res.key !== key) diag.push({ name: "brain-alias", outcome: `${key} -> ${res.key}` });
+    key = res.key;
+    await rememberAlias(cache, wine, key, res.list);
     prior = await cache.get(key).catch(() => null);
     if (!prior?.result) {
       // Seed from the older per-version cache, so earlier scans are not lost.
@@ -3232,7 +3255,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
     const mine = (result.checks || []).find((c) => c.id === "sugar_under_1g");
     const ver = (c) => isKnown(c) && ["lab", "winery", "certified", "third_party"].includes(c.evidence);
     if (!ver(mine) && !ver((prior?.result?.checks || []).find((c) => c.id === "sugar_under_1g"))) {
-      const nv = await cache.get(brainKey({ ...wine, vintage: "" })).catch(() => null);
+      const nv = await cache.get((await resolveBrainKey(cache, { ...wine, vintage: "" })).key).catch(() => null);
       const theirs = (nv?.result?.checks || []).find((c) => c.id === "sugar_under_1g");
       const tn = nv?.result?.nutrition || {};
       if (ver(theirs) && (tn.residual_sugar_g_l != null || tn.sugar_below_g_l != null)) {
