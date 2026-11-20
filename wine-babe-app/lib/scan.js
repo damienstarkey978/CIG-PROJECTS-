@@ -3226,6 +3226,23 @@ This run follows what is printed on the bottle: the barcode number and the compa
   }
   // Everything goes into the brain, merged with what it already knew. A thin
   // entry is stored too, but the next scan researches it again (see step 2).
+  // A vintage with no sugar figure of its own borrows the verified figure
+  // saved for the same wine without a year (sugar barely moves year to year).
+  if (cache && !nobrain && /^(19|20)\d{2}$/.test(String(wine.vintage || "").trim())) {
+    const mine = (result.checks || []).find((c) => c.id === "sugar_under_1g");
+    const ver = (c) => isKnown(c) && ["lab", "winery", "certified", "third_party"].includes(c.evidence);
+    if (!ver(mine) && !ver((prior?.result?.checks || []).find((c) => c.id === "sugar_under_1g"))) {
+      const nv = await cache.get(brainKey({ ...wine, vintage: "" })).catch(() => null);
+      const theirs = (nv?.result?.checks || []).find((c) => c.id === "sugar_under_1g");
+      const tn = nv?.result?.nutrition || {};
+      if (ver(theirs) && (tn.residual_sugar_g_l != null || tn.sugar_below_g_l != null)) {
+        const note = " Figure published for this wine without a vintage year.";
+        result.checks = (result.checks || []).filter((c) => c.id !== "sugar_under_1g").concat({ ...theirs, detail: `${theirs.detail || ""}${(theirs.detail || "").includes(note.trim()) ? "" : note}` });
+        result.nutrition = { ...(result.nutrition || EMPTY_NUTRITION), residual_sugar_g_l: tn.residual_sugar_g_l ?? null, sugar_below_g_l: tn.sugar_below_g_l ?? null, eu_sugar: tn.eu_sugar, sugar_kind: tn.sugar_kind, source: (result.nutrition?.source && result.nutrition.source !== "none") ? result.nutrition.source : tn.source };
+        diag.push({ name: "sugar-other-vintage", outcome: `borrowed from the no year entry: ${theirs.status}/${theirs.evidence}` });
+      }
+    }
+  }
   const merged = mergeBrain(result, prior?.result);
   const final = merged.result;
   const now = Date.now();

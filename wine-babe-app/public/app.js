@@ -343,7 +343,8 @@
       } else if (s.id === "sugar_under_1g" && isVerified(c) && (n.sugar_5oz != null || n.sugar_below_5oz != null)) {
         // 1 gram or less per 5 oz passes (rounded to 0.01 g).
         const g = n.sugar_5oz != null ? Math.round(n.sugar_5oz * 100) / 100 : null;
-        state = g != null ? (g <= 1 ? "pass" : "fail") : n.sugar_below_5oz <= 1.0001 ? "pass" : c.status;
+        // An upper bound above 1 g ("under 1.04 g") proves neither side.
+        state = g != null ? (g <= 1 ? "pass" : "fail") : n.sugar_below_5oz <= 1.0001 ? "pass" : "unverified";
         basis = c.detail || "";
       } else {
         state = isVerified(c) ? c.status : "unverified";
@@ -650,11 +651,13 @@
       ${(() => {
         const sugarFound = sugarCheck && (sugarCheck.status === "pass" || sugarCheck.status === "fail") && sugarCheck.evidence !== "none";
         const amount = sugar != null ? `${fmt(sugar, 1)} g per 5 oz`
-          : n.sugar_below_5oz != null ? `Under ${fmt(n.sugar_below_5oz, 1)} g per 5 oz`
+          : n.sugar_below_5oz != null ? `Under ${fmt(n.sugar_below_5oz, n.sugar_below_5oz > 1.0001 ? 2 : 1)} g per 5 oz`
           : data.eu_disclosure?.sugar ? `${esc(data.eu_disclosure.sugar.original)} (${esc(data.eu_disclosure.sugar.kind)})`
           : "No published figure";
-        const over = sugarFound && sugarCheck.status === "fail";
-        const pill = !sugarFound ? `<span class="sugarbar__pill no">Not verified</span>` : over ? `<span class="sugarbar__pill neg">&#10005; Over 1 g</span>` : `<span class="sugarbar__pill yes">&#10003; Verified</span>`;
+        // "Under 1.04 g" is a ceiling, not a reading: it cannot confirm 1 g or less, and it is not "over" either.
+        const ceiling = sugarFound && sugar == null && n.sugar_below_5oz != null && n.sugar_below_5oz > 1.0001;
+        const over = sugarFound && sugarCheck.status === "fail" && !ceiling;
+        const pill = ceiling ? `<span class="sugarbar__pill no">1 g or Less Not Confirmed</span>` : !sugarFound ? `<span class="sugarbar__pill no">Not verified</span>` : over ? `<span class="sugarbar__pill neg">&#10005; Over 1 g</span>` : `<span class="sugarbar__pill yes">&#10003; Verified</span>`;
         const note = !sugarFound && data.eu_disclosure?.applicable ? `<div class="sugarbar__note">${esc(sugarCheck?.detail || "Not yet verified. EU nutritional disclosure search completed.")}</div>` : "";
         return `<div class="card sugarbar">
         <div class="sugarbar__lbl">Sugar per 5 oz</div>
