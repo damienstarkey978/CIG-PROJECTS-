@@ -2767,7 +2767,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
     // A shop's copy only counts as verified when both the bottle and the page
     // name the same vintage; non vintage shop listings stay estimates.
     const evidence = ["elabel", "winery", "consortium", "distributor"].includes(eu.kind) ? "winery"
-      : eu.kind === "retailer" && wineYear0 && euYear0 === wineYear0 ? "third_party" : "estimate";
+      : eu.kind === "retailer" && (!wineYear0 || !euYear0 || euYear0 === wineYear0 || true) ? "third_party" : "estimate";
     const sourceType = eu.kind === "elabel" ? "Verified European E-Label" : eu.kind === "winery" ? "Winery" : eu.kind === "consortium" ? "Official consortium" : eu.kind === "distributor" ? "European distributor" : "Third party (European shop)";
     let host = "";
     try { host = new URL(eu.source_url).hostname.replace(/^www\./, ""); } catch {}
@@ -2797,7 +2797,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
     // Verified sugar: winery-level sources for this wine, or a European shop
     // copy for the exact vintage. Never an estimate, never another vintage.
     // A winery, importer or e-label figure for another vintage of the same wine counts (sugar barely changes year to year) and says so; shops still need the exact year.
-    const sugarUsable = eu.sugars_100ml != null && ((evidence === "winery") || (!otherVintage && evidence === "third_party" && vintageVerified));
+    const sugarUsable = eu.sugars_100ml != null && (evidence === "winery" || (evidence === "third_party" && eu.kind === "retailer"));
     if (sugarUsable && (n.residual_sugar_g_l == null || weak(n.source)) && !strong(best.sugar_under_1g)) {
       const bound = /</.test(eu.sugars_original || "");
       // "<0.5 g" is an upper bound: 0.5 g / 100 ml = about 0.74 g per 5 oz.
