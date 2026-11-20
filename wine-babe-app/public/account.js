@@ -19,15 +19,15 @@
   // ---------- header + free scan line ----------
   function paint() {
     const btn = $("#acctBtn");
-    if (btn) btn.textContent = state.account ? "Account" : state.team ? "Team" : "Sign in";
+    if (btn) btn.textContent = state.account ? "Account" : state.team ? "Team" : "Sign In";
     const note = $("#freeNote");
     const a = state.allowance;
     if (!note) return;
     if (!state.account && !state.team && a && a.freeScans) {
       const n = a.ok ? a.freeRemaining : 0;
       note.innerHTML = n > 0
-        ? `${n} free scan${n === 1 ? "" : "s"} left. <button type="button" class="linkish" data-open="signup">Create a free account</button>`
-        : `Create a free account to keep scanning. <button type="button" class="linkish" data-open="signup">Sign up</button>`;
+        ? `${n} free scan${n === 1 ? "" : "s"} left. <button type="button" class="linkish" data-open="signup">Create a Free Account</button>`
+        : `You're out of free scans. <button type="button" class="linkish" data-open="signup">Create a Free Account</button>`;
       note.hidden = false;
     } else {
       note.hidden = true;
@@ -56,18 +56,20 @@
   }
   const busy = (form, on) => form.querySelectorAll("button, input, textarea").forEach((el) => { el.disabled = on; });
   const err = (form, msg) => { const p = $(".sheet__err", form); p.textContent = msg || ""; p.hidden = !msg; };
+  const heartRule = '<div class="sheet__heart" aria-hidden="true"><span></span><img src="/images/heart.png" alt="" /><span></span></div>';
   const errLine = '<p class="sheet__err" role="alert" hidden></p>';
 
   function openSignup(reason = "") {
-    const d = sheet("acctSheet", "Create a free account", `
-      ${reason ? `<p class="sheet__lead">${esc(reason)}</p>` : '<p class="sheet__lead">Free, and it keeps your scans going.</p>'}
+    const d = sheet("acctSheet", "Create a Free Account", `
+      ${heartRule}
+      ${reason ? `<p class="sheet__lead">${esc(reason)}</p>` : '<p class="sheet__lead">Sign up for free to keep scanning wines.</p>'}
       <form class="sheet__form" novalidate>
         <label>Name<input name="name" autocomplete="name" required maxlength="80" /></label>
         <label>Email<input name="email" type="email" autocomplete="email" inputmode="email" required /></label>
         <label>Phone <span class="opt">(optional)</span><input name="phone" type="tel" autocomplete="tel" inputmode="tel" /></label>
         ${errLine}
-        <button class="btn" type="submit">Create account</button>
-        <p class="sheet__alt">Already have one? <button type="button" class="linkish" data-open="signin">Sign in</button></p>
+        <button class="btn" type="submit">Create Account</button>
+        <p class="sheet__alt">Already have one? <button type="button" class="linkish" data-open="signin">Sign In</button></p>
         <p class="sheet__fine">By signing up you agree to our <a href="/privacy" target="_blank">privacy policy</a>.</p>
       </form>`);
     const f = $("form", d);
@@ -84,13 +86,14 @@
   }
 
   function openSignin(email = "") {
-    const d = sheet("acctSheet", "Sign in", `
+    const d = sheet("acctSheet", "Sign In", `
+      ${heartRule}
       <p class="sheet__lead">We'll email you a 6 digit code. No password needed.</p>
       <form class="sheet__form" novalidate>
         <label>Email<input name="email" type="email" autocomplete="email" inputmode="email" required value="${esc(email)}" /></label>
         ${errLine}
-        <button class="btn" type="submit">Email me a code</button>
-        <p class="sheet__alt">New here? <button type="button" class="linkish" data-open="signup">Create a free account</button></p>
+        <button class="btn" type="submit">Email Me a Code</button>
+        <p class="sheet__alt">New here? <button type="button" class="linkish" data-open="signup">Create a Free Account</button></p>
       </form>`);
     const f = $("form", d);
     f.onsubmit = async (ev) => {
@@ -106,13 +109,13 @@
   }
 
   function openCode(email) {
-    const d = sheet("acctSheet", "Enter your code", `
+    const d = sheet("acctSheet", "Enter Your Code", `
       <p class="sheet__lead">If ${esc(email)} has an account, a code is on its way. Check spam if you don't see it.</p>
       <form class="sheet__form" novalidate>
         <label>Code<input name="code" autocomplete="one-time-code" inputmode="numeric" required maxlength="40" /></label>
         ${errLine}
-        <button class="btn" type="submit">Sign in</button>
-        <p class="sheet__alt"><button type="button" class="linkish" data-back>Use a different email</button></p>
+        <button class="btn" type="submit">Sign In</button>
+        <p class="sheet__alt"><button type="button" class="linkish" data-back>Use a Different Email</button></p>
       </form>`);
     const f = $("form", d);
     $("[data-back]", f).onclick = () => openSignin(email);
@@ -131,14 +134,14 @@
   function showAccount(flash = "") {
     if (!state.account) return state.team ? teamSheet() : openSignin();
     const a = state.account, al = state.allowance || {};
-    const d = sheet("acctSheet", "Your account", `
+    const d = sheet("acctSheet", "Your Account", `
       ${flash ? `<p class="sheet__ok">${esc(flash)}</p>` : ""}
       <dl class="sheet__dl"><dt>Name</dt><dd>${esc(a.name)}</dd><dt>Email</dt><dd>${esc(a.email)}</dd>${a.phone ? `<dt>Phone</dt><dd>${esc(a.phone)}</dd>` : ""}
       ${al.dailyLimit ? `<dt>Scans today</dt><dd>${al.usedToday || 0} of ${al.dailyLimit}</dd>` : ""}</dl>
       <div class="sheet__form">
         ${errLine}
-        <button class="btn ghost" type="button" data-signout>Sign out</button>
-        <button class="btn danger-link" type="button" data-delete>Delete my account</button>
+        <button class="btn ghost" type="button" data-signout>Sign Out</button>
+        <button class="btn danger-link" type="button" data-delete>Delete My Account</button>
       </div>`);
     const f = $(".sheet__form", d);
     $("[data-signout]", d).onclick = async () => {
@@ -149,12 +152,12 @@
   }
 
   function confirmDelete() {
-    const d = sheet("acctSheet", "Delete your account?", `
+    const d = sheet("acctSheet", "Delete Your Account?", `
       <p class="sheet__lead">This removes your name, email and phone for good. Feedback you sent stays, without your name on it.</p>
       <div class="sheet__form">
         ${errLine}
-        <button class="btn danger" type="button" data-yes>Delete for good</button>
-        <button class="btn ghost" type="button" data-no>Keep my account</button>
+        <button class="btn danger" type="button" data-yes>Delete for Good</button>
+        <button class="btn ghost" type="button" data-no>Keep My Account</button>
       </div>`);
     const f = $(".sheet__form", d);
     $("[data-no]", d).onclick = () => showAccount();
@@ -163,20 +166,20 @@
       try {
         state = await api("/api/account/delete", {});
         paint();
-        sheet("acctSheet", "Account deleted", '<p class="sheet__lead">Your account is gone. Thanks for trying Wine Babe.</p>');
+        sheet("acctSheet", "Account Deleted", '<p class="sheet__lead">Your account is gone. Thanks for trying Wine Babe.</p>');
       } catch (e) { err(f, e.message); busy(f, false); }
     };
   }
 
   function teamSheet() {
-    sheet("acctSheet", "Team login", `<p class="sheet__lead">You're signed in with the team password, so scans aren't limited.</p>
-      <div class="sheet__form"><a class="btn ghost" href="/admin">Feedback and costs</a><a class="btn ghost" href="/logout">Sign out of team</a></div>`);
+    sheet("acctSheet", "Team Login", `<p class="sheet__lead">You're signed in with the team password, so scans aren't limited.</p>
+      <div class="sheet__form"><a class="btn ghost" href="/admin">Feedback and Costs</a><a class="btn ghost" href="/logout">Sign Out of Team</a></div>`);
   }
 
   // ---------- Share feedback ----------
   function openFeedback() {
     const v = window.WB_VERSION || {};
-    const d = sheet("fbSheet", "Share feedback", `
+    const d = sheet("fbSheet", "Share Feedback", `
       <p class="sheet__lead">Found a bug or have an idea? We read every one.</p>
       <form class="sheet__form" novalidate>
         <div class="seg" role="radiogroup" aria-label="Kind of feedback">

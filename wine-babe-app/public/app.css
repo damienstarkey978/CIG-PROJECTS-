@@ -726,3 +726,10 @@ a.btn { text-decoration: none; }
 .card.wbs .wbs__ring::before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: linear-gradient(145deg, #cf8d98, #b9697c); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 0.55rem), #000 calc(100% - 0.55rem + 1px)); mask: radial-gradient(farthest-side, transparent calc(100% - 0.55rem), #000 calc(100% - 0.55rem + 1px)); }
 .card.wbs .wbs__ring .wbs__num { position: static; display: block; padding: 0; font-family: var(--serif); font-size: 2.55rem; font-weight: 700; line-height: 1; letter-spacing: -0.02em; color: #7d2a3f; }
 @media (max-width: 370px) { .card.wbs .wbs__ring { width: 4.8rem; height: 4.8rem; } .card.wbs .wbs__ring .wbs__num { font-size: 2.1rem; } }
+
+/* Wine Babe heart on the sign up / sign in cards, and a bigger logo up top */
+.sheet__heart { display: flex; align-items: center; gap: 0.7rem; margin: 0.5rem auto 0.1rem; max-width: 14rem; }
+.sheet__heart span { flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--blush-deep, #e8b9c2)); }
+.sheet__heart span:last-child { background: linear-gradient(270deg, transparent, var(--blush-deep, #e8b9c2)); }
+.sheet__heart img { width: 2.2rem; height: 2.2rem; object-fit: contain; }
+.top__home img { width: 11.5rem; }
