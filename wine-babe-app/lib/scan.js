@@ -2122,7 +2122,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     return out.filter((x) => x.text);
   })();
   const ask = (text) => [{ type: "text", text }];
-  const deadline = Date.now() + LOOKUP_MS;
+  let deadline = Date.now() + LOOKUP_MS;
   const webTools = (searches, fetches) => [
     { type: "web_search_20250305", name: "web_search", max_uses: searches },
     { type: "web_fetch_20250910", name: "web_fetch", max_uses: fetches },
@@ -2139,13 +2139,17 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   // older agent.
   const packetOn = HAS_UNLOCKER && !usageScope.getStore()?.noPacket;
   const evid = packetOn ? (async () => {
+    // The research window starts again once the packet is gathered, so the
+    // tech sheet reads that follow are not cut short by the page fetching.
+    const reopen = () => { deadline = Math.max(deadline, Date.now() + LOOKUP_MS); };
     try {
       const packet = await gatherEvidence(wine, site, diag);
-      if (!packet.pages.length && !packet.serp.length) { diag.push({ name: "packet", outcome: "no results, using the search agents" }); return null; }
+      if (!packet.pages.length && !packet.serp.length) { reopen(); diag.push({ name: "packet", outcome: "no results, using the search agents" }); return null; }
       const out = await readEvidence(wine, packet, diag, send, Date.now() + 35000);
+      reopen();
       if (!out) { diag.push({ name: "packet", outcome: "evidence read failed, using the search agents" }); return null; }
       return { packet, out };
-    } catch (err) { diag.push({ name: "packet", outcome: `error ${String(err.message || err).slice(0, 120)}, using the search agents` }); return null; }
+    } catch (err) { reopen(); diag.push({ name: "packet", outcome: `error ${String(err.message || err).slice(0, 120)}, using the search agents` }); return null; }
   })() : null;
   const viaPacket = (pick, legacy) => (evid ? evid.then((e) => (e ? pick(e) : legacy())) : legacy());
   const nutritionSearch = viaPacket((e) => ({ pages: [], ...e.out.nutrition }), () => runAgent({ diag,
