@@ -2158,11 +2158,12 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   const abvLookup = Promise.resolve(null);
 
   const techLookup = async () => {
-    const searched = viaPacket((e) => ({ pdf_urls: e.packet.pdfUrls }), () => runAgent({ diag,
-      name: "sheet-search", model: lookupModel(), system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline,
+    const sheetAgent = () => runAgent({ diag,
+      name: "sheet-search", model: lookupModel(), system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline: Date.now() + 25000,
       content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. Search exactly: ${brandAndName(wine)} tech specs`),
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
-    }));
+    });
+    const searched = viaPacket((e) => (e.packet.pdfUrls.length ? { pdf_urls: e.packet.pdfUrls } : sheetAgent()), sheetAgent);
     // Gather candidates from all routes, rank them together, then download
     // the best ones in order until one works.
     const tFast = Date.now();
