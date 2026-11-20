@@ -1592,7 +1592,8 @@ function buildSugarProfile({ wine, list, listSource, zeroDosageLabel, sheetDosag
 
 async function runAgent({ name, system, content, schema, tools = [], effort = "low", send, deadline, model = MODEL, diag = [] }) {
   const started = Date.now();
-  const note = (outcome, error) => diag.push({ name, model, ms: Date.now() - started, outcome, ...(error ? { error: String(error).slice(0, 300) } : {}) });
+  const mine = createUsage(); // what this one agent used, for the scan log
+  const note = (outcome, error) => { const u = summarizeUsage(mine); diag.push({ name, model, ms: Date.now() - started, outcome, cost: { dollars: u.dollars, calls: u.calls, searches: u.searches, inTok: u.inputTokens, outTok: u.outputTokens }, ...(error ? { error: String(error).slice(0, 300) } : {}) }); };
   const client = await getClient();
   const messages = [{ role: "user", content }];
   const ctrl = new AbortController();
@@ -1624,6 +1625,7 @@ async function runAgent({ name, system, content, schema, tools = [], effort = "l
     });
     return stream.finalMessage().then((msg) => {
       addUsage(usageScope.getStore(), msg);
+      addUsage(mine, msg);
       return msg;
     });
   };
