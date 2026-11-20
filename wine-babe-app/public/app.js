@@ -131,11 +131,18 @@
     show("scanning");
 
     try {
-      const res = await fetch("/api/scan-start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      // A dropped connection (a deploy, a weak signal) is retried quietly.
+      const body = JSON.stringify(payload);
+      let res;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          res = await fetch("/api/scan-start", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+          break;
+        } catch (e) {
+          if (attempt >= 2) throw new Error("We couldn't reach the scanner. Check your connection and try again.");
+          await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        }
+      }
       if (res.status === 401) { location.href = "/login"; return; }
       const start = await res.json().catch(() => ({}));
       if (start.needAccount && window.WB_ACCOUNT) {
