@@ -2796,7 +2796,8 @@ This run follows what is printed on the bottle: the barcode number and the compa
     if (eu.abv != null && n.abv == null) n.abv = eu.abv;
     // Verified sugar: winery-level sources for this wine, or a European shop
     // copy for the exact vintage. Never an estimate, never another vintage.
-    const sugarUsable = eu.sugars_100ml != null && !otherVintage && (evidence === "winery" || (evidence === "third_party" && vintageVerified));
+    // A winery, importer or e-label figure for another vintage of the same wine counts (sugar barely changes year to year) and says so; shops still need the exact year.
+    const sugarUsable = eu.sugars_100ml != null && ((evidence === "winery") || (!otherVintage && evidence === "third_party" && vintageVerified));
     if (sugarUsable && (n.residual_sugar_g_l == null || weak(n.source)) && !strong(best.sugar_under_1g)) {
       const bound = /</.test(eu.sugars_original || "");
       // "<0.5 g" is an upper bound: 0.5 g / 100 ml = about 0.74 g per 5 oz.
@@ -2813,7 +2814,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
       }
       n.source = evidence === "third_party" ? "third_party" : "winery";
       best.sugar_under_1g = { ...euBase, id: "sugar_under_1g", status: Math.round(per5 * 100) / 100 <= 1 ? "pass" : "fail", evidence,
-        detail: `${bound ? "Under " : ""}${per5.toFixed(2)} g ${kindLabel} per 5 oz: ${original} on the ${label}.` };
+        detail: `${bound ? "Under " : ""}${per5.toFixed(2)} g ${kindLabel} per 5 oz: ${original} on the ${label}.`, ...(otherVintage ? { scope: "this_wine" } : {}) };
       euDisclosure.sugar = {
         per_5oz: Math.round(per5 * 100) / 100,
         upper_bound: bound,
