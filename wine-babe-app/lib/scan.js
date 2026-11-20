@@ -14,7 +14,7 @@
 
 const { CHECKLIST, ALL_ITEMS, EVIDENCE } = require("../public/checklist.js");
 const { AsyncLocalStorage } = require("async_hooks");
-const { createUsage, addUsage, summarizeUsage } = require("./cost.js");
+const { createUsage, addUsage, addExtra, summarizeUsage } = require("./cost.js");
 
 // Collects token and web search usage for the scan running in this async context.
 const usageScope = new AsyncLocalStorage();
@@ -25,9 +25,9 @@ const MODEL = process.env.WINE_BABE_MODEL || "claude-sonnet-5-5";
 // Steps that need judgment (naming the wine and its site, choosing sources)
 // run on Sonnet: in live tests Haiku often refused to name a wine from text.
 const SMART_MODEL = process.env.WINE_BABE_SMART_MODEL || "claude-sonnet-5-5";
-// The search and read lookups (the bulk of a scan's cost) run on the much
-// cheaper Haiku model; Sonnet stays for naming the wine and reading sheets.
-const LOOKUP_MODEL = process.env.WINE_BABE_LOOKUP_MODEL || "claude-haiku-5-5";
+// The model for the lookups. Sonnet by default; set WINE_BABE_LOOKUP_MODEL to
+// use a cheaper one.
+const LOOKUP_MODEL = process.env.WINE_BABE_LOOKUP_MODEL || "claude-sonnet-5-5";
 const lookupModel = () => (usageScope.getStore()?.testSonnet ? SMART_MODEL : LOOKUP_MODEL);
 const BACKUP_MODEL = process.env.WINE_BABE_BACKUP_MODEL || "claude-sonnet-5-5";
 // Reading an attached tech sheet is simple extraction, so it uses the fastest model.
@@ -899,11 +899,13 @@ const OPEN_SHOPS = /(^|\.)(wholefoodsmarket\.com)$/i;
 const GROCER_NAMES = "Walmart, Target, Kroger, Total Wine & More, Wegmans, Albertsons, Safeway, Publix, Meijer, H-E-B, Instacart, Thrive Market, FreshDirect, BevMo!, Trader Joe's, Sprouts, Whole Foods";
 const HAS_UNLOCKER = Boolean(process.env.BRIGHTDATA_API_KEY);
 // Last Bright Data error, for the scan diagnostics (never includes the key).
+const BD_REQUEST_PRICE = 0.0015; // dollars per Bright Data request (estimate; check the Bright Data invoice)
 let unlockerLastError = "";
 let unlockerCalls = 0;
 async function unlockedFetch(url, ms = 20000) {
   if (!HAS_UNLOCKER) return null;
   unlockerCalls += 1;
+  addExtra(usageScope.getStore(), BD_REQUEST_PRICE);
   try {
     const res = await fetch("https://api.brightdata.com/request", {
       method: "POST",
@@ -1696,6 +1698,197 @@ async function runAgent({ name, system, content, schema, tools = [], effort = "l
   }
 }
 
+
+// ---------- research packet ----------
+// Instead of paying the model to run and re-read a dozen separate web
+// searches, the code runs the searches (Google results through Bright Data),
+// fetches the best pages, keeps only the sentences that matter, and ONE model
+// call reads that evidence. Falls back to the older search agents when it
+// cannot run.
+
+const SKIP_RESULT_HOSTS = /(^|\.)(facebook|instagram|pinterest|twitter|x|tiktok|reddit|youtube|linkedin|quora|yelp)\.com$|^youtu\.be$/i;
+const KEYWORD_RE = /vegan|animal|organic|biolog|non[\s-]?gmo|\bgmo\b|\bogm\b|sulphite|sulfite|\bso2\b|ingredient|contains|sugar|calorie|kcal|carb|abv|alcohol|% ?vol|harvest|hand[\s-]?pick|sustainab|certif|ccof|usda|demeter|gluten|fining|fined|residual|regenerat|b corp|climate|dry[\s-]farm|flavou?r|additive|no added/i;
+
+async function serpSearch(query) {
+  if (!HAS_UNLOCKER) return [];
+  const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en&gl=us&brd_json=1`;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const buf = await unlockedFetch(url, 15000);
+    if (!buf) continue;
+    try {
+      const d = JSON.parse(buf.toString("utf8"));
+      if (Array.isArray(d.organic) && d.organic.length) {
+        return d.organic.filter((r) => r && typeof r.link === "string").map((r, i) => ({
+          rank: i, title: String(r.title || ""), url: r.link, display: String(r.display_link || ""), snippet: String(r.description || ""), source: String(r.source || ""),
+        }));
+      }
+    } catch {}
+  }
+  return [];
+}
+
+// Google result links often go through a redirect page that names the real address.
+async function resolveResultUrl(url) {
+  if (!/^https:\/\/www\.google\.com\/(goto|url)\b/.test(url)) return url;
+  try {
+    const res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(6000), headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
+    const loc = res.headers.get("location");
+    if (loc && /^https?:/.test(loc)) return loc;
+    const m = (await res.text()).match(/HREF="([^"]+)"/i);
+    if (m) return m[1].replace(/&amp;/g, "&");
+  } catch {}
+  return "";
+}
+
+const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, "").toLowerCase(); } catch { return ""; } };
+
+// How much to trust a source for this wine: its own winery or brand first.
+function classifyResult(r, wine, siteHost) {
+  const hostText = hostOf(r.url.startsWith("http") && !/google\.com/.test(r.url) ? r.url : (r.display.split(" ")[0] || ""));
+  const prod = norm(wine.producer).split(" ").filter((w) => w.length > 3);
+  const disp = (r.display || "").toLowerCase();
+  const ownHost = (siteHost && (hostText.endsWith(siteHost) || disp.includes(siteHost))) || prod.some((w) => disp.includes(w) || hostText.includes(w));
+  if (/barnivore\.com/.test(disp) || /barnivore\.com/.test(hostText)) return { kind: "barnivore", score: 0 };
+  if (ownHost) return { kind: "winery", score: 100 };
+  if (HARD_SHOPS.test(hostText) || new RegExp(GROCER_HOSTS, "i").test(disp.replace(/^https?:\/\//, "").split(/[\s›/]/)[0])) return { kind: "retailer", score: 70 };
+  if (/ccof|usda\.gov|demeter|equalitas|sqnpi|vegan\.org|bcorporation/.test(disp)) return { kind: "certifier", score: 60 };
+  if (/vivino|wine-searcher|cellartracker/.test(disp)) return { kind: "retailer", score: 15 };
+  return { kind: "retailer", score: 40 };
+}
+
+// Does a page's text belong to this exact wine (not another wine of the brand)?
+function textFitsWine(text, wine) {
+  const nameWords = norm(wine.name).split(" ").filter((w) => w.length > 2);
+  if (!nameWords.length) return true;
+  const words = new Set(norm(text.slice(0, 6000)).split(" "));
+  const hits = nameWords.filter((w) => words.has(w)).length;
+  const need = STYLE_WORDS.filter((w) => REQUIRED_STYLE.has(w) && nameWords.includes(w));
+  return hits >= Math.ceil(nameWords.length * 0.6) && need.every((w) => words.has(w));
+}
+
+// The few lines of a page that carry facts about the wine.
+function excerptOf(text, max = 1700) {
+  const lines = String(text || "").split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 3);
+  const keep = [];
+  let used = 0;
+  const head = lines.slice(0, 2).join(" ").slice(0, 200);
+  if (head) { keep.push(head); used += head.length; }
+  for (const l of lines) {
+    if (!KEYWORD_RE.test(l)) continue;
+    const t = l.slice(0, 320);
+    if (keep.includes(t)) continue;
+    if (used + t.length > max) break;
+    keep.push(t); used += t.length;
+  }
+  return keep.join("\n");
+}
+
+async function gatherEvidence(wine, site, diag) {
+  const name = brandAndName(wine);
+  const siteHost = hostOf(site || "");
+  const queries = [
+    ["nutrition", `${name} nutrition facts`],
+    ["specs", `${name} tech specs`],
+    ["ingredients", `${name} ingredients`],
+    ["claims", `${name} vegan organic non GMO sustainable gluten free`],
+    ["barnivore", `barnivore ${wine.producer || name}`],
+    ["label", `${name} back label`],
+    ...(siteHost ? [["site", `site:${siteHost} ${wine.name}`]] : []),
+  ];
+  const t0 = Date.now();
+  const results = await Promise.all(queries.map(async ([k, q]) => ({ k, q, res: await serpSearch(q) })));
+  diag.push({ name: "serp", ms: Date.now() - t0, outcome: results.map((r) => `${r.k}:${r.res.length}`).join(" ") });
+
+  const nameWords = norm(wine.name).split(" ").filter((w) => w.length > 2 && !VARIETIES.some((v) => v.split(" ").includes(w)));
+  const seen = new Set();
+  const all = [];
+  for (const { k, res } of results) for (const r of res) {
+    const key = `${r.display}|${r.title}`;
+    if (seen.has(key)) continue; seen.add(key);
+    const hay = `${r.title} ${r.snippet} ${r.display}`.toLowerCase();
+    if (nameWords.length && !nameWords.some((w) => hay.includes(w))) continue; // not about this wine
+    if (SKIP_RESULT_HOSTS.test(hostOf(r.display.split(" ")[0]))) continue;
+    const c = classifyResult(r, wine, siteHost);
+    all.push({ ...r, q: k, kind: c.kind, score: c.score + (10 - Math.min(10, r.rank)) + (k === "nutrition" || k === "ingredients" ? 3 : 0) });
+  }
+  // Barnivore entry for the producer.
+  const bvCand = results.find((r) => r.k === "barnivore")?.res.filter((r) => /barnivore\.com/.test(`${r.display} ${r.url}`)) || [];
+  let barnivoreUrl = "";
+  for (const r of bvCand.slice(0, 3)) {
+    const u = await resolveResultUrl(r.url);
+    if (/barnivore\.com\/(wine|products)\//i.test(u)) { barnivoreUrl = u; break; }
+  }
+  // Tech sheet PDFs found by the specs search.
+  const pdfCands = (results.find((r) => r.k === "specs")?.res || []).filter((r) => /\.pdf|pdf/i.test(`${r.display} ${r.url}`)).slice(0, 4);
+  const pdfUrls = (await Promise.all(pdfCands.map((r) => resolveResultUrl(r.url)))).filter((u) => /^https?:\/\//.test(u));
+  // Best pages to read.
+  const picks = all.filter((r) => r.kind !== "barnivore").sort((a, b) => b.score - a.score).slice(0, 9);
+  const resolved = await Promise.all(picks.map(async (r) => ({ ...r, real: await resolveResultUrl(r.url) })));
+  const pagesToRead = resolved.filter((r) => /^https?:\/\//.test(r.real) && !/\.pdf(\?|$)/i.test(r.real) && !/(^|\.)kroger\.com$/.test(hostOf(r.real)));
+  const t1 = Date.now();
+  const read = await Promise.all(pagesToRead.map(async (r) => ({ ...r, text: await pageText(r.real, 14000).catch(() => "") })));
+  const usable = read.filter((r) => r.text && textFitsWine(r.text, wine));
+  diag.push({ name: "pages", ms: Date.now() - t1, outcome: `${usable.length}/${read.length} read and about this wine: ${usable.map((r) => hostOf(r.real)).join(", ")}`.slice(0, 300) });
+  return {
+    serp: all.slice(0, 24).map((r) => ({ title: r.title, display: r.display, snippet: r.snippet, kind: r.kind })),
+    pages: usable.map((r) => ({ url: r.real, kind: r.kind, host: hostOf(r.real), excerpt: excerptOf(r.text), text: r.text })),
+    barnivoreUrl, pdfUrls,
+    labelPages: resolved.map((r) => r.real).filter((u) => /^https?:\/\//.test(u)).slice(0, 6),
+  };
+}
+
+const EVIDENCE_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["nutrition", "ingredients", "claims"],
+  properties: {
+    nutrition: {
+      type: "object", additionalProperties: false,
+      required: ["calories_5oz", "carbs_5oz", "sugar_g_5oz", "residual_sugar_g_l", "abv", "source_url", "source_kind"],
+      properties: {
+        calories_5oz: { type: ["number", "null"] }, carbs_5oz: { type: ["number", "null"] }, sugar_g_5oz: { type: ["number", "null"] },
+        residual_sugar_g_l: { type: ["number", "null"] }, abv: { type: ["number", "null"] },
+        source_url: { type: "string" }, source_kind: { type: "string", enum: ["winery", "importer", "retailer", "other", "none"] },
+      },
+    },
+    ingredients: {
+      type: "object", additionalProperties: false, required: ["found", "ingredients", "source", "source_url"],
+      properties: { found: { type: "boolean" }, ingredients: { type: "array", items: { type: "string" } }, source: { type: "string", enum: ["winery", "importer", "elabel", "retailer", "none"] }, source_url: { type: "string" } },
+    },
+    claims: {
+      type: "array",
+      items: {
+        type: "object", additionalProperties: false, required: ["claim", "polarity", "source_kind", "url", "quote", "this_wine"],
+        properties: {
+          claim: { type: "string", enum: LABEL_CLAIMS },
+          polarity: { type: "string", enum: ["yes", "no"] },
+          source_kind: { type: "string", enum: ["brand", "winery", "importer", "distributor", "retailer", "certifier"] },
+          url: { type: "string" }, quote: { type: "string" }, this_wine: { type: "boolean" },
+        },
+      },
+    },
+  },
+};
+const EVIDENCE_SYSTEM = `You read evidence about ONE wine for the Wine Babe app and fill in what it states. The evidence is search results (titles and snippets) and excerpts from web pages, each with its address. Use only this evidence; never add anything from memory.
+nutrition: per 5 oz (147.87 ml) figures. If a page gives per 100 ml, multiply by 1.4787; a label per serving of 5 oz is already per 5 oz. Take numbers only from a page about this exact wine (winery, importer or retailer product page). Null for anything not stated. source_url is the page, source_kind its type.
+ingredients: only an explicit ingredient list for this exact wine, in the order listed (found true). "Wine" or "Grapes" alone from a shop is not a list: found false unless two or more items. Contains sulfites alone is not a list.
+claims: one entry per claim a page makes about this wine, with the page address in url and the exact short wording in quote. Claims: ${LABEL_CLAIMS.join(", ")}. polarity "yes" when the page says it is so, "no" when it says it is not (for example "not vegan", "not certified organic"). this_wine true only when the page is about this exact wine; false for a brand wide statement. source_kind: brand or winery for the producer's own pages, importer or distributor, retailer for shops, certifier for a certifying body. Never infer: "low sugar" is not "no added sugar", "natural" is not "organic", "sustainable" needs a stated practice or certification.
+If the evidence does not say, leave it out.`;
+
+async function readEvidence(wine, packet, diag, send, deadline) {
+  let text = `Wine: ${wineLine(wine)}\n\nSEARCH RESULTS\n`;
+  packet.serp.forEach((r, i) => { text += `- ${r.title} (${r.display}) [${r.kind}]: ${r.snippet.slice(0, 260)}\n`; });
+  text += "\nPAGES (excerpts)\n";
+  let budget = 21000;
+  for (const p of packet.pages) {
+    const ex = p.excerpt.slice(0, Math.min(1700, budget));
+    if (!ex) continue;
+    text += `\n[${p.kind}] ${p.url}\n${ex}\n`;
+    budget -= ex.length;
+    if (budget <= 0) break;
+  }
+  const out = await runAgent({ diag, name: "evidence", model: SMART_MODEL, system: EVIDENCE_SYSTEM, schema: EVIDENCE_SCHEMA, send, deadline, content: [{ type: "text", text }], tools: [] });
+  return out;
+}
+
 // ---------- merge ----------
 
 const STATUS_RANK = { pass: 3, fail: 3, na: 2, unknown: 0 };
@@ -1940,21 +2133,35 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   let producerOrigin = "";
   let sheetNumsSeen = null;
   // Started up front so it runs alongside everything else.
-  const nutritionSearch = runAgent({ diag,
+  // The research packet (see gatherEvidence). When it works it replaces the
+  // separate search agents; if it cannot run, each lookup falls back to its
+  // older agent.
+  const packetOn = HAS_UNLOCKER && !usageScope.getStore()?.noPacket;
+  const evid = packetOn ? (async () => {
+    try {
+      const packet = await gatherEvidence(wine, site, diag);
+      if (!packet.pages.length && !packet.serp.length) { diag.push({ name: "packet", outcome: "no results, using the search agents" }); return null; }
+      const out = await readEvidence(wine, packet, diag, send, deadline);
+      if (!out) { diag.push({ name: "packet", outcome: "evidence read failed, using the search agents" }); return null; }
+      return { packet, out };
+    } catch (err) { diag.push({ name: "packet", outcome: `error ${String(err.message || err).slice(0, 120)}, using the search agents` }); return null; }
+  })() : null;
+  const viaPacket = (pick, legacy) => (evid ? evid.then((e) => (e ? pick(e) : legacy())) : legacy());
+  const nutritionSearch = viaPacket((e) => ({ pages: [], ...e.out.nutrition }), () => runAgent({ diag,
     name: "nutrition-search", model: lookupModel(), system: NUTRITION_SEARCH_SYSTEM, schema: NUTRITION_SCHEMA, send, deadline: deadline - 4000,
     content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. Search exactly: ${brandAndName(wine)} nutrition facts`),
     tools: webTools(2, 1),
-  });
+  }));
 
   // ABV comes from the tech sheet, the label and the nutrition lookup: no separate search.
   const abvLookup = Promise.resolve(null);
 
   const techLookup = async () => {
-    const searched = runAgent({ diag,
+    const searched = viaPacket((e) => ({ pdf_urls: e.packet.pdfUrls }), () => runAgent({ diag,
       name: "sheet-search", model: lookupModel(), system: SHEET_SEARCH_SYSTEM, schema: PDF_URLS_SCHEMA, send, deadline,
       content: ask(`Wine: ${wineLine(wine)}. Winery website: ${site || "unknown"}. Search exactly: ${brandAndName(wine)} tech specs`),
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
-    });
+    }));
     // Gather candidates from all routes, rank them together, then download
     // the best ones in order until one works.
     const tFast = Date.now();
@@ -2150,11 +2357,11 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   };
 
   const barnivoreLookup = async () => {
-    const found = await runAgent({ diag,
+    const found = await (await viaPacket((e) => ({ url: e.packet.barnivoreUrl || "" }), () => runAgent({ diag,
       name: "barnivore-find", model: lookupModel(), system: BARNIVORE_FIND_SYSTEM, schema: URL_SCHEMA, send, deadline: deadline - 6000,
       content: ask(`Producer: ${wine.producer}. Country: ${wine.country || "unknown"}.`),
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
-    });
+    })));
     if (!found?.url) return null;
     const bv = await readBarnivore(found.url);
     diag.push({ name: "barnivore", outcome: bv.error ? `${bv.error}: ${found.url}` : `${bv.status} (${bv.as_of}): ${found.url}` });
@@ -2166,28 +2373,28 @@ This is a second try: you MUST run a web search for the exact wine name first. I
 
   // Second pass when the first finds nothing: many winery sites block
   // fetching, but the importer usually publishes the same notes.
-  const ingredientsLookup = runAgent({ diag,
+  const ingredientsLookup = viaPacket((e) => e.out.ingredients, () => runAgent({ diag,
     name: "ingredients", model: lookupModel(), system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline,
     content: ask(`Wine: ${wineLine(wine)}. Search exactly: ${brandAndName(wine)} ingredients`),
     tools: webTools(1, 1),
-  }).catch(() => null);
+  }).catch(() => null));
 
   // Claims published online (brand, winery, distributor, retailers).
-  const claimsLookup = runAgent({ diag,
+  const claimsLookup = viaPacket((e) => ({ claims: e.out.claims.filter((c) => c.source_kind !== "certifier").map((c) => ({ ...c })).concat(e.out.claims.filter((c) => c.source_kind === "certifier").map((c) => ({ ...c, source_kind: "winery" }))) }), () => runAgent({ diag,
     name: "online-claims", model: lookupModel(), system: ONLINE_CLAIMS_SYSTEM, schema: ONLINE_CLAIMS_SCHEMA, send, deadline,
     content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} non GMO vegan gluten free\n2. ${brandAndName(wine)} organic sustainable no added sugar flavors`),
     tools: webTools(2, 3),
-  }).catch(() => null);
+  }).catch(() => null));
 
   // Label photos posted online (distributors, importers, shops): find the
   // pages, pull the label images, and read them like a bottle photo.
   const onlineLabelLookup = (async () => {
-    const found = await runAgent({ diag,
+    const found = await await viaPacket((e) => ({ pages: e.packet.labelPages.map((url) => ({ url, kind: "retailer" })), image_urls: [] }), () => runAgent({ diag,
       name: "label-pages", model: lookupModel(), system: LABEL_PAGES_SYSTEM, schema: LABEL_PAGES_SCHEMA, send, deadline: deadline - 9000,
       content: ask(`Wine: ${wineLine(wine)}. Brand / winery website: ${site || "unknown"}.\nSearch exactly:\n1. ${brandAndName(wine)} back label
 2. ${brandAndName(wine)} distributor tech sheet`),
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
-    }).catch(() => null);
+    }).catch(() => null));
     if (!found) return null;
     const wfPages = (await wfLookup).map((url) => ({ url, kind: "retailer" }));
     const pages = [...wfPages, ...(found.pages || [])].filter((p) => /^https?:\/\//.test(p.url)).filter((p, i, a) => a.findIndex((q) => q.url === p.url) === i).slice(0, 7);
@@ -2228,12 +2435,12 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   })().catch(() => null);
 
   // Walmart and Whole Foods list full ingredient panels for many wines.
-  const wfLookup = runAgent({ diag,
+  const wfLookup = viaPacket(() => [], () => runAgent({ diag,
     name: "wholefoods-find", model: lookupModel(), schema: URL_LIST_SCHEMA, send, deadline,
     system: `Find this exact wine's product page on Whole Foods Market (wholefoodsmarket.com/grocery/product/...). Same brand, same wine and variety (a brand's Chardonnay page is not its Pinot Noir). Return up to 2 urls, best first; empty if none.`,
     content: ask(`Wine: ${wineLine(wine)}. Search: ${brandAndName(wine)}`),
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1, allowed_domains: ["wholefoodsmarket.com"] }],
-  }).then((r) => (r?.urls || []).filter((u) => /wholefoodsmarket\.com\/(grocery\/)?product\//.test(u)).slice(0, 2)).catch(() => []);
+  }).then((r) => (r?.urls || []).filter((u) => /wholefoodsmarket\.com\/(grocery\/)?product\//.test(u)).slice(0, 2)).catch(() => []));
 
   const GROCER_SEARCH_DOMAINS = ["wholefoodsmarket.com", "thrivemarket.com", "walmart.com", "target.com", "kroger.com", "totalwine.com", "wegmans.com", "albertsons.com", "safeway.com", "publix.com", "meijer.com", "heb.com", "instacart.com", "freshdirect.com", "bevmo.com", "traderjoes.com", "sprouts.com", "amazon.com"];
   const runGrocers = () => runAgent({ diag,
@@ -2270,7 +2477,7 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
     return g;
   });
   // The grocer search only runs when the winery's own ingredient search found no list.
-  const grocerIngredientsLookup = ingredientsLookup.then((own) => (cleanIngredients(own, wine).ingredients.length ? null : runGrocers())).catch(() => null);
+  const grocerIngredientsLookup = viaPacket(() => null, () => ingredientsLookup.then((own) => (cleanIngredients(own, wine).ingredients.length ? null : runGrocers())).catch(() => null));
 
   // Anything scannable or traceable on the bottle: QR codes (from the shopper's
   // photo or label photos found online), the barcode number and the
@@ -2383,7 +2590,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
 
   // No typical tasting notes: only the winery's or importer's own.
 
-  const tastingLookup = (async () => {
+  const tastingLookup = viaPacket(() => null, () => (async () => {
     const first = await runAgent({ diag,
       name: "tasting", model: lookupModel(), system: tastingPrompt(wine, site, page), schema: TASTING_SCHEMA, send, deadline,
       content: ask("Find the winery's tasting notes and food pairings for this wine."), tools: webTools(1, 2),
@@ -2394,23 +2601,23 @@ This run follows what is printed on the bottle: the barcode number and the compa
       content: ask(`The winery's own site gave nothing. Search "${[wine.producer, wine.name].filter(Boolean).join(" ")} importer tasting notes food pairing" and use the official importer's or distributor's page for this exact wine.`),
       tools: webTools(2, 2),
     }).catch(() => null);
-  })();
+  })());
 
-  const ratingsLookup = runAgent({ diag,
+  const ratingsLookup = viaPacket(() => null, () => runAgent({ diag,
     name: "ratings", model: lookupModel(), system: ratingsPrompt(wine), schema: RATINGS_SCHEMA, send, deadline,
     content: ask("Find this wine's professional critic ratings."), tools: webTools(1, 1),
-  }).catch(() => null);
+  }).catch(() => null));
 
   let [tech, farm, vegan, cert, barnivore] = await Promise.all([
     techLookup(),
-    runAgent({ diag,
+    viaPacket(() => null, () => runAgent({ diag,
       name: "farm", model: lookupModel(), system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline,
       content: ask("Check farming and certifications and fill the items."), tools: webTools(1, 2),
-    }),
-    runAgent({ diag,
+    })),
+    viaPacket(() => null, () => runAgent({ diag,
       name: "vegan", model: lookupModel(), system: veganPrompt(wine, site), schema: agentSchema(VEGAN_IDS, false), send, deadline,
       content: ask("Check vegan status and fill the items."), tools: webTools(1, 1),
-    }),
+    })),
     certScan(site, wine.country, diag),
     barnivoreLookup(),
   ]);
@@ -2918,7 +3125,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
       let host = "";
       try { host = new URL(c.url).hostname.replace(/^www\./, ""); } catch {}
       const label = { brand: "Brand website", winery: "Winery website", importer: "Importer", distributor: "Distributor", retailer: "Retailer" }[c.source_kind] || "Online";
-      best[id] = { id, status: "pass", evidence: own ? "winery" : "retailer", scope: own && !c.this_wine ? "producer" : "this_wine", as_of: "",
+      best[id] = { id, status: c.polarity === "no" ? "fail" : "pass", evidence: own ? "winery" : "retailer", scope: own && !c.this_wine ? "producer" : "this_wine", as_of: "",
         detail: `${label} (${host}): "${String(c.quote || CLAIM_TEXT[c.claim]).slice(0, 140)}"`, source_url: c.url, origin: `${label}: ${host}` };
       used.push(`${id}@${host}`);
     }
@@ -3171,6 +3378,7 @@ async function runDemo(send) {
 async function runScan(input, send, cache) {
   const usage = createUsage();
   usage.testSonnet = Boolean(input && input.testSonnet);
+  usage.noPacket = Boolean(input && input.noPacket);
   const result = await usageScope.run(usage, () => runScanInner(input, send, cache));
   if (result && typeof result === "object") result.cost = summarizeUsage(usage);
   return result;

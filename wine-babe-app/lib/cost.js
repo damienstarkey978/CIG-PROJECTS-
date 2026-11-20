@@ -18,7 +18,7 @@ function priceFor(model) {
 }
 
 function createUsage() {
-  return { calls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, searches: 0, fetches: 0, tokenDollars: 0 };
+  return { calls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, searches: 0, fetches: 0, tokenDollars: 0, extraDollars: 0, extraCalls: 0 };
 }
 
 // Adds one API response's usage. Safe to call with no accumulator or no usage.
@@ -40,6 +40,13 @@ function addUsage(acc, msg) {
   acc.tokenDollars += (inp * p.in + out * p.out + cr * p.cacheRead + cw * p.cacheWrite) / 1e6;
 }
 
+// Adds a cost that is not tokens or web searches (for example a Bright Data request).
+function addExtra(acc, dollars) {
+  if (!acc) return;
+  acc.extraDollars += dollars;
+  acc.extraCalls += 1;
+}
+
 function summarizeUsage(acc) {
   const searchDollars = acc.searches * SEARCH_PRICE;
   const round = (n) => Math.round(n * 10000) / 10000;
@@ -53,8 +60,10 @@ function summarizeUsage(acc) {
     fetches: acc.fetches,
     tokenDollars: round(acc.tokenDollars),
     searchDollars: round(searchDollars),
-    dollars: round(acc.tokenDollars + searchDollars),
+    extraDollars: round(acc.extraDollars),
+    extraCalls: acc.extraCalls,
+    dollars: round(acc.tokenDollars + searchDollars + acc.extraDollars),
   };
 }
 
-module.exports = { createUsage, addUsage, summarizeUsage, priceFor };
+module.exports = { createUsage, addUsage, addExtra, summarizeUsage, priceFor };
