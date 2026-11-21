@@ -1727,12 +1727,19 @@ const KEYWORD_RE = /vegan|animal|organic|biolog|non[\s-]?gmo|\bgmo\b|\bogm\b|sul
 let serpFails = [];
 async function serpSearch(query) {
   if (!HAS_UNLOCKER) return [];
-  const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en&gl=us&brd_json=1`;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // The search service locks an address for a minute after it fails once, so
+  // every try uses a slightly different address for the same search.
+  const variants = ["", "&num=10", "&pws=0", "&num=10&pws=0&filter=0"];
+  const nonce = Math.floor(Math.random() * 3);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en&gl=us${variants[(attempt + nonce) % variants.length]}&brd_json=1`;
+    if (attempt) await new Promise((r) => setTimeout(r, 400 * attempt));
     const buf = await unlockedFetch(url, 15000);
     if (!buf) { serpFails.push(`a${attempt} no reply (${unlockerLastError})`); continue; }
     try {
       const d = JSON.parse(buf.toString("utf8"));
+      // A real answer with no results (a narrow filetype or site search) is final.
+      if (d.general && Number(d.general.results_cnt) === 0 && !(Array.isArray(d.organic) && d.organic.length)) return [];
       if (!(Array.isArray(d.organic) && d.organic.length)) serpFails.push(`a${attempt} ${buf.length}b keys ${Object.keys(d).slice(0, 8).join(",")} ${JSON.stringify(d.general || d.error || "").slice(0, 120)}`);
       if (Array.isArray(d.organic) && d.organic.length) {
         return d.organic.filter((r) => r && typeof r.link === "string").map((r, i) => ({
