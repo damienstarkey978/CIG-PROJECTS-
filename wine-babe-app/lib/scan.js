@@ -2236,6 +2236,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   })();
   const ask = (text) => [{ type: "text", text }];
   let deadline = Date.now() + LOOKUP_MS;
+  const tLook = Date.now();
   const webTools = (searches, fetches) => [
     { type: "web_search_20250305", name: "web_search", max_uses: searches },
     { type: "web_fetch_20250910", name: "web_fetch", max_uses: fetches },
@@ -2609,6 +2610,7 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
   // "bottled by" line. Each is followed to look for the ingredient list.
   const codesIngredientsLookup = (async () => {
     const ol = await onlineLabelLookup;
+    diag.push({ name: "t", outcome: "after onlineLabel", ms: Date.now() - tLook });
     const lcs = [id.label_claims || {}, ol?.claims || {}];
     const bottler = lcs.map((x) => String(x.bottled_by || "").trim()).find(Boolean) || "";
     const barcode = [id.ean, ...lcs.map((x) => x.barcode)].map((x) => String(x || "").replace(/\D/g, "")).find((x) => x.length >= 8 && x.length <= 14) || "";
@@ -2746,6 +2748,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
     certScan(site, wine.country, diag),
     barnivoreLookup(),
   ]);
+  diag.push({ name: "t", outcome: "after tech+barnivore", ms: Date.now() - tLook });
   // Rescue path found the winery's domain: run the certification check there.
   if (!cert && !site && producerOrigin) cert = await certScan(producerOrigin, wine.country, diag);
 
@@ -2800,6 +2803,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
       return hits >= Math.ceil(nameWords.length * 0.6) && needStyle.every((w) => words.has(w));
     };
     const pps = await productPages;
+    diag.push({ name: "t", outcome: "after productPages", ms: Date.now() - tLook });
     diag.push({ name: "product-page", outcome: pps.map((x) => `${x.url}: ${x.text.length}c fits ${pageFits(x.text)} harvest ${HAND_HARVEST_RE.test(x.text)}`).join(" | ").slice(0, 360) || "none found" });
     const pools = [
       ...markSources.filter((m) => m.label !== "Label").map((m) => ({ text: m.text, url: m.url, where: m.label === "Tech sheet" ? "tech sheet" : "winery page" })),
@@ -2856,6 +2860,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
   // EU declaration: a legally required label, so it beats estimates and
   // typical values, and its ingredient list scores the additive items.
   const euRes = await euLookup;
+  diag.push({ name: "t", outcome: "after eu", ms: Date.now() - tLook });
   const eu = euRes?.facts || null;
   const euStatus = euRes?.status || { applicable: false, note: "", steps: [], complete: true };
   const euDisclosure = {
@@ -3033,6 +3038,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
   // Fill gaps from the nutrition search, only when the figures come from the
   // winery or its importer.
   const ns = await nutritionSearch;
+  diag.push({ name: "t", outcome: "after nutrition", ms: Date.now() - tLook });
   if (ns && (ns.source_kind === "winery" || ns.source_kind === "importer") && ns.source_url) {
     if (!tech) tech = { checks: [], sources: [], nutrition: { ...EMPTY_NUTRITION }, tech_sheet_url: "", tech_sheet_vintage: "" };
     tech.nutrition = tech.nutrition || { ...EMPTY_NUTRITION };
@@ -3240,6 +3246,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
   // site counts as the winery; distributors and retailers are labeled as such.
   {
     const oc = await claimsLookup;
+    diag.push({ name: "t", outcome: "after claims", ms: Date.now() - tLook });
     const used = [];
     const kindOrder = { brand: 0, winery: 0, importer: 1, distributor: 1, retailer: 2 };
     for (const c of [...(oc?.claims || [])].sort((a, b) => (kindOrder[a.source_kind] ?? 3) - (kindOrder[b.source_kind] ?? 3))) {
@@ -3276,6 +3283,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
     .slice(0, 12);
 
   const ratings = cleanRatings(await ratingsLookup, wine);
+  diag.push({ name: "t", outcome: "after ratings", ms: Date.now() - tLook });
   let tasting = cleanTasting(await tastingLookup);
 
   diag.push({ name: "tasting-found", outcome: tasting ? `${tasting.source}: ${tasting.source_url}` : "none" });
@@ -3300,6 +3308,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
         diag.push({ name: "ingredients-codes-used", outcome: codes.ingredients.length ? `${codes.source} ${codes.source_url}: ${codes.ingredients.join(", ")}`.slice(0, 300) : "none" });
         if (codes.ingredients.length) return codes;
         const gRaw = await grocerIngredientsLookup;
+        diag.push({ name: "t", outcome: "after grocer", ms: Date.now() - tLook });
         diag.push({ name: "ingredients-grocer-raw", outcome: gRaw ? `${gRaw.found} ${gRaw.source} ${gRaw.source_url} [${(gRaw.ingredients || []).join(", ")}]`.slice(0, 300) : "no answer" });
         const g = cleanIngredients(gRaw, wine);
         diag.push({ name: "ingredients-grocer-used", outcome: g.ingredients.length ? `${g.source_url}: ${g.ingredients.join(", ")}`.slice(0, 300) : "none" });
@@ -3322,6 +3331,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
   diag.push({ name: "unlocker", outcome: HAS_UNLOCKER ? `on, ${unlockerCalls} calls${unlockerLastError ? `, last error ${unlockerLastError}` : ""}` : "off" });
   {
     const ol = await onlineLabelLookup;
+    diag.push({ name: "t", outcome: "after onlineLabel", ms: Date.now() - tLook });
     if (ol?.claims) {
       const applied = applyLabelClaims(result, ol.claims, true, ol.src);
       Object.assign(result, { checks: applied.checks, nutrition: applied.nutrition, debug: applied.debug });
