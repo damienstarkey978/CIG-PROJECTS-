@@ -3179,6 +3179,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
       if (!id || !/^https?:\/\//.test(c.url || "")) continue;
       const own = c.source_kind === "brand" || c.source_kind === "winery";
       if (!own && !c.this_wine) continue; // a shop's brand wide blurb is too loose
+      if (c.polarity === "no" && c.source_kind === "retailer") continue; // a shop's auto written "not gluten free / not vegan" answer is not a verified negative
       const cur = best[id];
       if (cur && (cur.status === "pass" || cur.status === "fail") && ["lab", "certified", "winery", "third_party", "retailer"].includes(cur.evidence)) continue;
       let host = "";
