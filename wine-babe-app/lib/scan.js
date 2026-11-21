@@ -2846,11 +2846,34 @@ This run follows what is printed on the bottle: the barcode number and the compa
     // let the reader pick this wine's declaration.
     const round = async (plans, carried) => {
       status.rounds += 1;
-      const results = await Promise.all(plans.map((p) => runAgent({ diag,
+      // New research flow: the European searches run in code (no search agents); the pages found are read as before.
+      const euSearchCode = async (p) => {
+        const t0e = Date.now();
+        const lists = await Promise.all(p.queries.map((q) => serpSearch(q)));
+        const words = norm(wine.name).split(" ").filter((w) => w.length > 2 && !KEY_NOISE.has(w));
+        const pt = producerTokens(wine);
+        const pages = [], snippet_sugar = [];
+        const SUG = /(zuccher\w*|sucres?|zucker|az[uú]car\w*|a[cç][uú]car\w*|sugars?)[^0-9<\n]{0,30}((?:<|less than|meno di|moins de|unter)?\s*\d+[.,]?\d*\s*g(?:\s*\/\s*(?:100\s*ml|l))?)/i;
+        for (const r of lists.flat().slice(0, 24)) {
+          const hay = norm(`${r.title} ${r.snippet} ${r.display}`);
+          if ((words.length && !words.some((w) => hay.includes(w))) || (pt.length && !pt.some((w) => hay.includes(w)))) continue;
+          const u = await resolveResultUrl(r.url);
+          if (!/^https?:\/\//.test(u) || pages.some((x) => x.url === u)) continue;
+          const h = hostOf(u);
+          if (SKIP_RESULT_HOSTS.test(h)) continue;
+          const kind = /e-?label|scantrust|u-label|bottlebooks|vinid|qr\.|digital-?label|wine-?label/i.test(h) ? "elabel" : classifyResult({ ...r, url: u }, wine, hostOf(site || "")).kind === "winery" ? "winery" : "retailer";
+          pages.push({ url: u, kind });
+          const m = `${r.title} ${r.snippet}`.match(SUG);
+          if (m) snippet_sugar.push({ url: u, kind, sugars_original: `${m[1]} ${m[2]}`.replace(/\s+/g, " ").trim(), vintage: (`${r.title} ${r.snippet}`.match(/\b(20[12]\d)\b/) || [])[1] || "" });
+        }
+        diag.push({ name: p.name, ms: Date.now() - t0e, outcome: `code search: ${pages.length} pages, ${snippet_sugar.length} sugar snippets` });
+        return { pages: pages.slice(0, 6), snippet_sugar: snippet_sugar.slice(0, 4) };
+      };
+      const results = await Promise.all(plans.map((p) => (packetOn ? euSearchCode(p).catch(() => null) : runAgent({ diag,
         name: p.name, model: lookupModel(), system: euSearchSystem(wine, p.queries), schema: EU_SEARCH_SCHEMA, send, deadline: deadline - 5000,
         content: ask("Run the searches and return the pages."),
         tools: [{ type: "web_search_20250305", name: "web_search", max_uses: p.queries.length }],
-      }).catch(() => null)));
+      }).catch(() => null))));
       results.forEach((r, i) => { status.steps.push(plans[i].name); if (!r) status.complete = false; });
       const pages = [];
       for (const p of results.flatMap((r) => r?.pages || []).sort((a, b) => (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9))) {
