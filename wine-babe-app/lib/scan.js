@@ -941,20 +941,20 @@ async function unlockedHtml(url, ms = 20000) {
   return buf ? buf.toString("utf8").slice(0, 4_000_000) : "";
 }
 
-async function pageText(url, ms = 7000) {
+async function pageText(url, ms = 7000, max = 12000) {
   let u;
   try { u = new URL(url); } catch { return ""; }
   if (!/^https?:$/.test(u.protocol) || !isPublicHost(u)) return "";
   if (HAS_UNLOCKER && HARD_SHOPS.test(u.hostname) && !OPEN_SHOPS.test(u.hostname)) {
     const html = await unlockedHtml(u.href, Math.max(ms, 15000));
-    return html ? htmlToText(html).slice(0, 12000) : "";
+    return html ? htmlToText(html).slice(0, max) : "";
   }
   // Blocked (401/403/429/503) or failed fetches are retried through Bright Data.
-  const viaUnlocker = async () => { const html = await unlockedHtml(u.href, 15000); return html ? htmlToText(html).slice(0, 12000) : ""; };
+  const viaUnlocker = async () => { const html = await unlockedHtml(u.href, 15000); return html ? htmlToText(html).slice(0, max) : ""; };
   try {
     const res = await fetch(u, { signal: AbortSignal.timeout(ms), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
     if (!res.ok) return [401, 403, 429, 503].includes(res.status) ? viaUnlocker() : "";
-    const text = htmlToText((await res.text()).slice(0, 2_000_000)).slice(0, 12000);
+    const text = htmlToText((await res.text()).slice(0, 2_000_000)).slice(0, max);
     if (text.length < 200 && /captcha|access denied|blocked|are you a robot|cloudflare/i.test(text)) return viaUnlocker();
     return text;
   } catch {
@@ -1798,6 +1798,29 @@ function excerptOf(text, max = 1700) {
   return keep.join("\n");
 }
 
+// The brand's own general pages, found from its sitemap (no search needed):
+// FAQ, ingredients, transparency, about. They state what holds for all its wines.
+const BRAND_PAGE_RE = /\/(?:pages\/)?[a-z0-9-]*(faq|ingredient|transparen|nutrition|standard|promise|sustainab|about|our-(?:wine|story|process|philosophy)|clean|quality)[a-z0-9-]*\/?$/i;
+const BRAND_PAGE_SKIP = /career|job|privacy|terms|shipping|contact|sign-?up|newsletter|sms|gift|sale|waitlist|giveaway|affiliate|referral|compliance|covid/i;
+async function brandSitePages(siteHost) {
+  if (!siteHost) return [];
+  const get = async (u) => { try { const r = await fetch(u, { signal: AbortSignal.timeout(6000), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } }); return r.ok ? (await r.text()).slice(0, 1_500_000) : ""; } catch { return ""; } };
+  const locs = (xml) => [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/g)].map((m) => m[1].replace(/&amp;/g, "&"));
+  const root = `https://${siteHost}`;
+  let urls = [];
+  const top = locs(await get(`${root}/sitemap.xml`));
+  const subs = top.filter((u) => /\.xml(\?|$)/i.test(u));
+  if (subs.length) {
+    const pick = subs.filter((u) => /page/i.test(u)).slice(0, 2);
+    urls = (await Promise.all((pick.length ? pick : subs.slice(0, 2)).map(async (u) => locs(await get(u))))).flat();
+  } else urls = top;
+  const order = ["faq", "ingredient", "transparen", "nutrition", "standard", "sustainab", "about"];
+  const rank = (u) => { const i = order.findIndex((w) => u.toLowerCase().includes(w)); return i < 0 ? 9 : i; };
+  let found = urls.filter((u) => hostOf(u).endsWith(siteHost) && BRAND_PAGE_RE.test(new URL(u).pathname) && !BRAND_PAGE_SKIP.test(u)).sort((a, b) => rank(a) - rank(b)).slice(0, 4);
+  if (!found.length) found = [`${root}/pages/faq`, `${root}/faq`, `${root}/about`];
+  return [...new Set([...found, `${root}/`])];
+}
+
 async function gatherEvidence(wine, site, diag) {
   const name = brandAndName(wine);
   const siteHost = hostOf(site || "");
@@ -1846,19 +1869,22 @@ async function gatherEvidence(wine, site, diag) {
   const pdfUrls = (await Promise.all(pdfCands.map((r) => resolveResultUrl(r.url)))).filter((u) => /^https?:\/\//.test(u));
   // Best pages to read.
   const ranked0 = all.filter((r) => r.kind !== "barnivore").sort((a, b) => b.score - a.score);
-  const picks = [...ranked0.filter((r) => !r.brandWide).slice(0, 8), ...ranked0.filter((r) => r.brandWide).slice(0, 3),
-    // The brand's home page is always read as a brand wide page.
-    ...(siteHost ? [{ title: "Home page", display: siteHost, snippet: "", url: `https://${siteHost}/`, kind: "brand-wide", brandWide: true, rank: 0, score: 0 }] : [])];
+  // The brand's own general pages come straight from its site (sitemap), plus any the search found.
+  const sitePages = await brandSitePages(siteHost).catch(() => []);
+  diag.push({ name: "brand-pages", outcome: `${siteHost || "no site"}: ${sitePages.join(" , ")}`.slice(0, 400) });
+  const sp = sitePages.map((url) => ({ title: "Brand page", display: siteHost, snippet: "", url, kind: "brand-wide", brandWide: true, rank: 0, score: 0 }));
+  const picks = [...ranked0.filter((r) => !r.brandWide).slice(0, 8), ...sp, ...ranked0.filter((r) => r.brandWide && !sitePages.includes(r.url)).slice(0, 2)];
   const resolved = await Promise.all(picks.map(async (r) => ({ ...r, real: await resolveResultUrl(r.url) })));
   const pagesToRead = resolved.filter((r) => /^https?:\/\//.test(r.real) && !/\.pdf(\?|$)/i.test(r.real) && !/(^|\.)kroger\.com$/.test(hostOf(r.real)));
   const t1 = Date.now();
   const slow = (ms) => new Promise((res) => setTimeout(() => res(""), ms));
-  const read = await Promise.all(pagesToRead.map(async (r) => ({ ...r, text: await Promise.race([pageText(r.real, 9000).catch(() => ""), slow(11000)]) })));
+  const read = await Promise.all(pagesToRead.map(async (r) => ({ ...r, text: await Promise.race([pageText(r.real, 9000, r.brandWide ? 40000 : 12000).catch(() => ""), slow(11000)]) })));
   const usable = read.filter((r) => r.text && (r.brandWide || textFitsWine(r.text, wine)));
   diag.push({ name: "pages", ms: Date.now() - t1, outcome: `${usable.length}/${read.length} read and about this wine: ${usable.map((r) => hostOf(r.real)).join(", ")}`.slice(0, 300) });
   return {
     serp: all.slice(0, 24).map((r) => ({ title: r.title, display: r.display, snippet: r.snippet, kind: r.kind })),
-    pages: usable.map((r) => ({ url: r.real, kind: r.kind, host: hostOf(r.real), excerpt: excerptOf(r.text), text: r.text })),
+    // Brand wide pages go first and get more room: they carry the statements for every wine.
+    pages: [...usable.filter((r) => r.brandWide), ...usable.filter((r) => !r.brandWide)].map((r) => ({ url: r.real, kind: r.kind, host: hostOf(r.real), excerpt: excerptOf(r.text, r.brandWide ? 3200 : 1700), big: Boolean(r.brandWide), text: r.text })),
     barnivoreUrl, pdfUrls,
     labelPages: resolved.map((r) => r.real).filter((u) => /^https?:\/\//.test(u)).slice(0, 6),
   };
@@ -1911,7 +1937,7 @@ async function readEvidence(wine, packet, diag, send, deadline) {
   text += "\nPAGES (excerpts)\n";
   let budget = 21000;
   for (const p of packet.pages) {
-    const ex = p.excerpt.slice(0, Math.min(1700, budget));
+    const ex = p.excerpt.slice(0, Math.min(p.big ? 3200 : 1700, budget));
     if (!ex) continue;
     text += `\n[${p.kind}] ${p.url}\n${ex}\n`;
     budget -= ex.length;
