@@ -1771,7 +1771,10 @@ function classifyResult(r, wine, siteHost) {
   const hostText = hostOf(r.url.startsWith("http") && !/google\.com/.test(r.url) ? r.url : (r.display.split(" ")[0] || ""));
   const prod = norm(wine.producer).split(" ").filter((w) => w.length > 3);
   const disp = (r.display || "").toLowerCase();
-  const ownHost = (siteHost && (hostText.endsWith(siteHost) || disp.includes(siteHost))) || prod.some((w) => disp.includes(w) || hostText.includes(w));
+  // The brand's own site: the known site, or a host (not a page path) carrying a distinctive word of the producer's name.
+  const dispHost = disp.replace(/^https?:\/\//, "").split(/[\s›/]/)[0];
+  const prodKey = prod.filter((w) => !PRODUCER_NOISE.has(w) && !["live", "your", "best", "life", "wine", "wines", "the"].includes(w));
+  const ownHost = (siteHost && (hostText.endsWith(siteHost) || dispHost.endsWith(siteHost))) || prodKey.some((w) => dispHost.includes(w) || hostText.includes(w));
   if (/barnivore\.com/.test(disp) || /barnivore\.com/.test(hostText)) return { kind: "barnivore", score: 0 };
   if (ownHost) return { kind: "winery", score: 100 };
   if (HARD_SHOPS.test(hostText) || new RegExp(GROCER_HOSTS, "i").test(disp.replace(/^https?:\/\//, "").split(/[\s›/]/)[0])) return { kind: "retailer", score: 70 };
@@ -2087,7 +2090,8 @@ function mergeBrain(fresh, old) {
   const hasIng = (x) => Array.isArray(x?.ingredients) && x.ingredients.length && x.source !== "typical";
   if (hasIng(fresh.ingredients) && !hasIng(old.ingredients)) added++;
   const seen = new Set();
-  const sources = [...(fresh.sources || []), ...(old.sources || [])].filter((s) => s?.url && !seen.has(s.url) && seen.add(s.url));
+  const srcKey = (u) => String(u).replace(/[#?].*$/, "").replace(/\/$/, "").replace(/^https?:\/\/(www\.)?/, "");
+  const sources = [...(fresh.sources || []), ...(old.sources || [])].filter((s) => s?.url && !seen.has(srcKey(s.url)) && seen.add(srcKey(s.url))).slice(0, 16);
   return {
     added,
     result: {
@@ -3399,7 +3403,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
     const list = [];
     const add = (url, title) => {
       if (!/^https?:\/\//.test(url || "")) return;
-      const k = url.replace(/[#?].*$/, "").replace(/\/$/, "");
+      const k = url.replace(/[#?].*$/, "").replace(/\/$/, "").replace(/^https?:\/\/(www\.)?/, "");
       if (seenS.has(k)) return; seenS.add(k);
       list.push({ url, title });
     };
