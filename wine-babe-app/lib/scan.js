@@ -2710,6 +2710,7 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
     };
     const texts = await Promise.all(urls.map((u) => readStore(u)));
     diag.push({ name: "grocer-unlocked", outcome: texts.map((x) => `${x.text.length}c ${/ingredients?\W/i.test(x.text) ? "with ingredients" : "no ingredients"}: ${x.u}`).join(" | ").slice(0, 500) });
+    for (const x of texts) { const m = x.text.match(/[^\n]{0,80}ingredients?[^\n]{0,200}(\n[^\n]{0,200}){0,3}/i); if (m) diag.push({ name: "grocer-snippet", outcome: `${hostOf(x.u)}: ${m[0].replace(/\s+/g, " ").slice(0, 500)}` }); }
     for (const x of texts.filter((t) => /ingredient/i.test(t.text)).sort((p, q) => Number(/ingredients?\s*:/i.test(q.text)) - Number(/ingredients?\s*:/i.test(p.text)))) {
       const read = await runAgent({ diag,
         name: "ingredients-grocer-read", model: lookupModel(), system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline: Date.now() + 15000,
