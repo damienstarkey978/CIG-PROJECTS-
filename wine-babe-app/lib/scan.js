@@ -1236,7 +1236,9 @@ async function decodeQr(base64, box) {
       const code = jsQR(c.data, c.width, c.height, { inversionAttempts: "attemptBoth" });
       return code?.data ? code.data.trim() : "";
     };
-    const attempts = [() => tryOne({ data: img.data, width: img.width, height: img.height })];
+    // A very large photo is scanned at reduced size: full size takes minutes and stalls the scan.
+    const px0 = img.width * img.height;
+    const attempts = [px0 > 3_000_000 ? () => tryOne(crop(0, 0, img.width, img.height, Math.sqrt(3_000_000 / px0))) : () => tryOne({ data: img.data, width: img.width, height: img.height })];
     if (box && box.w > 0 && box.h > 0) {
       const px = box.x * img.width, py = box.y * img.height, pw = box.w * img.width, ph = box.h * img.height;
       const pad = Math.max(pw, ph) * 0.35;
@@ -2587,7 +2589,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     if (!read?.this_wine) return null;
     const sheetNums = sheets.length ? { ...sheetNumbers(sheets[0].text), url: sheets[0].url } : null;
     // QR codes on the label photos (JPEG only).
-    const qrUrls = (await Promise.all(imgs.filter((c) => c.img.media_type === "image/jpeg").map((c) => decodeQr(c.img.data)))).filter((q) => /^https?:\/\//i.test(q));
+    const qrUrls = (await Promise.all(imgs.filter((c) => c.img.media_type === "image/jpeg" && c.img.data.length < 2_000_000).map((c) => decodeQr(c.img.data)))).filter((q) => /^https?:\/\//i.test(q));
     if (qrUrls.length) diag.push({ name: "label-photo-qr", outcome: qrUrls.join(" , ").slice(0, 300) });
     let host = "";
     const first = imgs[0] || sheets[0];
