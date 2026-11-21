@@ -1810,6 +1810,8 @@ async function gatherEvidence(wine, site, diag) {
     ["label", `${name} back label`],
     ...(siteHost ? [["site", `site:${siteHost} ${wine.name}`], ["sitepdf", `site:${siteHost} filetype:pdf ${wine.name}`]] : []),
     ["pdf", `${name} technical sheet filetype:pdf`],
+    // The brand's own general pages (FAQ, about, standards): statements that cover all its wines.
+    ...(siteHost ? [["brand", `site:${siteHost} sugar vegan sulfites ingredients FAQ`]] : []),
   ];
   const t0 = Date.now();
   const results = await Promise.all(queries.map(async ([k, q]) => ({ k, q, res: await serpSearch(q) })));
@@ -1822,10 +1824,12 @@ async function gatherEvidence(wine, site, diag) {
     const key = `${r.display}|${r.title}`;
     if (seen.has(key)) continue; seen.add(key);
     const hay = `${r.title} ${r.snippet} ${r.display}`.toLowerCase();
-    if (nameWords.length && !nameWords.some((w) => hay.includes(w))) continue; // not about this wine
+    const c0 = classifyResult(r, wine, siteHost);
+    const brandWide = k === "brand" && c0.kind === "winery";
+    if (!brandWide && nameWords.length && !nameWords.some((w) => hay.includes(w))) continue; // not about this wine
     if (SKIP_RESULT_HOSTS.test(hostOf(r.display.split(" ")[0]))) continue;
-    const c = classifyResult(r, wine, siteHost);
-    all.push({ ...r, q: k, kind: c.kind, score: c.score + (10 - Math.min(10, r.rank)) + (k === "nutrition" || k === "ingredients" ? 3 : 0) });
+    const c = c0;
+    all.push({ ...r, q: k, brandWide, kind: brandWide ? "brand-wide" : c.kind, score: c.score + (10 - Math.min(10, r.rank)) + (k === "nutrition" || k === "ingredients" ? 3 : 0) });
   }
   // Barnivore entry for the producer.
   const bvCand = results.find((r) => r.k === "barnivore")?.res.filter((r) => /barnivore\.com/.test(`${r.display} ${r.url}`)) || [];
@@ -1841,13 +1845,16 @@ async function gatherEvidence(wine, site, diag) {
   const pdfCands = ["sitepdf", "pdf", "specs"].flatMap((k) => results.find((r) => r.k === k)?.res || []).filter((r) => /\.pdf|pdf/i.test(`${r.display} ${r.url}`)).slice(0, 8);
   const pdfUrls = (await Promise.all(pdfCands.map((r) => resolveResultUrl(r.url)))).filter((u) => /^https?:\/\//.test(u));
   // Best pages to read.
-  const picks = all.filter((r) => r.kind !== "barnivore").sort((a, b) => b.score - a.score).slice(0, 9);
+  const ranked0 = all.filter((r) => r.kind !== "barnivore").sort((a, b) => b.score - a.score);
+  const picks = [...ranked0.filter((r) => !r.brandWide).slice(0, 8), ...ranked0.filter((r) => r.brandWide).slice(0, 3),
+    // The brand's home page is always read as a brand wide page.
+    ...(siteHost ? [{ title: "Home page", display: siteHost, snippet: "", url: `https://${siteHost}/`, kind: "brand-wide", brandWide: true, rank: 0, score: 0 }] : [])];
   const resolved = await Promise.all(picks.map(async (r) => ({ ...r, real: await resolveResultUrl(r.url) })));
   const pagesToRead = resolved.filter((r) => /^https?:\/\//.test(r.real) && !/\.pdf(\?|$)/i.test(r.real) && !/(^|\.)kroger\.com$/.test(hostOf(r.real)));
   const t1 = Date.now();
   const slow = (ms) => new Promise((res) => setTimeout(() => res(""), ms));
   const read = await Promise.all(pagesToRead.map(async (r) => ({ ...r, text: await Promise.race([pageText(r.real, 9000).catch(() => ""), slow(11000)]) })));
-  const usable = read.filter((r) => r.text && textFitsWine(r.text, wine));
+  const usable = read.filter((r) => r.text && (r.brandWide || textFitsWine(r.text, wine)));
   diag.push({ name: "pages", ms: Date.now() - t1, outcome: `${usable.length}/${read.length} read and about this wine: ${usable.map((r) => hostOf(r.real)).join(", ")}`.slice(0, 300) });
   return {
     serp: all.slice(0, 24).map((r) => ({ title: r.title, display: r.display, snippet: r.snippet, kind: r.kind })),
@@ -1858,8 +1865,12 @@ async function gatherEvidence(wine, site, diag) {
 }
 
 const EVIDENCE_SCHEMA = {
-  type: "object", additionalProperties: false, required: ["nutrition", "ingredients", "claims"],
+  type: "object", additionalProperties: false, required: ["nutrition", "ingredients", "claims", "brand"],
   properties: {
+    brand: {
+      type: "object", additionalProperties: false, required: ["sugar_g_per_5oz", "sugar_applies", "sugar_quote", "sugar_url", "sulfites_quote", "sulfites_url"],
+      properties: { sugar_g_per_5oz: { type: ["number", "null"] }, sugar_applies: { type: "boolean" }, sugar_quote: { type: "string" }, sugar_url: { type: "string" }, sulfites_quote: { type: "string" }, sulfites_url: { type: "string" } },
+    },
     nutrition: {
       type: "object", additionalProperties: false,
       required: ["calories_5oz", "carbs_5oz", "sugar_g_5oz", "residual_sugar_g_l", "abv", "source_url", "source_kind"],
@@ -1891,6 +1902,7 @@ const EVIDENCE_SYSTEM = `You read evidence about ONE wine for the Wine Babe app 
 nutrition: per 5 oz (147.87 ml) figures. If a page gives per 100 ml, multiply by 1.4787; a label per serving of 5 oz is already per 5 oz. Take numbers only from a page about this exact wine (winery, importer or retailer product page). Null for anything not stated. source_url is the page, source_kind its type.
 ingredients: only an explicit ingredient list for this exact wine, in the order listed (found true). "Wine" or "Grapes" alone from a shop is not a list: found false unless two or more items. Contains sulfites alone is not a list.
 claims: one entry per claim a page makes about this wine, with the page address in url and the exact short wording in quote. Claims: ${LABEL_CLAIMS.join(", ")}. no_added_sulfites only for an explicit "no added sulfites / senza solfiti aggiunti" statement. polarity "yes" when the page says it is so, "no" when it says it is not (for example "not vegan", "not certified organic"). this_wine true only when the page is about this exact wine; false for a brand wide statement. source_kind: brand or winery for the producer's own pages, importer or distributor, retailer for shops, certifier for a certifying body. Never infer: "low sugar" is not "no added sugar", "natural" is not "organic", "sustainable" needs a stated practice or certification.
+brand: statements the producer's OWN pages make about ALL its wines (pages marked [brand-wide] or [winery]). sugar_g_per_5oz: only an explicit number the brand states for its wines per serving or glass ("all our still wines have 0 g sugar per serving", "less than 1 g sugar per glass" = 1), else null; "low sugar", "no added sugar" or "dry" is not a number. sugar_applies true only when the statement covers this wine (a statement about still wines does not cover a sparkling wine). sugar_quote the exact wording, sugar_url the page. sulfites_quote: the brand's stated sulfite level for its wines ("less than 100 ppm sulfites") or "" ; sulfites_url the page. Brand wide claims (vegan, organic grapes, no added sugar, non GMO...) also go in claims with this_wine false.
 If the evidence does not say, leave it out.`;
 
 async function readEvidence(wine, packet, diag, send, deadline) {
@@ -3299,6 +3311,24 @@ This run follows what is printed on the bottle: the barcode number and the compa
   }
   // Everything goes into the brain, merged with what it already knew. A thin
   // entry is stored too, but the next scan researches it again (see step 2).
+  // What the brand states for all its wines on its own site (FAQ, home page).
+  {
+    const b = (await (evid || Promise.resolve(null)).catch(() => null))?.out?.brand;
+    const ownUrl = (u) => /^https?:\/\//.test(u || "");
+    const vr = (c) => c && (c.status === "pass" || c.status === "fail") && ["lab", "winery", "certified", "third_party"].includes(c.evidence);
+    const cur = (id) => (result.checks || []).find((c) => c.id === id);
+    const setC = (c) => { result.checks = (result.checks || []).filter((x) => x.id !== c.id).concat(c); };
+    if (b && b.sugar_g_per_5oz != null && b.sugar_applies && ownUrl(b.sugar_url) && b.sugar_g_per_5oz >= 0 && b.sugar_g_per_5oz < 30 && !vr(cur("sugar_under_1g"))) {
+      const g = b.sugar_g_per_5oz;
+      setC({ id: "sugar_under_1g", status: Math.round(g * 100) / 100 <= 1 ? "pass" : "fail", evidence: "winery", scope: "producer", as_of: "", detail: `${g} g sugar per serving, stated by the brand for its wines: "${String(b.sugar_quote).slice(0, 160)}"`, source_url: b.sugar_url, origin: `Brand website: ${hostOf(b.sugar_url)}` });
+      result.nutrition = { ...(result.nutrition || EMPTY_NUTRITION), residual_sugar_g_l: Math.round((g / 0.14787) * 10) / 10, sugar_below_g_l: null, source: "winery" };
+      diag.push({ name: "brand-sugar", outcome: `${g} g: ${String(b.sugar_quote).slice(0, 120)} @ ${b.sugar_url}` });
+    }
+    if (b && b.sulfites_quote && ownUrl(b.sulfites_url) && /\d/.test(b.sulfites_quote) && !vr(cur("sulfites"))) {
+      setC({ id: "sulfites", status: "pass", evidence: "winery", scope: "producer", as_of: "", detail: `Brand statement for its wines: "${String(b.sulfites_quote).slice(0, 160)}"`, source_url: b.sulfites_url, origin: `Brand website: ${hostOf(b.sulfites_url)}` });
+      diag.push({ name: "brand-sulfites", outcome: `${String(b.sulfites_quote).slice(0, 120)} @ ${b.sulfites_url}` });
+    }
+  }
   // A vintage with no sugar figure of its own borrows the verified figure
   // saved for the same wine without a year (sugar barely moves year to year).
   if (cache && !nobrain && /^(19|20)\d{2}$/.test(String(wine.vintage || "").trim())) {
