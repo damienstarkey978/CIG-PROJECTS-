@@ -4,6 +4,7 @@
 //   GET /admin/costs.csv
 import { listFeedback, feedbackCsv } from "../../lib/feedback.mjs";
 import { stores, whoIs } from "../../lib/who.mjs";
+import { isReviewUser } from "../../lib/auth.mjs";
 
 const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const money = (n) => `$${(n || 0).toFixed(2)}`;
@@ -72,6 +73,7 @@ export default async (req) => {
   const s = stores();
   const who = await whoIs(req, s);
   if (!who.team) return new Response(null, { status: 302, headers: { Location: "/login?next=/admin" } });
+  if (isReviewUser(who.team)) return new Response(null, { status: 302, headers: { Location: "/" } });
   const p = new URL(req.url).pathname;
   const csv = (body, name) => new Response(body, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${name}"`, "Cache-Control": "no-store" } });
   if (p === "/admin/feedback.csv") return csv(feedbackCsv(await listFeedback(s.feedback)), "wine-babe-feedback.csv");
