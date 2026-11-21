@@ -2671,6 +2671,9 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
       if (!HARD_SHOPS.test(h) || /kroger|instacart|amazon/i.test(h)) continue;
       const hay = norm(`${r.title} ${decodeURIComponent(u)}`);
       if (words.length && !words.some((w) => hay.includes(w))) continue;
+      // The store page must be this brand's wine, not another brand's wine of the same grape.
+      const pt = producerTokens(wine);
+      if (pt.length && !pt.some((w) => hay.includes(w))) continue;
       if (!cands.includes(u)) cands.push(u);
     }
     const rankS = (u) => (/wholefoodsmarket/.test(u) ? 0 : /walmart/.test(u) ? 1 : /totalwine/.test(u) ? 2 : /target/.test(u) ? 3 : 4);
