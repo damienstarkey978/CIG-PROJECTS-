@@ -1830,9 +1830,12 @@ async function gatherEvidence(wine, site, diag) {
   // Barnivore entry for the producer.
   const bvCand = results.find((r) => r.k === "barnivore")?.res.filter((r) => /barnivore\.com/.test(`${r.display} ${r.url}`)) || [];
   let barnivoreUrl = "";
-  for (const r of bvCand.slice(0, 3)) {
+  // Only an entry for this producer: its name must be in the result title or address (not an importer or a look alike brand).
+  const bvWords = norm(`${wine.producer}`).split(" ").filter((t) => t.length >= 4 && !PRODUCER_NOISE.has(t));
+  for (const r of bvCand.slice(0, 4)) {
     const u = await resolveResultUrl(r.url);
-    if (/barnivore\.com\/(wine|products)\//i.test(u)) { barnivoreUrl = u; break; }
+    const hay = norm(`${r.title} ${decodeURIComponent(u)}`);
+    if (/barnivore\.com\/(wine|products)\//i.test(u) && bvWords.length && bvWords.some((w) => hay.includes(w))) { barnivoreUrl = u; break; }
   }
   // Tech sheet PDFs found by the specs search.
   const pdfCands = ["sitepdf", "pdf", "specs"].flatMap((k) => results.find((r) => r.k === k)?.res || []).filter((r) => /\.pdf|pdf/i.test(`${r.display} ${r.url}`)).slice(0, 8);
@@ -1966,6 +1969,13 @@ const BRAIN_REV = 6;
 const brainKey = (w) => cacheKey(w).replace(/^[^_]+__/, "brain__");
 // Saved results whose sugar verdict rests on a shop page alone lose that
 // verdict (the figure was never confirmed by the winery or importer).
+function scrubShopNegatives(result) {
+  if (!result?.checks) return result;
+  // A Barnivore entry saved for another company (an importer, a look alike brand) is dropped too.
+  const pw = norm(`${result.wine?.producer || ""}`).split(" ").filter((t) => t.length >= 4 && !PRODUCER_NOISE.has(t));
+  const wrongBarnivore = (c) => /barnivore\.com/i.test(c.source_url || "") && pw.length && !pw.some((w) => norm(decodeURIComponent(c.source_url)).includes(w));
+  return { ...result, checks: result.checks.map((c) => ((c.status === "fail" && c.evidence === "retailer") || wrongBarnivore(c) ? { id: c.id, status: "unknown", evidence: "none", scope: "this_wine", as_of: "", detail: "", source_url: "", origin: "No source found yet" } : c)) };
+}
 function scrubShopSugar(result) {
   const c = (result?.checks || []).find((x) => x.id === "sugar_under_1g");
   if (!c || c.evidence !== "third_party" || !/EU nutrition panel shown by/i.test(c.detail || "")) return result;
@@ -2119,7 +2129,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     key = res.key;
     await rememberAlias(cache, wine, key, res.list);
     prior = await cache.get(key).catch(() => null);
-    if (prior?.result) prior = { ...prior, result: scrubShopSugar(prior.result) };
+    if (prior?.result) prior = { ...prior, result: scrubShopNegatives(scrubShopSugar(prior.result)) };
     if (!prior?.result) {
       // Seed from the older per-version cache, so earlier scans are not lost.
       const old = await cache.get(cacheKey(wine)).catch(() => null);
@@ -2466,7 +2476,9 @@ This is a second try: you MUST run a web search for the exact wine name first. I
       ...lists.flatMap((l) => l.images),
     ];
     // Tech sheets linked from those pages: read their text.
-    const pdfAll = [...new Map(lists.flatMap((l) => l.pdfs).map((p) => [p.url, p])).values()].slice(0, 4);
+    // The sheet saved for this wine on an earlier scan is always read again.
+    const knownSheet = /\.pdf(\?|$)/i.test(prior?.result?.wine?.tech_sheet_url || "") ? [{ url: prior.result.wine.tech_sheet_url, page: "" }] : [];
+    const pdfAll = [...new Map([...knownSheet, ...lists.flatMap((l) => l.pdfs)].map((p) => [p.url, p])).values()].slice(0, 4);
     const read4 = (await Promise.all(pdfAll.map(async (p) => { const got = await fetchPdf(p.url, 8000); return got.data ? { ...p, data: got.data, text: await pdfText(got.data) } : null; })))
       .filter((x) => x && x.text && x.text.length > 200);
     // Keep only sheets for THIS wine: the grape or wine name must appear in
@@ -3328,7 +3340,9 @@ function applyLabelClaims(result, lc, image, src = { name: "Bottle label", url: 
     const i = out.checks.findIndex((c) => c.id === id);
     const cur = i >= 0 ? out.checks[i] : null;
     if (cur && (cur.status === "pass" || cur.status === "fail") && ["lab", "certified"].includes(cur.evidence)) return;
-    if (cur && cur.status === "fail" && cur.status !== status && ["winery", "third_party"].includes(cur.evidence)) return;
+    // The bottle's own statement about this wine outranks a producer wide directory answer (Barnivore).
+    const directoryWide = cur && cur.scope === "producer" && /barnivore/i.test(`${cur.origin || ""} ${cur.source_url || ""}`);
+    if (cur && cur.status === "fail" && cur.status !== status && ["winery", "third_party"].includes(cur.evidence) && !directoryWide) return;
     const c = { id, status, evidence: "winery", scope: "this_wine", as_of: "", detail, source_url: src.url || "", origin: W };
     if (i >= 0) out.checks[i] = c; else out.checks.push(c);
     used.push(id);
