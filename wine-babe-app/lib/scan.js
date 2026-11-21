@@ -1724,20 +1724,22 @@ async function runAgent({ name, system, content, schema, tools = [], effort = "l
 const SKIP_RESULT_HOSTS = /(^|\.)(facebook|instagram|pinterest|twitter|x|tiktok|reddit|youtube|linkedin|quora|yelp)\.com$|^youtu\.be$/i;
 const KEYWORD_RE = /vegan|animal|organic|biolog|non[\s-]?gmo|\bgmo\b|\bogm\b|sulphite|sulfite|\bso2\b|ingredient|contains|sugar|calorie|kcal|carb|abv|alcohol|% ?vol|harvest|hand[\s-]?pick|sustainab|certif|ccof|usda|demeter|gluten|fining|fined|residual|regenerat|b corp|climate|dry[\s-]farm|flavou?r|additive|no added/i;
 
+let serpFails = [];
 async function serpSearch(query) {
   if (!HAS_UNLOCKER) return [];
   const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en&gl=us&brd_json=1`;
   for (let attempt = 0; attempt < 3; attempt++) {
     const buf = await unlockedFetch(url, 15000);
-    if (!buf) continue;
+    if (!buf) { serpFails.push(`a${attempt} no reply (${unlockerLastError})`); continue; }
     try {
       const d = JSON.parse(buf.toString("utf8"));
+      if (!(Array.isArray(d.organic) && d.organic.length)) serpFails.push(`a${attempt} ${buf.length}b keys ${Object.keys(d).slice(0, 8).join(",")} ${JSON.stringify(d.general || d.error || "").slice(0, 120)}`);
       if (Array.isArray(d.organic) && d.organic.length) {
         return d.organic.filter((r) => r && typeof r.link === "string").map((r, i) => ({
           rank: i, title: String(r.title || ""), url: r.link, display: String(r.display_link || ""), snippet: String(r.description || ""), source: String(r.source || ""),
         }));
       }
-    } catch {}
+    } catch { serpFails.push(`a${attempt} ${buf.length}b not json: ${buf.toString("utf8").slice(0, 100).replace(/\s+/g, " ")}`); }
   }
   return [];
 }
@@ -1839,6 +1841,7 @@ async function gatherEvidence(wine, site, diag) {
   const t0 = Date.now();
   const results = await Promise.all(queries.map(async ([k, q]) => ({ k, q, res: await serpSearch(q) })));
   diag.push({ name: "serp", ms: Date.now() - t0, outcome: results.map((r) => `${r.k}:${r.res.length}`).join(" ") });
+  if (serpFails.length) { diag.push({ name: "serp-fails", outcome: serpFails.slice(0, 8).join(" | ").slice(0, 900) }); serpFails = []; }
 
   const nameWords = norm(wine.name).split(" ").filter((w) => w.length > 2 && !VARIETIES.some((v) => v.split(" ").includes(w)));
   const seen = new Set();
