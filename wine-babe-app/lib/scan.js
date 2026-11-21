@@ -796,7 +796,7 @@ function rankPdfs(links, wine, siteUrl) {
       const conflicts = STYLE_WORDS.filter((w) => words.has(w) && !allowedStyle.has(w)).length;
       let score = matched * 1.5 - (nameWords.length - matched) * 0.5 - conflicts * 2;
       // The organic bottling and the regular one are different wines with different sheets.
-      if (wineOrganic !== fileOrganic) score -= 2.5;
+      const organicMismatch = wineOrganic !== fileOrganic;
       if (producerWords.some((w) => words.has(w))) score += 1;
       if (/\b(en|eng|english)\b/.test(file)) score += 0.5;
       // Large formats (magnum, 1.5 l) are a separate sheet; prefer the standard bottle.
@@ -813,7 +813,7 @@ function rankPdfs(links, wine, siteUrl) {
       // A sheet for a higher tier of the same wine (Beaujolais-Villages,
       // Riserva, Grand Cru ...) is a different wine.
       const otherTier = TIER_WORDS.some((w) => words.has(w) && !nameNorm.split(" ").includes(w));
-      return { ...l, score, matched, missingStyle, junk, otherTier };
+      return { ...l, score, matched, missingStyle, junk, otherTier: otherTier || organicMismatch };
     })
     // Must match at least half the name, carry every style word in the name
     // (Brut Nature, not Brut), and not look like an award or price list.
@@ -1800,7 +1800,8 @@ async function gatherEvidence(wine, site, diag) {
     ["claims", `${name} vegan organic non GMO sustainable gluten free`],
     ["barnivore", `barnivore ${wine.producer || name}`],
     ["label", `${name} back label`],
-    ...(siteHost ? [["site", `site:${siteHost} ${wine.name}`]] : []),
+    ...(siteHost ? [["site", `site:${siteHost} ${wine.name}`], ["sitepdf", `site:${siteHost} filetype:pdf ${wine.name}`]] : []),
+    ["pdf", `${name} technical sheet filetype:pdf`],
   ];
   const t0 = Date.now();
   const results = await Promise.all(queries.map(async ([k, q]) => ({ k, q, res: await serpSearch(q) })));
@@ -1826,7 +1827,7 @@ async function gatherEvidence(wine, site, diag) {
     if (/barnivore\.com\/(wine|products)\//i.test(u)) { barnivoreUrl = u; break; }
   }
   // Tech sheet PDFs found by the specs search.
-  const pdfCands = (results.find((r) => r.k === "specs")?.res || []).filter((r) => /\.pdf|pdf/i.test(`${r.display} ${r.url}`)).slice(0, 4);
+  const pdfCands = ["sitepdf", "pdf", "specs"].flatMap((k) => results.find((r) => r.k === k)?.res || []).filter((r) => /\.pdf|pdf/i.test(`${r.display} ${r.url}`)).slice(0, 8);
   const pdfUrls = (await Promise.all(pdfCands.map((r) => resolveResultUrl(r.url)))).filter((u) => /^https?:\/\//.test(u));
   // Best pages to read.
   const picks = all.filter((r) => r.kind !== "barnivore").sort((a, b) => b.score - a.score).slice(0, 9);
