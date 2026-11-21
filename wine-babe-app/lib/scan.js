@@ -2103,7 +2103,8 @@ function mergeBrain(fresh, old) {
       // A saved fact is only replaced by equal or stronger evidence: a new
       // estimate never overwrites a figure read from the label or the winery.
       const w = (x) => EVIDENCE[x.evidence]?.weight ?? 0;
-      if (w(o) > w(c)) { keptOld.add(c.id); return o; }
+      // Two estimates: the saved one stays, so the number does not move from scan to scan.
+      if (w(o) > w(c) || (w(o) === w(c) && c.evidence === "estimate")) { keptOld.add(c.id); return o; }
       return c;
     }
     return isKnown(o) ? o : c;
