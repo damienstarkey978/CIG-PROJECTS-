@@ -744,3 +744,4 @@ a.btn { text-decoration: none; }
 .ss-items .r-name { font-family: var(--serif); font-weight: 600; font-size: 1.1rem; }
 .ss-items .r-sub { color: var(--muted); font-size: 0.85rem; }
 .ss-sugar { white-space: nowrap; font-weight: 600; color: var(--pass); }
+.ingredients p.ing-list { margin: 0.5rem 0 0.3rem; font-family: var(--serif); font-size: 1.15rem; }

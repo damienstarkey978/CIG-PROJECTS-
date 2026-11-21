@@ -743,6 +743,14 @@
     if (!ing) return "";
     // Typical lists are never shown: only a published list, or Not verified.
     if (ing.source === "typical" || ing.source === "none" || !Array.isArray(ing.ingredients) || !ing.ingredients.length) {
+      // A store's own one line statement (Walmart: "Ingredients: Pinot Noir") is shown as the store's words.
+      if (ing.listed && ing.listed.text) {
+        const store = /walmart/.test(ing.listed.host) ? "Walmart" : /wholefoods/.test(ing.listed.host) ? "Whole Foods" : /totalwine/.test(ing.listed.host) ? "Total Wine" : /target/.test(ing.listed.host) ? "Target" : esc(ing.listed.host);
+        const lu = safeUrl(ing.listed.url);
+        return `<div class="card ingredients"><div class="lbl">Ingredients <span class="chip retailer">Listed by ${store}</span></div>
+          <p class="ing-list">${esc(ing.listed.text)}</p>
+          <p class="ing-src">This is what ${store} lists for this wine${lu ? ` · <a href="${esc(lu)}" target="_blank" rel="noopener">Source</a>` : ""}. No full ingredient list from the winery, the bottle's e-label or the importer was found yet.</p></div>`;
+      }
       return `<div class="card ingredients"><div class="lbl">Ingredients <span class="chip none">Not verified</span></div>
         <p class="ing-src">No ingredient list from the winery, the bottle's e-label or the importer was found yet.</p></div>`;
     }
