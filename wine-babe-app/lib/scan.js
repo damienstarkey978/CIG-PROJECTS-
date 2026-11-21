@@ -1943,7 +1943,7 @@ async function gatherEvidence(wine, site, diag) {
   const usable = read.filter((r) => r.text && (r.brandWide || (r.prodWide ? namesProducer(r.text) : textFitsWine(r.text, wine))));
   diag.push({ name: "pages", ms: Date.now() - t1, outcome: `${usable.length}/${read.length} read and about this wine: ${usable.map((r) => hostOf(r.real)).join(", ")}`.slice(0, 300) });
   return {
-    serp: [...all].sort((a, b) => b.score - a.score).slice(0, 40).map((r) => ({ title: r.title, display: r.display, snippet: r.snippet, kind: r.prodWide ? `${r.kind}, about the producer` : r.kind })),
+    serp: await Promise.all([...all].sort((a, b) => b.score - a.score).slice(0, 40).map(async (r) => ({ title: r.title, display: r.display, snippet: r.snippet, kind: r.prodWide ? `${r.kind}, about the producer` : r.kind, url: (resolved.find((x) => x.url === r.url)?.real) || await resolveResultUrl(r.url).catch(() => "") }))),
     // Brand wide pages go first and get more room: they carry the statements for every wine.
     pages: [...usable.filter((r) => r.brandWide), ...usable.filter((r) => !r.brandWide)].map((r) => ({ url: r.real, kind: r.prodWide ? `${r.kind}, about the producer` : r.kind, host: hostOf(r.real), excerpt: excerptOf(r.text, r.brandWide ? 3200 : 1700), big: Boolean(r.brandWide), text: r.text })),
     barnivoreUrl, pdfUrls,
@@ -1992,11 +1992,12 @@ ingredients: only an explicit ingredient list for this exact wine, in the order 
 claims: one entry per claim a page makes about this wine, with the page address in url and the exact short wording in quote. Claims: ${LABEL_CLAIMS.join(", ")}. no_added_sulfites only for an explicit "no added sulfites / senza solfiti aggiunti" statement. polarity "yes" when the page says it is so, "no" when it says it is not (for example "not vegan", "not certified organic"). this_wine true only when the page is about this exact wine; false for a brand wide statement. source_kind: brand or winery for the producer's own pages, importer or distributor, retailer for shops, certifier for a certifying body. Never infer: "low sugar" is not "no added sugar", "natural" is not "organic", "sustainable" needs a stated practice or certification.
 Pages and results marked "about the producer" (certifier lists, the winery's sustainability page, news of a certification) support the producer wide claims sustainable and organic with this_wine false: a named certification (Certified California Sustainable, SIP, LODI Rules, Equalitas, SQNPI, HVE, Demeter, CCOF...) or a stated practice is sustainable "yes"; "we are not certified organic" is organic "no". Read shop and importer pages for this wine carefully too: "no sugar added", "non GMO", "no flavor additives" printed there are claims with that page as source.
 brand: statements the producer's OWN pages make about ALL its wines (pages marked [brand-wide] or [winery]). sugar_g_per_5oz: only an explicit number the brand states for its wines per serving or glass ("all our still wines have 0 g sugar per serving", "less than 1 g sugar per glass" = 1), else null; "low sugar", "no added sugar" or "dry" is not a number. sugar_applies true only when the statement covers this wine (a statement about still wines does not cover a sparkling wine). sugar_quote the exact wording, sugar_url the page. sulfites_quote: the brand's stated sulfite level for its wines ("less than 100 ppm sulfites") or "" ; sulfites_url the page. Brand wide claims (vegan, organic grapes, no added sugar, non GMO...) also go in claims with this_wine false.
+A search result's snippet counts as that page's words: a claim printed in a snippet ("No Added Sugars", "Non GMO", "sustainably farmed") is a claim with that result's address as url, when the result is about this wine or its producer.
 If the evidence does not say, leave it out.`;
 
 async function readEvidence(wine, packet, diag, send, deadline) {
   let text = `Wine: ${wineLine(wine)}\n\nSEARCH RESULTS\n`;
-  packet.serp.forEach((r, i) => { text += `- ${r.title} (${r.display}) [${r.kind}]: ${r.snippet.slice(0, 260)}\n`; });
+  packet.serp.forEach((r, i) => { text += `- ${r.title} (${/^https?:\/\//.test(r.url || "") ? r.url.slice(0, 160) : r.display}) [${r.kind}]: ${r.snippet.slice(0, 260)}\n`; });
   text += "\nPAGES (excerpts)\n";
   let budget = 30000;
   for (const p of packet.pages) {
@@ -2914,9 +2915,9 @@ This run follows what is printed on the bottle: the barcode number and the compa
     techLookup(),
     // Farming and certifications: when the pages read say nothing either way about sustainable or
     // organic farming, one small search agent looks (certifier lists, the winery's FAQ), as the old flow did.
-    viaPacket((e) => ((e.out.claims || []).some((c) => c.claim === "sustainable" || c.claim === "organic") ? null : runAgent({ diag,
-      name: "farm", model: lookupModel(), system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline: Date.now() + 22000,
-      content: ask("Check farming and certifications and fill the items."), tools: webTools(1, 2),
+    viaPacket((e) => ((e.out.claims || []).some((c) => (c.claim === "sustainable" || c.claim === "organic") && /^https?:\/\//.test(c.url || "") && (c.this_wine || ["brand", "winery", "certifier"].includes(c.source_kind))) ? null : runAgent({ diag,
+      name: "farm", model: lookupModel(), system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline: Date.now() + 32000,
+      content: ask("Check farming and certifications and fill the items."), tools: webTools(2, 2),
     }).catch(() => null)), () => runAgent({ diag,
       name: "farm", model: lookupModel(), system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline,
       content: ask("Check farming and certifications and fill the items."), tools: webTools(1, 2),
