@@ -2680,19 +2680,36 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
     const urls = [...new Map(cands.sort((x, y) => rankS(x) - rankS(y)).map((u) => [hostOf(u), u])).values()].slice(0, 3);
     diag.push({ name: "grocer-pages", outcome: urls.join(" , ").slice(0, 400) || "none found" });
     if (!urls.length) return null;
-    // Diagnostics: which way of asking Bright Data gets a store page.
-    {
-      const bd = async (label, body, ms = 45000) => { const t = Date.now(); try { const r = await fetch("https://api.brightdata.com/request", { method: "POST", signal: AbortSignal.timeout(ms), headers: { Authorization: `Bearer ${process.env.BRIGHTDATA_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ zone: process.env.BRIGHTDATA_ZONE || "web_unlocker1", format: "raw", ...body }) }); const tx = await r.text(); return `${label} ${Date.now() - t}ms HTTP ${r.status} ${tx.length}b ingr:${/ingredient/i.test(tx)} ${tx.slice(0, 90).replace(/\s+/g, " ")}`; } catch (e) { return `${label} ${Date.now() - t}ms ${e.name}`; } };
-      const ds = async () => { try { const r = await fetch("https://api.brightdata.com/datasets/list", { signal: AbortSignal.timeout(20000), headers: { Authorization: `Bearer ${process.env.BRIGHTDATA_API_KEY}` } }); const l = await r.json(); return `datasets HTTP ${r.status}: ${(Array.isArray(l) ? l : []).filter((d) => /walmart|total ?wine|target|whole/i.test(d.name || "")).map((d) => `${d.id}=${d.name}`).join(", ").slice(0, 500)}`; } catch (e) { return `datasets ${e.name}`; } };
-      const w = urls.find((u) => /walmart/.test(u)), tw = urls.find((u) => /totalwine/.test(u));
-      const outD = await Promise.all([
-        w ? bd("walmart us", { url: w, country: "us" }) : "", w ? bd("walmart md", { url: w, country: "us", data_format: "markdown" }) : "",
-        tw ? bd("totalwine us", { url: tw.replace(/\?.*$/, ""), country: "us" }) : "", tw ? bd("totalwine md", { url: tw.replace(/\?.*$/, ""), country: "us", data_format: "markdown" }) : "", ds(),
-      ]);
-      diag.push({ name: "grocer-raw", outcome: outD.filter(Boolean).join(" || ").slice(0, 1800) });
-    }
-    const texts = await Promise.all(urls.map(async (u) => ({ u, text: await Promise.race([pageText(u, 28000).catch(() => ""), new Promise((r) => setTimeout(() => r(""), 30000))]) })));
-    diag.push({ name: "grocer-unlocked", outcome: texts.map((x) => `${x.text.length}c ${/ingredients?\s*:/i.test(x.text) ? "with ingredients" : "no ingredients"}: ${x.u}`).join(" | ").slice(0, 500) });
+    // Each store is read the way that works for it through Bright Data:
+    // Walmart and most stores as a US visitor in text mode; Total Wine and
+    // Target through Bright Data's own product feeds for those stores.
+    const bdText = async (u, ms = 30000) => {
+      unlockerCalls += 1; addExtra(usageScope.getStore(), BD_REQUEST_PRICE);
+      try {
+        const r = await fetch("https://api.brightdata.com/request", { method: "POST", signal: AbortSignal.timeout(ms), headers: { Authorization: `Bearer ${process.env.BRIGHTDATA_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ zone: process.env.BRIGHTDATA_ZONE || "web_unlocker1", format: "raw", url: u, country: "us", data_format: "markdown" }) });
+        return r.ok ? (await r.text()).slice(0, 60000) : "";
+      } catch { return ""; }
+    };
+    const FEEDS = { "totalwine.com": "gd_mpmimloj4233pwoez", "target.com": "gd_ltppk5mx2lp0v1k0vo" };
+    const bdFeed = async (u, id, ms = 45000) => {
+      unlockerCalls += 1; addExtra(usageScope.getStore(), BD_REQUEST_PRICE);
+      try {
+        const r = await fetch(`https://api.brightdata.com/datasets/v3/scrape?dataset_id=${id}&format=json`, { method: "POST", signal: AbortSignal.timeout(ms), headers: { Authorization: `Bearer ${process.env.BRIGHTDATA_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ input: [{ url: u }] }) });
+        const tx = await r.text();
+        diag.push({ name: "grocer-feed", outcome: `${hostOf(u)} HTTP ${r.status} ${tx.length}b: ${tx.slice(0, 500).replace(/\s+/g, " ")}` });
+        return r.status === 200 ? tx.slice(0, 60000) : "";
+      } catch (e) { diag.push({ name: "grocer-feed", outcome: `${hostOf(u)} ${e.name}` }); return ""; }
+    };
+    const readStore = (u0) => {
+      // Walmart review and search addresses point back to the product page.
+      let u = u0.replace(/[?#].*$/, "");
+      const wm = u.match(/walmart\.com\/reviews\/product\/(\d+)/);
+      if (wm) u = `https://www.walmart.com/ip/${wm[1]}`;
+      const feed = Object.entries(FEEDS).find(([h]) => hostOf(u).endsWith(h));
+      return (feed ? bdFeed(u, feed[1]) : bdText(u)).then((text) => ({ u, text }));
+    };
+    const texts = await Promise.all(urls.map((u) => readStore(u)));
+    diag.push({ name: "grocer-unlocked", outcome: texts.map((x) => `${x.text.length}c ${/ingredients?\W/i.test(x.text) ? "with ingredients" : "no ingredients"}: ${x.u}`).join(" | ").slice(0, 500) });
     for (const x of texts.filter((t) => /ingredient/i.test(t.text)).sort((p, q) => Number(/ingredients?\s*:/i.test(q.text)) - Number(/ingredients?\s*:/i.test(p.text)))) {
       const read = await runAgent({ diag,
         name: "ingredients-grocer-read", model: lookupModel(), system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline: Date.now() + 15000,
