@@ -2653,7 +2653,45 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
     return g;
   });
   // The grocer search only runs when the winery's own ingredient search found no list.
-  const grocerIngredientsLookup = viaPacket(() => null, () => ingredientsLookup.then((own) => (cleanIngredients(own, wine).ingredients.length ? null : runGrocers())).catch(() => null));
+  // Research packet mode: the grocer pages are found by code (no search agent)
+  // and read through Bright Data: Whole Foods first, then Walmart, Total Wine, Target and the rest.
+  const runGrocersCode = async () => {
+    const nm = brandAndName(wine);
+    const [a, b, c] = await Promise.all([
+      serpSearch(`${nm} site:wholefoodsmarket.com`),
+      serpSearch(`${nm} ingredients walmart OR "total wine" OR target`),
+      serpSearch(`${nm} site:totalwine.com OR site:walmart.com`),
+    ]);
+    const words = norm(wine.name).split(" ").filter((w) => w.length > 2);
+    const cands = [];
+    for (const r of [...a, ...b, ...c]) {
+      const u = await resolveResultUrl(r.url);
+      let h = "";
+      try { h = new URL(u).hostname; } catch { continue; }
+      if (!HARD_SHOPS.test(h) || /kroger|instacart|amazon/i.test(h)) continue;
+      const hay = norm(`${r.title} ${decodeURIComponent(u)}`);
+      if (words.length && !words.some((w) => hay.includes(w))) continue;
+      if (!cands.includes(u)) cands.push(u);
+    }
+    const rankS = (u) => (/wholefoodsmarket/.test(u) ? 0 : /walmart/.test(u) ? 1 : /totalwine/.test(u) ? 2 : /target/.test(u) ? 3 : 4);
+    const urls = [...new Map(cands.sort((x, y) => rankS(x) - rankS(y)).map((u) => [hostOf(u), u])).values()].slice(0, 3);
+    diag.push({ name: "grocer-pages", outcome: urls.join(" , ").slice(0, 400) || "none found" });
+    if (!urls.length) return null;
+    const texts = await Promise.all(urls.map(async (u) => ({ u, text: await Promise.race([pageText(u, 28000).catch(() => ""), new Promise((r) => setTimeout(() => r(""), 30000))]) })));
+    diag.push({ name: "grocer-unlocked", outcome: texts.map((x) => `${x.text.length}c ${/ingredients?\s*:/i.test(x.text) ? "with ingredients" : "no ingredients"}: ${x.u}`).join(" | ").slice(0, 500) });
+    for (const x of texts.filter((t) => /ingredient/i.test(t.text)).sort((p, q) => Number(/ingredients?\s*:/i.test(q.text)) - Number(/ingredients?\s*:/i.test(p.text)))) {
+      const read = await runAgent({ diag,
+        name: "ingredients-grocer-read", model: lookupModel(), system: INGREDIENTS_SYSTEM, schema: INGREDIENTS_SCHEMA, send, deadline: Date.now() + 15000,
+        content: ask(`Wine: ${wineLine(wine)}. Read the ingredient list from this product page (${x.u}). Source "retailer", source_url that page. If the page is for a different wine, found false.\n\n${x.text.slice(0, 9000)}`),
+        tools: [],
+      }).catch(() => null);
+      if (read?.found && (read.ingredients || []).length >= 2) return { ...read, source: "retailer", source_url: x.u };
+    }
+    return null;
+  };
+  const grocerIngredientsLookup = viaPacket(
+    () => ingredientsLookup.then((own) => (cleanIngredients(own, wine).ingredients.length ? null : runGrocersCode())).catch(() => null),
+    () => ingredientsLookup.then((own) => (cleanIngredients(own, wine).ingredients.length ? null : runGrocers())).catch(() => null));
 
   // Anything scannable or traceable on the bottle: QR codes (from the shopper's
   // photo or label photos found online), the barcode number and the
