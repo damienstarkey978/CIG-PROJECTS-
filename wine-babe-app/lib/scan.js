@@ -872,6 +872,11 @@ function wineTerms(wine) {
   const prod = (wine.producer || "").toLowerCase().split(/\s+/);
   const words = (wine.name || "").split(/\s+/).filter((w) => w && !prod.includes(w.toLowerCase()));
   const terms = [words.join(" "), words.slice(-2).join(" ")].map((t) => t.trim()).filter(Boolean);
+  // Wineries file the organic bottling as "Bio" (Italian, French, German).
+  if (words.some((w) => /^organic$/i.test(w))) {
+    terms.push(words.map((w) => (/^organic$/i.test(w) ? "Bio" : w)).join(" "));
+    terms.push(`${words.find((w) => !/^(organic|doc|docg|igt|aoc)$/i.test(w)) || ""} Bio`.trim());
+  }
   return [...new Set(terms)];
 }
 
