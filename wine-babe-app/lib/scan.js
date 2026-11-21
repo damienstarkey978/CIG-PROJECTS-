@@ -1888,7 +1888,8 @@ async function gatherEvidence(wine, site, diag) {
     // Brand wide pages go first and get more room: they carry the statements for every wine.
     pages: [...usable.filter((r) => r.brandWide), ...usable.filter((r) => !r.brandWide)].map((r) => ({ url: r.real, kind: r.kind, host: hostOf(r.real), excerpt: excerptOf(r.text, r.brandWide ? 3200 : 1700), big: Boolean(r.brandWide), text: r.text })),
     barnivoreUrl, pdfUrls,
-    labelPages: resolved.map((r) => r.real).filter((u) => /^https?:\/\//.test(u)).slice(0, 6),
+    // Pages confirmed to be about this wine first (their label photos carry calories and claims), brand wide pages last.
+    labelPages: [...usable.filter((r) => !r.brandWide).map((r) => r.real), ...resolved.filter((r) => !r.brandWide).map((r) => r.real)].filter((u, i, a) => /^https?:\/\//.test(u) && a.indexOf(u) === i).slice(0, 7),
   };
 }
 
@@ -3238,7 +3239,8 @@ This run follows what is printed on the bottle: the barcode number and the compa
       if (!own && !c.this_wine) continue; // a shop's brand wide blurb is too loose
       if (c.polarity === "no" && c.source_kind === "retailer") continue; // a shop's auto written "not gluten free / not vegan" answer is not a verified negative
       const cur = best[id];
-      if (cur && (cur.status === "pass" || cur.status === "fail") && ["lab", "certified", "winery", "third_party", "retailer"].includes(cur.evidence)) continue;
+      const dirWide = cur && cur.status === "fail" && c.polarity !== "no" && own && cur.scope === "producer" && /barnivore/i.test(`${cur.origin || ""} ${cur.source_url || ""}`);
+      if (!dirWide && cur && (cur.status === "pass" || cur.status === "fail") && ["lab", "certified", "winery", "third_party", "retailer"].includes(cur.evidence)) continue;
       let host = "";
       try { host = new URL(c.url).hostname.replace(/^www\./, ""); } catch {}
       const label = { brand: "Brand website", winery: "Winery website", importer: "Importer", distributor: "Distributor", retailer: "Retailer" }[c.source_kind] || "Online";
@@ -3363,6 +3365,26 @@ This run follows what is printed on the bottle: the barcode number and the compa
       setC({ id: "sulfites", status: "pass", evidence: "winery", scope: "producer", as_of: "", detail: `Brand statement for its wines: "${String(b.sulfites_quote).slice(0, 160)}"`, source_url: b.sulfites_url, origin: `Brand website: ${hostOf(b.sulfites_url)}` });
       diag.push({ name: "brand-sulfites", outcome: `${String(b.sulfites_quote).slice(0, 120)} @ ${b.sulfites_url}` });
     }
+  }
+  // Sources shown on the result: every page a finding rests on, then the
+  // other pages that were read for this wine (brand site first).
+  {
+    const e = await (evid || Promise.resolve(null)).catch(() => null);
+    const seenS = new Set();
+    const list = [];
+    const add = (url, title) => {
+      if (!/^https?:\/\//.test(url || "")) return;
+      const k = url.replace(/[#?].*$/, "").replace(/\/$/, "");
+      if (seenS.has(k)) return; seenS.add(k);
+      list.push({ url, title });
+    };
+    const nice = (u) => { try { const x = new URL(u); return `${x.hostname.replace(/^www\./, "")}${x.pathname.length > 1 ? x.pathname.replace(/\/$/, "").slice(0, 60) : ""}`; } catch { return u; } };
+    if (result.wine?.tech_sheet_url) add(result.wine.tech_sheet_url, `Tech sheet: ${nice(result.wine.tech_sheet_url)}`);
+    for (const c of result.checks || []) if ((c.status === "pass" || c.status === "fail") && c.source_url) add(c.source_url, `${(c.origin || "Source").replace(/:.*$/, "")}: ${nice(c.source_url)}`);
+    const KIND = { "brand-wide": "Brand website", winery: "Brand website", importer: "Importer", distributor: "Distributor", retailer: "Retailer", certifier: "Certifier" };
+    for (const p of e?.packet?.pages || []) add(p.url, `${KIND[p.kind] || "Page read"}: ${nice(p.url)}`);
+    for (const x of result.sources || []) add(x.url, x.title || nice(x.url));
+    result.sources = list.slice(0, 16);
   }
   // A vintage with no sugar figure of its own borrows the verified figure
   // saved for the same wine without a year (sugar barely moves year to year).
