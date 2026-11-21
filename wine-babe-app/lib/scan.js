@@ -336,8 +336,9 @@ ${RULES}
 Items:
 ${itemList(TECH_IDS)}`;
 
+const SEALS_NOTE = 'Look at the WHOLE page as a person would, not only the typed text: seals, logos, icons and badges anywhere on the sheet (usually at the bottom or in the margins) count as printed statements. A vegan logo is a vegan claim; an organic leaf or "Certificato Biologico" is an organic certification; "Senza Solfiti Aggiunti / No Added Sulfites / Sans Sulfites Ajoutés" means no added sulfites; also gluten free, non GMO and sustainability seals. Quote the seal wording in the detail.';
 const sheetPrompt = (w) => `You read a wine's attached technical sheet for the Wine Babe app. Wine: ${wineLine(w)}.
-Use only the attached sheet. Read every line: residual sugar, ABV, total and free SO2, pH, acidity, GMO, allergens, vegan, fining, yeast, dosage, harvest, vineyard, grapes, origin.
+Use only the attached sheet. ${SEALS_NOTE} Read every line: residual sugar, ABV, total and free SO2, pH, acidity, GMO, allergens, vegan, fining, yeast, dosage, harvest, vineyard, grapes, origin.
 Residual sugar may be labelled "sugars", "sugars (glucose + fructose)", "residual sugar", "RS", "zuccheri", "zuccheri residui", "sucres résiduels", "azúcar residual", "Restzucker". It may be given in g/L or as a percent (0.3% = 3 g/L).
 For ANY range (sugar 2 - 3 g/L, SO2 130 - 145 mg/L), use the highest value and quote the range in the detail. Labels and values may be listed in separate blocks in the same order; match them by position.
 If the sheet is for a sister wine of the same producer, use scope "related_wine" and say which wine.
@@ -2378,8 +2379,12 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     const text = await pdfText(sheet.data);
     if (text) markSources.push({ label: "Tech sheet", text, url: sheet.url, scope: "this_wine" });
     diag.push({ name: "sheet-text", outcome: `${text.length} chars` });
+    // The PDF itself goes to the model with the extracted text, so seals and
+    // logos (vegan, organic, no added sulfites) that are pictures are read too.
+    const pdfSmall = sheet.data && sheet.data.length < 4_000_000;
     const content = text.length >= 200
-      ? [{ type: "text", text: `Text extracted from the winery's tech sheet at ${sheet.url}. Labels and values may sit in separate columns; match them in order.\n\n<tech_sheet>\n${text}\n</tech_sheet>\n\nFill the items. tech_sheet_url is ${sheet.url}.` }]
+      ? [...(pdfSmall ? [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: sheet.data } }] : []),
+         { type: "text", text: `${pdfSmall ? "The winery's tech sheet is attached, with its extracted text below" : "Text extracted from the winery's tech sheet"} (${sheet.url}). Labels and values may sit in separate columns; match them in order. ${SEALS_NOTE}\n\n<tech_sheet>\n${text}\n</tech_sheet>\n\nFill the items. tech_sheet_url is ${sheet.url}.` }]
       : [
           { type: "document", source: { type: "base64", media_type: "application/pdf", data: sheet.data } },
           { type: "text", text: `This is the winery's tech sheet, from ${sheet.url}. Read it and fill the items. tech_sheet_url is that url.` },
@@ -2462,7 +2467,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     ];
     // Tech sheets linked from those pages: read their text.
     const pdfAll = [...new Map(lists.flatMap((l) => l.pdfs).map((p) => [p.url, p])).values()].slice(0, 4);
-    const read4 = (await Promise.all(pdfAll.map(async (p) => { const got = await fetchPdf(p.url, 8000); return got.data ? { ...p, text: await pdfText(got.data) } : null; })))
+    const read4 = (await Promise.all(pdfAll.map(async (p) => { const got = await fetchPdf(p.url, 8000); return got.data ? { ...p, data: got.data, text: await pdfText(got.data) } : null; })))
       .filter((x) => x && x.text && x.text.length > 200);
     // Keep only sheets for THIS wine: the grape or wine name must appear in
     // the sheet, and a sheet naming a different variety or style is dropped
@@ -2476,8 +2481,8 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     if (!imgs.length && !sheets.length) return null;
     const sheetText = sheets.map((x) => `Tech sheet (${x.url}):\n${x.text.slice(0, 5000)}`).join("\n\n");
     const read = await runAgent({ diag,
-      name: "label-read", model: lookupModel(), system: LABEL_READ_SYSTEM, schema: LABEL_READ_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 12000),
-      content: [...imgs.map((c) => ({ type: "image", source: { type: "base64", ...c.img } })), { type: "text", text: `Wine: ${wineLine(wine)}. Read these ${imgs.length ? "label photos" : ""}${imgs.length && sheets.length ? " and " : ""}${sheets.length ? "tech sheets found on store and distributor pages (treat what they state like a label)" : ""}.${sheetText ? `\n\n${sheetText}` : ""}` }],
+      name: "label-read", model: lookupModel(), system: LABEL_READ_SYSTEM, schema: LABEL_READ_SCHEMA, send, deadline: Math.max(deadline, Date.now() + 22000),
+      content: [...imgs.map((c) => ({ type: "image", source: { type: "base64", ...c.img } })), ...sheets.filter((x) => x.data && x.data.length < 4_000_000).map((x) => ({ type: "document", source: { type: "base64", media_type: "application/pdf", data: x.data } })), { type: "text", text: `${sheets.length ? `${SEALS_NOTE} ` : ""}Wine: ${wineLine(wine)}. Read these ${imgs.length ? "label photos" : ""}${imgs.length && sheets.length ? " and " : ""}${sheets.length ? "tech sheets found on store and distributor pages (treat what they state like a label)" : ""}.${sheetText ? `\n\n${sheetText}` : ""}` }],
       tools: [],
     }).catch(() => null);
     if (!read?.this_wine) return null;
