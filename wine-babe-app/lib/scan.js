@@ -2680,6 +2680,9 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
     const urls = [...new Map(cands.sort((x, y) => rankS(x) - rankS(y)).map((u) => [hostOf(u), u])).values()].slice(0, 3);
     diag.push({ name: "grocer-pages", outcome: urls.join(" , ").slice(0, 400) || "none found" });
     if (!urls.length) return null;
+    // Diagnostics: what the unlocker really returns for each store page.
+    const raw = await Promise.all(urls.map(async (u) => { const t = Date.now(); const b = await unlockedFetch(u, 40000); return `${hostOf(u)} ${Date.now() - t}ms ${b ? `${b.length}b: ${b.toString("utf8").slice(0, 160).replace(/\s+/g, " ")}` : `no reply (${unlockerLastError})`}`; }));
+    diag.push({ name: "grocer-raw", outcome: raw.join(" || ").slice(0, 1400) });
     const texts = await Promise.all(urls.map(async (u) => ({ u, text: await Promise.race([pageText(u, 28000).catch(() => ""), new Promise((r) => setTimeout(() => r(""), 30000))]) })));
     diag.push({ name: "grocer-unlocked", outcome: texts.map((x) => `${x.text.length}c ${/ingredients?\s*:/i.test(x.text) ? "with ingredients" : "no ingredients"}: ${x.u}`).join(" | ").slice(0, 500) });
     for (const x of texts.filter((t) => /ingredient/i.test(t.text)).sort((p, q) => Number(/ingredients?\s*:/i.test(q.text)) - Number(/ingredients?\s*:/i.test(p.text)))) {
