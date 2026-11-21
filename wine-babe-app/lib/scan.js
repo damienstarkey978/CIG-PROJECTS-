@@ -2680,9 +2680,17 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
     const urls = [...new Map(cands.sort((x, y) => rankS(x) - rankS(y)).map((u) => [hostOf(u), u])).values()].slice(0, 3);
     diag.push({ name: "grocer-pages", outcome: urls.join(" , ").slice(0, 400) || "none found" });
     if (!urls.length) return null;
-    // Diagnostics: what the unlocker really returns for each store page.
-    const raw = await Promise.all(urls.map(async (u) => { const t = Date.now(); const b = await unlockedFetch(u, 40000); return `${hostOf(u)} ${Date.now() - t}ms ${b ? `${b.length}b: ${b.toString("utf8").slice(0, 160).replace(/\s+/g, " ")}` : `no reply (${unlockerLastError})`}`; }));
-    diag.push({ name: "grocer-raw", outcome: raw.join(" || ").slice(0, 1400) });
+    // Diagnostics: which way of asking Bright Data gets a store page.
+    {
+      const bd = async (label, body, ms = 45000) => { const t = Date.now(); try { const r = await fetch("https://api.brightdata.com/request", { method: "POST", signal: AbortSignal.timeout(ms), headers: { Authorization: `Bearer ${process.env.BRIGHTDATA_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ zone: process.env.BRIGHTDATA_ZONE || "web_unlocker1", format: "raw", ...body }) }); const tx = await r.text(); return `${label} ${Date.now() - t}ms HTTP ${r.status} ${tx.length}b ingr:${/ingredient/i.test(tx)} ${tx.slice(0, 90).replace(/\s+/g, " ")}`; } catch (e) { return `${label} ${Date.now() - t}ms ${e.name}`; } };
+      const ds = async () => { try { const r = await fetch("https://api.brightdata.com/datasets/list", { signal: AbortSignal.timeout(20000), headers: { Authorization: `Bearer ${process.env.BRIGHTDATA_API_KEY}` } }); const l = await r.json(); return `datasets HTTP ${r.status}: ${(Array.isArray(l) ? l : []).filter((d) => /walmart|total ?wine|target|whole/i.test(d.name || "")).map((d) => `${d.id}=${d.name}`).join(", ").slice(0, 500)}`; } catch (e) { return `datasets ${e.name}`; } };
+      const w = urls.find((u) => /walmart/.test(u)), tw = urls.find((u) => /totalwine/.test(u));
+      const outD = await Promise.all([
+        w ? bd("walmart us", { url: w, country: "us" }) : "", w ? bd("walmart md", { url: w, country: "us", data_format: "markdown" }) : "",
+        tw ? bd("totalwine us", { url: tw.replace(/\?.*$/, ""), country: "us" }) : "", tw ? bd("totalwine md", { url: tw.replace(/\?.*$/, ""), country: "us", data_format: "markdown" }) : "", ds(),
+      ]);
+      diag.push({ name: "grocer-raw", outcome: outD.filter(Boolean).join(" || ").slice(0, 1800) });
+    }
     const texts = await Promise.all(urls.map(async (u) => ({ u, text: await Promise.race([pageText(u, 28000).catch(() => ""), new Promise((r) => setTimeout(() => r(""), 30000))]) })));
     diag.push({ name: "grocer-unlocked", outcome: texts.map((x) => `${x.text.length}c ${/ingredients?\s*:/i.test(x.text) ? "with ingredients" : "no ingredients"}: ${x.u}`).join(" | ").slice(0, 500) });
     for (const x of texts.filter((t) => /ingredient/i.test(t.text)).sort((p, q) => Number(/ingredients?\s*:/i.test(q.text)) - Number(/ingredients?\s*:/i.test(p.text)))) {
