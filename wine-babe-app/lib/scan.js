@@ -783,6 +783,11 @@ function rankPdfs(links, wine, siteUrl) {
       const fileName = raw.split("/").pop();
       const file = norm(`${fileName} ${l.text}`);
       const words = new Set(file.split(" "));
+      // Organic is the same wine word in any language (Bio, Biologico, Biologique).
+      const ORGANIC_WORDS = ["organic", "bio", "biologico", "biologique", "biologica", "organico", "ecologico", "okologisch"];
+      const fileOrganic = ORGANIC_WORDS.some((w) => words.has(w));
+      if (fileOrganic) words.add("organic");
+      const wineOrganic = ORGANIC_WORDS.some((w) => nameNorm.split(" ").includes(w));
       // Close spellings count (Cuvée / Cuvè / Cuve): same first 4+ letters.
       const fileWords = [...words];
       const near = (w) => words.has(w) || (w.length >= 4 && fileWords.some((f) => f.length >= 4 && (w.startsWith(f) || f.startsWith(w))));
@@ -790,6 +795,8 @@ function rankPdfs(links, wine, siteUrl) {
       const missingStyle = requiredStyle.filter((w) => !words.has(w)).length;
       const conflicts = STYLE_WORDS.filter((w) => words.has(w) && !allowedStyle.has(w)).length;
       let score = matched * 1.5 - (nameWords.length - matched) * 0.5 - conflicts * 2;
+      // The organic bottling and the regular one are different wines with different sheets.
+      if (wineOrganic !== fileOrganic) score -= 2.5;
       if (producerWords.some((w) => words.has(w))) score += 1;
       if (/\b(en|eng|english)\b/.test(file)) score += 0.5;
       // Large formats (magnum, 1.5 l) are a separate sheet; prefer the standard bottle.
