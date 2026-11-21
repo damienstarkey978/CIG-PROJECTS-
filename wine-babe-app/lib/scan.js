@@ -2690,6 +2690,15 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
         return r.ok ? (await r.text()).slice(0, 60000) : "";
       } catch { return ""; }
     };
+    const bdHtml = async (u, ms = 40000) => {
+      unlockerCalls += 1; addExtra(usageScope.getStore(), BD_REQUEST_PRICE);
+      try {
+        const r = await fetch("https://api.brightdata.com/request", { method: "POST", signal: AbortSignal.timeout(ms), headers: { Authorization: `Bearer ${process.env.BRIGHTDATA_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ zone: process.env.BRIGHTDATA_ZONE || "web_unlocker1", format: "raw", url: u, country: "us" }) });
+        return r.ok ? htmlToText((await r.text()).slice(0, 3_000_000)).slice(0, 14000) : "";
+      } catch { return ""; }
+    };
+    // Bright Data's store feeds need the Web Scraper product switched on for the account (BRIGHTDATA_FEEDS=on).
+    const feedsOn = process.env.BRIGHTDATA_FEEDS === "on";
     const FEEDS = { "totalwine.com": "gd_mpmimloj4233pwoez", "target.com": "gd_ltppk5mx2lp0v1k0vo" };
     const bdFeed = async (u, id, ms = 45000) => {
       unlockerCalls += 1; addExtra(usageScope.getStore(), BD_REQUEST_PRICE);
@@ -2705,10 +2714,16 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
       let u = u0.replace(/[?#].*$/, "");
       const wm = u.match(/walmart\.com\/reviews\/product\/(\d+)/);
       if (wm) u = `https://www.walmart.com/ip/${wm[1]}`;
-      const feed = Object.entries(FEEDS).find(([h]) => hostOf(u).endsWith(h));
+      const h = hostOf(u);
+      // Whole Foods loads directly. Walmart keeps its ingredient panel inside the page data, so it is
+      // read as the full page (US visitor). The product feeds are used only when the account has them on.
+      if (/wholefoodsmarket\.com$/.test(h)) return pageText(u, 15000).catch(() => "").then((text) => ({ u, text }));
+      if (/walmart\.com$/.test(h)) return bdHtml(u).then((text) => ({ u, text }));
+      const feed = feedsOn ? Object.entries(FEEDS).find(([fh]) => h.endsWith(fh)) : null;
       return (feed ? bdFeed(u, feed[1]) : bdText(u)).then((text) => ({ u, text }));
     };
-    const texts = await Promise.all(urls.map((u) => readStore(u)));
+    const capAll = (pr, ms, fb) => Promise.race([pr, new Promise((r) => setTimeout(() => r(fb), ms))]);
+    const texts = await Promise.all(urls.map((u) => capAll(readStore(u), 42000, { u, text: "" })));
     diag.push({ name: "grocer-unlocked", outcome: texts.map((x) => `${x.text.length}c ${/ingredients?\W/i.test(x.text) ? "with ingredients" : "no ingredients"}: ${x.u}`).join(" | ").slice(0, 500) });
     for (const x of texts) { const m = x.text.match(/[^\n]{0,80}ingredients?[^\n]{0,200}(\n[^\n]{0,200}){0,3}/i); if (m) diag.push({ name: "grocer-snippet", outcome: `${hostOf(x.u)}: ${m[0].replace(/\s+/g, " ").slice(0, 500)}` }); }
     for (const x of texts.filter((t) => /ingredient/i.test(t.text)).sort((p, q) => Number(/ingredients?\s*:/i.test(q.text)) - Number(/ingredients?\s*:/i.test(p.text)))) {
