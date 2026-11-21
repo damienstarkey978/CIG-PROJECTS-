@@ -966,6 +966,17 @@ async function pdfText(base64) {
   try {
     const { extractText, getDocumentProxy } = await import("unpdf");
     const pdf = await getDocumentProxy(new Uint8Array(Buffer.from(base64, "base64")));
+    // A long catalog or price list is read only at the front: reading hundreds
+    // of pages stalls the whole scan, and a tech sheet is a page or two.
+    if (pdf.numPages > 10) {
+      const parts = [];
+      for (let i = 1; i <= 6; i++) {
+        const page = await pdf.getPage(i);
+        const tc = await page.getTextContent();
+        parts.push(tc.items.map((it) => it.str + (it.hasEOL ? "\n" : " ")).join(""));
+      }
+      return parts.join("\n").replace(/[ \t]+\n/g, "\n").slice(0, 15000);
+    }
     const { text } = await extractText(pdf, { mergePages: true });
     return String(text || "").replace(/[ \t]+\n/g, "\n").slice(0, 15000);
   } catch (err) {
@@ -2531,7 +2542,9 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     if (!found) return null;
     const wfPages = (await wfLookup).map((url) => ({ url, kind: "retailer" }));
     const pages = [...wfPages, ...(found.pages || [])].filter((p) => /^https?:\/\//.test(p.url)).filter((p, i, a) => a.findIndex((q) => q.url === p.url) === i).slice(0, 7);
-    const lists = await Promise.all(pages.map((p) => pageLabelImages(p.url)));
+    // Every outside fetch in this step is capped: one hanging site must not hold the scan.
+    const cap = (pr, ms, fb) => Promise.race([Promise.resolve(pr).catch(() => fb), new Promise((r) => setTimeout(() => r(fb), ms))]);
+    const lists = await Promise.all(pages.map((p) => cap(pageLabelImages(p.url), 9000, { images: [], pdfs: [] })));
     const cands = [
       ...(found.image_urls || []).filter((x) => /^https?:\/\//.test(x)).map((url) => ({ url, score: 2.5, page: "" })),
       ...lists.flatMap((l) => l.images),
@@ -2540,7 +2553,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     // The sheet saved for this wine on an earlier scan is always read again.
     const knownSheet = /\.pdf(\?|$)/i.test(prior?.result?.wine?.tech_sheet_url || "") ? [{ url: prior.result.wine.tech_sheet_url, page: "" }] : [];
     const pdfAll = [...new Map([...knownSheet, ...lists.flatMap((l) => l.pdfs)].map((p) => [p.url, p])).values()].slice(0, 4);
-    const read4 = (await Promise.all(pdfAll.map(async (p) => { const got = await fetchPdf(p.url, 8000); return got.data ? { ...p, data: got.data, text: await pdfText(got.data) } : null; })))
+    const read4 = (await Promise.all(pdfAll.map((p) => cap((async () => { const got = await fetchPdf(p.url, 8000); return got.data ? { ...p, data: got.data, text: await pdfText(got.data) } : null; })(), 10000, null))))
       .filter((x) => x && x.text && x.text.length > 200);
     // Keep only sheets for THIS wine: the grape or wine name must appear in
     // the sheet, and a sheet naming a different variety or style is dropped
@@ -2549,7 +2562,7 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     if (pdfAll.length) diag.push({ name: "store-sheets", outcome: `kept ${sheets.map((x) => x.url).join(" , ") || "none"} of ${read4.length} read (${read4.map((x) => `${x.url.split("/").pop()}=${sheetFits(x.text, x.url, wine)}`).join(", ")})`.slice(0, 400) });
     const seenImg = new Set();
     const picked = cands.sort((a, b) => b.score - a.score).filter((c) => !seenImg.has(c.url) && seenImg.add(c.url)).slice(0, 8);
-    const imgs = (await Promise.all(picked.map(async (c) => ({ ...c, img: await fetchImage(c.url) })))).filter((c) => c.img).slice(0, 4);
+    const imgs = (await Promise.all(picked.map(async (c) => ({ ...c, img: await cap(fetchImage(c.url), 8000, null) })))).filter((c) => c.img).slice(0, 4);
     diag.push({ name: "label-images", outcome: `${imgs.length}/${picked.length} from ${pages.length} pages: ${imgs.map((c) => c.url).join(" , ")}`.slice(0, 400) });
     if (!imgs.length && !sheets.length) return null;
     const sheetText = sheets.map((x) => `Tech sheet (${x.url}):\n${x.text.slice(0, 5000)}`).join("\n\n");
