@@ -5,7 +5,12 @@
 
 export const USERS = {
   mindy: { name: "Mindy", salt: "0f7fca9e8484123efc9fbc2b783f2aef", hash: "8f2608888caec437e5edcaafbecc7c021f18196410029c4066222ae90bc625f4" },
+  // Apple App Review sign in: full app, no /admin pages.
+  appreview: { name: "App Review", review: true, salt: "46378cbab885259088783505763520ce", hash: "67d842cba9724cf06a7f90610ce98aec75a3fd561d9a4f7c84a6e83b5f3eab9a" },
 };
+
+// Review logins use the app but never see the team pages under /admin.
+export const isReviewUser = (user) => Boolean(user && USERS[user]?.review);
 
 const COOKIE = "wb_session";
 const DAYS = 365;
@@ -28,7 +33,8 @@ function same(a, b) {
 
 async function secretKey(secret) {
   // AUTH_SECRET env var if set; otherwise derived from the stored hashes.
-  const base = secret || `wb|${Object.values(USERS).map((u) => u.hash).join("|")}`;
+  // Review logins are left out so adding one never signs the team out.
+  const base = secret || `wb|${Object.values(USERS).filter((u) => !u.review).map((u) => u.hash).join("|")}`;
   return crypto.subtle.importKey("raw", enc.encode(base), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
 }
 
@@ -116,7 +122,12 @@ export async function gate(req, secret, env = {}) {
     }
     return html(loginPage("", safeNext(url.searchParams.get("next"))));
   }
-  if (await sessionUser(req.headers.get("cookie"), secret)) return null;
+  const signedIn = await sessionUser(req.headers.get("cookie"), secret);
+  if (signedIn && isReviewUser(signedIn) && isAdminPath(p)) {
+    if (p.startsWith("/api/")) return Response.json({ error: "Not available." }, { status: 403 });
+    return new Response(null, { status: 302, headers: { Location: "/", "Cache-Control": "no-store" } });
+  }
+  if (signedIn) return null;
   // Public mode (WB_PUBLIC=true, needed for the App Store): anyone can use
   // the app, with free scan limits. Only the team pages under /admin still
   // need the password. Unset, the whole site stays behind the password.
