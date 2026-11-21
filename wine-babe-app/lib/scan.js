@@ -2016,9 +2016,18 @@ const ENGINE_VERSION = "v77";
 // the key drops appellation words, sorts the rest, and treats NV as no vintage.
 const KEY_NOISE = new Set(["doc", "docg", "igt", "igp", "aoc", "aop", "do", "doca", "dop", "ava", "spumante", "vino", "wine", "wines", "the", "and", "di", "de", "del", "della"]);
 const keyWords = (x) => [...new Set(norm(x).split(" ").filter((t) => t && !KEY_NOISE.has(t)))].sort().join("-");
-const cacheKey = (w) => {
+const cacheKeyOld = (w) => {
   const vintage = /^(19|20)\d{2}$/.test(String(w.vintage || "").trim()) ? String(w.vintage).trim() : "nv";
   return `${ENGINE_VERSION}__${keyWords(w.producer)}__${keyWords(w.name)}__${vintage}`;
+};
+// The wine name part leaves out the brand's own words, so "LYBL Cabernet
+// Sauvignon" and "Cabernet Sauvignon" by LYBL are one wine.
+const cacheKey = (w) => {
+  const vintage = /^(19|20)\d{2}$/.test(String(w.vintage || "").trim()) ? String(w.vintage).trim() : "nv";
+  const prod = new Set(keyWords(w.producer).split("-"));
+  const nameAll = keyWords(w.name).split("-").filter(Boolean);
+  const nameOnly = nameAll.filter((t) => !prod.has(t));
+  return `${ENGINE_VERSION}__${keyWords(w.producer)}__${(nameOnly.length ? nameOnly : nameAll).join("-")}__${vintage}`;
 };
 
 // ---------- shared brain ----------
@@ -2215,6 +2224,8 @@ This is a second try: you MUST run a web search for the exact wine name first. I
     key = res.key;
     await rememberAlias(cache, wine, key, res.list);
     prior = await cache.get(key).catch(() => null);
+    // Saved under the older key style (brand words inside the wine name): still found, and saved under the new key from now on.
+    if (!prior?.result) prior = await cache.get(cacheKeyOld(wine).replace(/^[^_]+__/, "brain__")).catch(() => null);
     if (prior?.result) prior = { ...prior, result: scrubShopNegatives(scrubShopSugar(prior.result)) };
     if (!prior?.result) {
       // Seed from the older per-version cache, so earlier scans are not lost.
