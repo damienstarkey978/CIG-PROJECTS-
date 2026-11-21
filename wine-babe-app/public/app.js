@@ -341,10 +341,10 @@
         state = notVegan ? "fail" : isVerified(c) ? c.status : "unverified";
         basis = c?.detail || "";
       } else if (s.id === "sugar_under_1g" && isVerified(c) && (n.sugar_5oz != null || n.sugar_below_5oz != null)) {
-        // 1 gram or less per 5 oz passes (rounded to 0.01 g).
-        const g = n.sugar_5oz != null ? Math.round(n.sugar_5oz * 100) / 100 : null;
+        // 1 gram or less per 5 oz passes (rounded to 0.1 g, the way a label is).
+        const g = n.sugar_5oz != null ? Math.round(n.sugar_5oz * 10) / 10 : null;
         // An upper bound above 1 g ("under 1.04 g") proves neither side.
-        state = g != null ? (g <= 1 ? "pass" : "fail") : n.sugar_below_5oz <= 1.0001 ? "pass" : "unverified";
+        state = g != null ? (g <= 1 ? "pass" : "fail") : Math.round(n.sugar_below_5oz * 10) / 10 <= 1 ? "pass" : "unverified";
         basis = c.detail || "";
       } else {
         state = isVerified(c) ? c.status : "unverified";
@@ -569,7 +569,7 @@
 
     const sugar = n.sugar_5oz;
     // Skinny Sip Approved: verified sugar of 1 g or less per 5 oz serving.
-    const skinnySip = sugar != null ? Math.round(sugar * 100) / 100 <= 1 : n.sugar_below_5oz != null && n.sugar_below_5oz <= 1.0001;
+    const skinnySip = sugar != null ? Math.round(sugar * 10) / 10 <= 1 : n.sugar_below_5oz != null && Math.round(n.sugar_below_5oz * 10) / 10 <= 1;
     const typ = (n.typical && n.typical.fields) || [];
     const sugarCheck = r.checks.find((c) => c.id === "sugar_under_1g");
     const byId = Object.fromEntries(r.checks.map((c) => [c.id, c]));
@@ -651,11 +651,11 @@
       ${(() => {
         const sugarFound = sugarCheck && (sugarCheck.status === "pass" || sugarCheck.status === "fail") && sugarCheck.evidence !== "none";
         const amount = sugar != null ? `${fmt(sugar, 1)} g per 5 oz`
-          : n.sugar_below_5oz != null ? `Under ${fmt(n.sugar_below_5oz, n.sugar_below_5oz > 1.0001 ? 2 : 1)} g per 5 oz`
+          : n.sugar_below_5oz != null ? `Under ${fmt(n.sugar_below_5oz, Math.round(n.sugar_below_5oz * 10) / 10 > 1 ? 2 : 1)} g per 5 oz`
           : data.eu_disclosure?.sugar ? `${esc(data.eu_disclosure.sugar.original)} (${esc(data.eu_disclosure.sugar.kind)})`
           : "No published figure";
         // "Under 1.04 g" is a ceiling, not a reading: it cannot confirm 1 g or less, and it is not "over" either.
-        const ceiling = sugarFound && sugar == null && n.sugar_below_5oz != null && n.sugar_below_5oz > 1.0001;
+        const ceiling = sugarFound && sugar == null && n.sugar_below_5oz != null && Math.round(n.sugar_below_5oz * 10) / 10 > 1;
         const over = sugarFound && sugarCheck.status === "fail" && !ceiling;
         const pill = ceiling ? `<span class="sugarbar__pill no">1 g or Less Not Confirmed</span>` : !sugarFound ? `<span class="sugarbar__pill no">Not verified</span>` : over ? `<span class="sugarbar__pill neg">&#10005; Over 1 g</span>` : `<span class="sugarbar__pill yes">&#10003; Verified</span>`;
         const note = !sugarFound && data.eu_disclosure?.applicable ? `<div class="sugarbar__note">${esc(sugarCheck?.detail || "Not yet verified. EU nutritional disclosure search completed.")}</div>` : "";

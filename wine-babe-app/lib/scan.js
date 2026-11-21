@@ -1862,7 +1862,9 @@ async function gatherEvidence(wine, site, diag) {
   for (const r of bvCand.slice(0, 4)) {
     const u = await resolveResultUrl(r.url);
     const hay = norm(`${r.title} ${decodeURIComponent(u)}`);
-    if (/barnivore\.com\/(wine|products)\//i.test(u) && bvWords.length && bvWords.some((w) => hay.includes(w))) { barnivoreUrl = u; break; }
+    // Most of the producer's name must be there, and the entry must not be a brewery, cidery or distillery.
+    const bvHits = bvWords.filter((w) => hay.includes(w)).length;
+    if (/barnivore\.com\/(wine|products)\//i.test(u) && !/beers?\b|brewing|brewery|cider|spirits|distill/i.test(hay) && bvWords.length && bvHits >= Math.ceil(bvWords.length * 0.6)) { barnivoreUrl = u; break; }
   }
   // Tech sheet PDFs found by the specs search.
   const pdfCands = ["sitepdf", "pdf", "specs"].flatMap((k) => results.find((r) => r.k === k)?.res || []).filter((r) => /\.pdf|pdf/i.test(`${r.display} ${r.url}`)).slice(0, 8);
@@ -2920,7 +2922,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
         n.residual_sugar_g_l = Math.round(eu.sugars_100ml * 100) / 10;
       }
       n.source = evidence === "third_party" ? "third_party" : "winery";
-      best.sugar_under_1g = { ...euBase, id: "sugar_under_1g", status: Math.round(per5 * 100) / 100 <= 1 ? "pass" : "fail", evidence,
+      best.sugar_under_1g = { ...euBase, id: "sugar_under_1g", status: Math.round(per5 * 10) / 10 <= 1 ? "pass" : "fail", evidence,
         detail: `${bound ? "Under " : ""}${per5.toFixed(2)} g ${kindLabel} per 5 oz: ${original} on the ${label}.`, ...(otherVintage ? { scope: "this_wine" } : {}) };
       euDisclosure.sugar = {
         per_5oz: Math.round(per5 * 100) / 100,
@@ -3006,7 +3008,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
       n.eu_sugar = true;
       n.sugar_kind = "total_sugars";
       n.source = "winery";
-      best.sugar_under_1g = { ...lb, id: "sugar_under_1g", status: Math.round(per5 * 100) / 100 <= 1 ? "pass" : "fail", evidence: "winery", detail: `${per5.toFixed(2)} g total sugars per 5 oz: ${ln.sugars_100ml} g per 100 ml on the bottle label.` };
+      best.sugar_under_1g = { ...lb, id: "sugar_under_1g", status: Math.round(per5 * 10) / 10 <= 1 ? "pass" : "fail", evidence: "winery", detail: `${per5.toFixed(2)} g total sugars per 5 oz: ${ln.sugars_100ml} g per 100 ml on the bottle label.` };
       euDisclosure.sugar = { per_5oz: Math.round(per5 * 100) / 100, upper_bound: false, original: `${ln.sugars_100ml} g / 100 ml`, kind: "total sugars", source_type: "Bottle label", host: "", url: "", vintage: wine.vintage || "", vintage_verified: true };
       used.push("sugar");
     }
@@ -3327,7 +3329,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
       if (n.residual_sugar_g_l == null && sn.rs) {
         n.residual_sugar_g_l = sn.rs.value; n.source = "lab";
         const per5 = sn.rs.value * 0.14787;
-        set("sugar_under_1g", { id: "sugar_under_1g", status: Math.round(per5 * 100) / 100 <= 1 ? "pass" : "fail", evidence: "lab", scope: "this_wine", as_of: "", detail: `Tech sheet: ${sn.rs.value} g/L residual sugar${/100/.test(sn.rs.text) ? ` (printed as ${sn.rs.text})` : ""}, about ${per5.toFixed(2)} g per 5 oz.`, source_url: sn.url, origin: `Tech sheet on ${sh}` });
+        set("sugar_under_1g", { id: "sugar_under_1g", status: Math.round(per5 * 10) / 10 <= 1 ? "pass" : "fail", evidence: "lab", scope: "this_wine", as_of: "", detail: `Tech sheet: ${sn.rs.value} g/L residual sugar${/100/.test(sn.rs.text) ? ` (printed as ${sn.rs.text})` : ""}, about ${per5.toFixed(2)} g per 5 oz.`, source_url: sn.url, origin: `Tech sheet on ${sh}` });
       }
       if (!result.wine.tech_sheet_url) result.wine = { ...result.wine, tech_sheet_url: sn.url };
       // The sheet itself is published: the tech sheet item passes.
@@ -3337,6 +3339,13 @@ This run follows what is printed on the bottle: the barcode number and the compa
   }
   // Everything goes into the brain, merged with what it already knew. A thin
   // entry is stored too, but the next scan researches it again (see step 2).
+  // One rule for the sugar verdict, whatever step set it: 1 gram or less per
+  // 5 oz, rounded to one decimal the way a label is (1.006 g reads 1.0 g).
+  {
+    const c = (result.checks || []).find((x) => x.id === "sugar_under_1g");
+    const rs = result.nutrition?.residual_sugar_g_l;
+    if (c && (c.status === "pass" || c.status === "fail") && rs != null) c.status = Math.round(rs * 0.14787 * 10) / 10 <= 1 ? "pass" : "fail";
+  }
   // What the brand states for all its wines on its own site (FAQ, home page).
   {
     const b = (await (evid || Promise.resolve(null)).catch(() => null))?.out?.brand;
@@ -3346,7 +3355,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
     const setC = (c) => { result.checks = (result.checks || []).filter((x) => x.id !== c.id).concat(c); };
     if (b && b.sugar_g_per_5oz != null && b.sugar_applies && ownUrl(b.sugar_url) && b.sugar_g_per_5oz >= 0 && b.sugar_g_per_5oz < 30 && !vr(cur("sugar_under_1g"))) {
       const g = b.sugar_g_per_5oz;
-      setC({ id: "sugar_under_1g", status: Math.round(g * 100) / 100 <= 1 ? "pass" : "fail", evidence: "winery", scope: "producer", as_of: "", detail: `${g} g sugar per serving, stated by the brand for its wines: "${String(b.sugar_quote).slice(0, 160)}"`, source_url: b.sugar_url, origin: `Brand website: ${hostOf(b.sugar_url)}` });
+      setC({ id: "sugar_under_1g", status: Math.round(g * 10) / 10 <= 1 ? "pass" : "fail", evidence: "winery", scope: "producer", as_of: "", detail: `${g} g sugar per serving, stated by the brand for its wines: "${String(b.sugar_quote).slice(0, 160)}"`, source_url: b.sugar_url, origin: `Brand website: ${hostOf(b.sugar_url)}` });
       result.nutrition = { ...(result.nutrition || EMPTY_NUTRITION), residual_sugar_g_l: Math.round((g / 0.14787) * 10) / 10, sugar_below_g_l: null, source: "winery" };
       diag.push({ name: "brand-sugar", outcome: `${g} g: ${String(b.sugar_quote).slice(0, 120)} @ ${b.sugar_url}` });
     }
