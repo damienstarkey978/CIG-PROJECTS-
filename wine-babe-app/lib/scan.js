@@ -86,13 +86,15 @@ const LABEL_CLAIM_MAP = {
   hand_harvested: "hand_harvested", no_added_sugar: "no_added_sugar", no_added_flavors: "no_artificial_flavors",
   no_artificial_colors: "no_artificial_colors", no_artificial_sweeteners: "no_artificial_sweeteners", estate_grown: "estate_grown",
   family_owned: "family_owned", single_vineyard: "single_vineyard", native_yeast: "yeast", no_added_water: "no_added_water",
+  // "No added sulfites / senza solfiti aggiunti / sans sulfites ajoutés": the producer says how sulfites were handled.
+  no_added_sulfites: "sulfites",
 };
 const LABEL_CLAIMS = Object.keys(LABEL_CLAIM_MAP);
 const CLAIM_TEXT = {
   vegan: "Vegan status", gluten_free: "Gluten free", sustainable: "Sustainably farmed", organic: "Organic", non_gmo: "Non GMO",
   hand_harvested: "Hand harvested", no_added_sugar: "No added sugar", no_added_flavors: "No added flavors", no_artificial_colors: "No artificial colors",
   no_artificial_sweeteners: "No artificial sweeteners", estate_grown: "Estate grown", family_owned: "Family owned", single_vineyard: "Single vineyard",
-  native_yeast: "Native yeast", no_added_water: "No added water",
+  native_yeast: "Native yeast", no_added_water: "No added water", no_added_sulfites: "No added sulfites",
 };
 
 // Claims about this wine published online: brand / winery site, distributor,
@@ -713,7 +715,7 @@ const LABEL_READ_SCHEMA = {
   type: "object", additionalProperties: false, required: ["this_wine", "label_claims"],
   properties: { this_wine: { type: "boolean" }, label_claims: null },
 };
-const LABEL_READ_SYSTEM = `You read photos of a wine bottle's labels found online, for the Wine Babe app. First check they show the wine named: same brand, same wine and same style or dosage (Brut is not Extra Brut, Brut Nature or Extra Dry; a Rosé is not the white). this_wine false if any label is a different wine or version, or not a label. Then fill label_claims with what is printed on these labels, exactly as on a bottle: alcohol, calories per 5 oz serving (US labels give it per serving; convert per 100 ml x 1.4787), sugar per 5 oz, sugar_under_1g for "<1g sugar", carbs per 5 oz, and every claim printed (vegan, gluten free, sustainable, organic, non GMO, hand harvested or manual harvest (the same claim), no added sugar, no added flavors...). printed_text: the claim lines word for word. bottled_by: the "Produced / Vinted / Bottled / Imported by" line as printed. barcode: the digits under the barcode if readable. Only what is printed and readable; never guess.`;
+const LABEL_READ_SYSTEM = `You read photos of a wine bottle's labels found online, for the Wine Babe app. First check they show the wine named: same brand, same wine and same style or dosage (Brut is not Extra Brut, Brut Nature or Extra Dry; a Rosé is not the white). this_wine false if any label is a different wine or version, or not a label. Then fill label_claims with what is printed on these labels, exactly as on a bottle: alcohol, calories per 5 oz serving (US labels give it per serving; convert per 100 ml x 1.4787), sugar per 5 oz, sugar_under_1g for "<1g sugar", carbs per 5 oz, and every claim printed (vegan, gluten free, sustainable, organic, non GMO, hand harvested or manual harvest (the same claim), no added sugar, no added flavors, no added sulfites (senza solfiti aggiunti, sans sulfites ajoutés; "contains sulfites" is not this claim)...). printed_text: the claim lines word for word. bottled_by: the "Produced / Vinted / Bottled / Imported by" line as printed. barcode: the digits under the barcode if readable. Only what is printed and readable; never guess.`;
 
 const FIND_LINKS_TOOL = {
   name: "find_page_links",
@@ -1884,7 +1886,7 @@ const EVIDENCE_SCHEMA = {
 const EVIDENCE_SYSTEM = `You read evidence about ONE wine for the Wine Babe app and fill in what it states. The evidence is search results (titles and snippets) and excerpts from web pages, each with its address. Use only this evidence; never add anything from memory.
 nutrition: per 5 oz (147.87 ml) figures. If a page gives per 100 ml, multiply by 1.4787; a label per serving of 5 oz is already per 5 oz. Take numbers only from a page about this exact wine (winery, importer or retailer product page). Null for anything not stated. source_url is the page, source_kind its type.
 ingredients: only an explicit ingredient list for this exact wine, in the order listed (found true). "Wine" or "Grapes" alone from a shop is not a list: found false unless two or more items. Contains sulfites alone is not a list.
-claims: one entry per claim a page makes about this wine, with the page address in url and the exact short wording in quote. Claims: ${LABEL_CLAIMS.join(", ")}. polarity "yes" when the page says it is so, "no" when it says it is not (for example "not vegan", "not certified organic"). this_wine true only when the page is about this exact wine; false for a brand wide statement. source_kind: brand or winery for the producer's own pages, importer or distributor, retailer for shops, certifier for a certifying body. Never infer: "low sugar" is not "no added sugar", "natural" is not "organic", "sustainable" needs a stated practice or certification.
+claims: one entry per claim a page makes about this wine, with the page address in url and the exact short wording in quote. Claims: ${LABEL_CLAIMS.join(", ")}. no_added_sulfites only for an explicit "no added sulfites / senza solfiti aggiunti" statement. polarity "yes" when the page says it is so, "no" when it says it is not (for example "not vegan", "not certified organic"). this_wine true only when the page is about this exact wine; false for a brand wide statement. source_kind: brand or winery for the producer's own pages, importer or distributor, retailer for shops, certifier for a certifying body. Never infer: "low sugar" is not "no added sugar", "natural" is not "organic", "sustainable" needs a stated practice or certification.
 If the evidence does not say, leave it out.`;
 
 async function readEvidence(wine, packet, diag, send, deadline) {
@@ -3272,6 +3274,9 @@ This run follows what is printed on the bottle: the barcode number and the compa
         set("sugar_under_1g", { id: "sugar_under_1g", status: Math.round(per5 * 100) / 100 <= 1 ? "pass" : "fail", evidence: "lab", scope: "this_wine", as_of: "", detail: `Tech sheet: ${sn.rs.value} g/L residual sugar${/100/.test(sn.rs.text) ? ` (printed as ${sn.rs.text})` : ""}, about ${per5.toFixed(2)} g per 5 oz.`, source_url: sn.url, origin: `Tech sheet on ${sh}` });
       }
       if (!result.wine.tech_sheet_url) result.wine = { ...result.wine, tech_sheet_url: sn.url };
+      // The sheet itself is published: the tech sheet item passes.
+      const ts = (result.checks || []).find((c) => c.id === "tech_sheet");
+      if (!ts || ts.status !== "pass") set("tech_sheet", { id: "tech_sheet", status: "pass", evidence: "winery", scope: "this_wine", as_of: "", detail: `Tech sheet published for this wine on ${sh}.`, source_url: sn.url, origin: `Tech sheet on ${sh}` });
     }
   }
   // Everything goes into the brain, merged with what it already knew. A thin
