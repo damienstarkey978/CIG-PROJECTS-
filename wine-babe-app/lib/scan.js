@@ -2081,16 +2081,29 @@ const NUTRITION_FIELDS = ["abv", "residual_sugar_g_l", "sugar_below_g_l", "calor
 function mergeBrain(fresh, old) {
   if (!old) return { result: fresh, added: 0 };
   let added = 0;
+  const keptOld = new Set();
   const oldChecks = new Map((old.checks || []).map((c) => [c.id, c]));
   const checks = (fresh.checks || []).map((c) => {
     const o = oldChecks.get(c.id);
     oldChecks.delete(c.id);
-    if (isKnown(c)) { if (!isKnown(o)) added++; return c; }
+    if (isKnown(c)) {
+      if (!isKnown(o)) { added++; return c; }
+      // A saved fact is only replaced by equal or stronger evidence: a new
+      // estimate never overwrites a figure read from the label or the winery.
+      const w = (x) => EVIDENCE[x.evidence]?.weight ?? 0;
+      if (w(o) > w(c)) { keptOld.add(c.id); return o; }
+      return c;
+    }
     return isKnown(o) ? o : c;
   });
   for (const o of oldChecks.values()) if (isKnown(o)) checks.push(o);
   const n = { ...(fresh.nutrition || EMPTY_NUTRITION) };
   const on = old.nutrition || {};
+  // The number shown follows the fact that was kept.
+  if (keptOld.has("calories") && on.calories_5oz != null) n.calories_5oz = on.calories_5oz;
+  if (keptOld.has("carbs") && on.carbs_5oz != null) n.carbs_5oz = on.carbs_5oz;
+  if (keptOld.has("abv") && on.abv != null) n.abv = on.abv;
+  if (keptOld.has("sugar_under_1g")) { n.residual_sugar_g_l = on.residual_sugar_g_l ?? null; n.sugar_below_g_l = on.sugar_below_g_l ?? null; if (on.source) n.source = on.source; }
   for (const f of NUTRITION_FIELDS) {
     if (n[f] == null && on[f] != null) n[f] = on[f];
     else if (n[f] != null && on[f] == null) added++;
