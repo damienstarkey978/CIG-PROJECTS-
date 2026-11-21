@@ -2076,7 +2076,7 @@ const WINERY_STATEMENTS = [
 
 // Bump when the research improves: wines saved by an older revision are
 // researched again the next time they are scanned (and merged into the entry).
-const BRAIN_REV = 6;
+const BRAIN_REV = 7;
 const brainKey = (w) => cacheKey(w).replace(/^[^_]+__/, "brain__");
 // Saved results whose sugar verdict rests on a shop page alone lose that
 // verdict (the figure was never confirmed by the winery or importer).
