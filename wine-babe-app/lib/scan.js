@@ -1846,7 +1846,12 @@ async function gatherEvidence(wine, site, diag) {
     ...(siteHost ? [["brand", `site:${siteHost} sugar vegan sulfites ingredients FAQ`]] : []),
   ];
   const t0 = Date.now();
-  const results = await Promise.all(queries.map(async ([k, q]) => ({ k, q, res: await serpSearch(q) })));
+  // At most 4 searches at a time: the search service answers empty when it gets too many at once.
+  const results = new Array(queries.length);
+  let nextQ = 0;
+  await Promise.all(Array.from({ length: 4 }, async () => {
+    while (nextQ < queries.length) { const i = nextQ++; const [k, q] = queries[i]; results[i] = { k, q, res: await serpSearch(q) }; }
+  }));
   diag.push({ name: "serp", ms: Date.now() - t0, outcome: results.map((r) => `${r.k}:${r.res.length}`).join(" ") });
   if (serpFails.length) { diag.push({ name: "serp-fails", outcome: serpFails.slice(0, 8).join(" | ").slice(0, 900) }); serpFails = []; }
 
