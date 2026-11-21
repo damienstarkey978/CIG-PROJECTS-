@@ -951,7 +951,7 @@ async function pageText(url, ms = 7000, max = 12000) {
     return html ? htmlToText(html).slice(0, max) : "";
   }
   // Blocked (401/403/429/503) or failed fetches are retried through Bright Data.
-  const viaUnlocker = async () => { const html = await unlockedHtml(u.href, 15000); return html ? htmlToText(html).slice(0, max) : ""; };
+  const viaUnlocker = async () => { const html = await unlockedHtml(u.href, 10000); return html ? htmlToText(html).slice(0, max) : ""; };
   try {
     const res = await fetch(u, { signal: AbortSignal.timeout(ms), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; WineBabeScanner/1.0)" } });
     if (!res.ok) return [401, 403, 429, 503].includes(res.status) ? viaUnlocker() : "";
@@ -1745,7 +1745,7 @@ async function serpSearch(query) {
   // every try uses a slightly different address for the same search.
   const variants = ["", "&num=10", "&pws=0", "&num=10&pws=0&filter=0"];
   const nonce = Math.floor(Math.random() * 3);
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en&gl=us${variants[(attempt + nonce) % variants.length]}&brd_json=1`;
     if (attempt) await new Promise((r) => setTimeout(r, 400 * attempt));
     const buf = await unlockedFetch(url, 15000);
@@ -1860,10 +1860,9 @@ async function gatherEvidence(wine, site, diag) {
     ["farm", `${wine.producer || name} winery certified sustainable OR organic vineyards certification`],
     ["barnivore", `barnivore ${wine.producer || name}`],
     ["label", `${name} back label`],
-    ...(siteHost ? [["site", `site:${siteHost} ${wine.name}`], ["sitepdf", `site:${siteHost} filetype:pdf ${wine.name}`]] : []),
+    ...(siteHost ? [["site", `site:${siteHost} ${wine.name}`]] : []),
     ["pdf", `${name} technical sheet filetype:pdf`],
     // The brand's own general pages (FAQ, about, standards): statements that cover all its wines.
-    ...(siteHost ? [["brand", `site:${siteHost} sugar vegan sulfites ingredients FAQ`]] : []),
   ];
   const t0 = Date.now();
   // At most 4 searches at a time: the search service answers empty when it gets too many at once.
@@ -1938,7 +1937,7 @@ async function gatherEvidence(wine, site, diag) {
   const pagesToRead = resolved.filter((r) => /^https?:\/\//.test(r.real) && !/\.pdf(\?|$)/i.test(r.real) && !/(^|\.)kroger\.com$/.test(hostOf(r.real)));
   const t1 = Date.now();
   const slow = (ms) => new Promise((res) => setTimeout(() => res(""), ms));
-  const read = await Promise.all(pagesToRead.map(async (r) => ({ ...r, text: await Promise.race([pageText(r.real, 9000, r.brandWide ? 40000 : 12000).catch(() => ""), slow(11000)]) })));
+  const read = await Promise.all(pagesToRead.map(async (r) => ({ ...r, text: await Promise.race([pageText(r.real, 6000, r.brandWide ? 40000 : 12000).catch(() => ""), slow(16000)]) })));
   // A producer wide page (farming, certification) must name the producer; a wine page must be this wine.
   const namesProducer = (t) => { const w = new Set(norm(t.slice(0, 20000)).split(" ")); return prodKeys.length > 0 && prodKeys.every((k) => w.has(k)); };
   const usable = read.filter((r) => r.text && (r.brandWide || (r.prodWide ? namesProducer(r.text) : textFitsWine(r.text, wine))));
@@ -2913,7 +2912,12 @@ This run follows what is printed on the bottle: the barcode number and the compa
 
   let [tech, farm, vegan, cert, barnivore] = await Promise.all([
     techLookup(),
-    viaPacket(() => null, () => runAgent({ diag,
+    // Farming and certifications: when the pages read say nothing either way about sustainable or
+    // organic farming, one small search agent looks (certifier lists, the winery's FAQ), as the old flow did.
+    viaPacket((e) => ((e.out.claims || []).some((c) => c.claim === "sustainable" || c.claim === "organic") ? null : runAgent({ diag,
+      name: "farm", model: lookupModel(), system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline: Date.now() + 22000,
+      content: ask("Check farming and certifications and fill the items."), tools: webTools(1, 2),
+    }).catch(() => null)), () => runAgent({ diag,
       name: "farm", model: lookupModel(), system: farmPrompt(wine, site), schema: agentSchema(FARM_IDS, false), send, deadline,
       content: ask("Check farming and certifications and fill the items."), tools: webTools(1, 2),
     })),
