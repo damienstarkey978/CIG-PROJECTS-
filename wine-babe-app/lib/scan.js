@@ -1855,6 +1855,9 @@ async function gatherEvidence(wine, site, diag) {
     ["specs", `${name} tech specs`],
     ["ingredients", `${name} ingredients`],
     ["claims", `${name} vegan organic non GMO sustainable gluten free`],
+    ["claims2", `${name} "no added sugar" OR "no sugar added" OR "non GMO" OR "no additives" OR "no flavor additives"`],
+    // Farming and certifications are about the producer, not one wine.
+    ["farm", `${wine.producer || name} winery certified sustainable OR organic vineyards certification`],
     ["barnivore", `barnivore ${wine.producer || name}`],
     ["label", `${name} back label`],
     ...(siteHost ? [["site", `site:${siteHost} ${wine.name}`], ["sitepdf", `site:${siteHost} filetype:pdf ${wine.name}`]] : []),
@@ -1875,16 +1878,19 @@ async function gatherEvidence(wine, site, diag) {
   const nameWords = norm(wine.name).split(" ").filter((w) => w.length > 2 && !VARIETIES.some((v) => v.split(" ").includes(w)));
   const seen = new Set();
   const all = [];
+  const prodKeys = producerTokens(wine);
   for (const { k, res } of results) for (const r of res) {
     const key = `${r.display}|${r.title}`;
     if (seen.has(key)) continue; seen.add(key);
     const hay = `${r.title} ${r.snippet} ${r.display}`.toLowerCase();
     const c0 = classifyResult(r, wine, siteHost);
     const brandWide = k === "brand" && c0.kind === "winery";
-    if (!brandWide && nameWords.length && !nameWords.some((w) => hay.includes(w))) continue; // not about this wine
+    // A farming or certification result is about the producer: its name must be there.
+    const prodWide = k === "farm" && prodKeys.length > 0 && prodKeys.some((w) => hay.includes(w));
+    if (!brandWide && !prodWide && nameWords.length && !nameWords.some((w) => hay.includes(w))) continue; // not about this wine
     if (SKIP_RESULT_HOSTS.test(hostOf(r.display.split(" ")[0]))) continue;
     const c = c0;
-    all.push({ ...r, q: k, brandWide, kind: brandWide ? "brand-wide" : c.kind, score: c.score + (10 - Math.min(10, r.rank)) + (k === "nutrition" || k === "ingredients" ? 3 : 0) });
+    all.push({ ...r, q: k, brandWide, prodWide: prodWide && !nameWords.some((w) => hay.includes(w)), kind: brandWide ? "brand-wide" : c.kind, score: c.score + (10 - Math.min(10, r.rank)) + (k === "nutrition" || k === "ingredients" ? 3 : 0) });
   }
   // Barnivore entry for the producer.
   const bvCand = results.find((r) => r.k === "barnivore")?.res.filter((r) => /barnivore\.com/.test(`${r.display} ${r.url}`)) || [];
@@ -1904,24 +1910,46 @@ async function gatherEvidence(wine, site, diag) {
   // Best pages to read.
   const ranked0 = all.filter((r) => r.kind !== "barnivore").sort((a, b) => b.score - a.score);
   // The brand's own general pages come straight from its site (sitemap), plus any the search found.
-  const sitePages = await brandSitePages(siteHost).catch(() => []);
-  diag.push({ name: "brand-pages", outcome: `${siteHost || "no site"}: ${sitePages.join(" , ")}`.slice(0, 400) });
-  const sp = sitePages.map((url) => ({ title: "Brand page", display: siteHost, snippet: "", url, kind: "brand-wide", brandWide: true, rank: 0, score: 0 }));
-  const picks = [...ranked0.filter((r) => !r.brandWide).slice(0, 8), ...sp, ...ranked0.filter((r) => r.brandWide && !sitePages.includes(r.url)).slice(0, 2)];
+  // The brand's own host as the search shows it (the site named at the start is sometimes a sister domain).
+  const dispHostOf = (r) => (r.display || "").replace(/^https?:\/\//, "").split(/[\s›/]/)[0].replace(/^www\./, "").toLowerCase();
+  const ownCount = {};
+  for (const r of all) if (r.kind === "winery" || r.kind === "brand-wide") { const h = dispHostOf(r); if (h && prodKeys.some((w) => h.includes(w))) ownCount[h] = (ownCount[h] || 0) + 1; }
+  const seenOwn = Object.entries(ownCount).sort((a, b) => b[1] - a[1]).map(([h]) => h);
+  const brandHosts = [...new Set([siteHost, ...seenOwn].filter(Boolean))].slice(0, 2);
+  const sitePages = [...new Set((await Promise.all(brandHosts.map((h) => brandSitePages(h).catch(() => [])))).flat())].slice(0, 7);
+  diag.push({ name: "brand-pages", outcome: `${brandHosts.join(" + ") || "no site"}: ${sitePages.join(" , ")}`.slice(0, 400) });
+  const sp = sitePages.map((url) => ({ title: "Brand page", display: hostOf(url), snippet: "", url, kind: "brand-wide", brandWide: true, rank: 0, score: 0 }));
+  // A spread of sources, like a person would open: a few of the brand's own pages for this wine, then
+  // one page per shop, importer or database (that is where "no added sugar", "non GMO" and ingredient
+  // lists are often printed), then the producer's farming and certification pages.
+  const winePages = [];
+  const perHost = {};
+  for (const r of ranked0.filter((x) => !x.brandWide && !x.prodWide)) {
+    const h = dispHostOf(r);
+    const capH = r.kind === "winery" ? 3 : 1;
+    if ((perHost[h] || 0) >= capH) continue;
+    perHost[h] = (perHost[h] || 0) + 1;
+    winePages.push(r);
+    if (winePages.length >= 12) break;
+  }
+  const farmPages = ranked0.filter((x) => x.prodWide).sort((a, b) => Number(b.kind === "certifier") - Number(a.kind === "certifier") || b.score - a.score).filter((r, i, a) => a.findIndex((q) => dispHostOf(q) === dispHostOf(r)) === i).slice(0, 3);
+  const picks = [...winePages, ...farmPages, ...sp, ...ranked0.filter((r) => r.brandWide && !sitePages.includes(r.url)).slice(0, 2)];
   const resolved = await Promise.all(picks.map(async (r) => ({ ...r, real: await resolveResultUrl(r.url) })));
   const pagesToRead = resolved.filter((r) => /^https?:\/\//.test(r.real) && !/\.pdf(\?|$)/i.test(r.real) && !/(^|\.)kroger\.com$/.test(hostOf(r.real)));
   const t1 = Date.now();
   const slow = (ms) => new Promise((res) => setTimeout(() => res(""), ms));
   const read = await Promise.all(pagesToRead.map(async (r) => ({ ...r, text: await Promise.race([pageText(r.real, 9000, r.brandWide ? 40000 : 12000).catch(() => ""), slow(11000)]) })));
-  const usable = read.filter((r) => r.text && (r.brandWide || textFitsWine(r.text, wine)));
+  // A producer wide page (farming, certification) must name the producer; a wine page must be this wine.
+  const namesProducer = (t) => { const w = new Set(norm(t.slice(0, 20000)).split(" ")); return prodKeys.length > 0 && prodKeys.every((k) => w.has(k)); };
+  const usable = read.filter((r) => r.text && (r.brandWide || (r.prodWide ? namesProducer(r.text) : textFitsWine(r.text, wine))));
   diag.push({ name: "pages", ms: Date.now() - t1, outcome: `${usable.length}/${read.length} read and about this wine: ${usable.map((r) => hostOf(r.real)).join(", ")}`.slice(0, 300) });
   return {
-    serp: all.slice(0, 24).map((r) => ({ title: r.title, display: r.display, snippet: r.snippet, kind: r.kind })),
+    serp: [...all].sort((a, b) => b.score - a.score).slice(0, 40).map((r) => ({ title: r.title, display: r.display, snippet: r.snippet, kind: r.prodWide ? `${r.kind}, about the producer` : r.kind })),
     // Brand wide pages go first and get more room: they carry the statements for every wine.
-    pages: [...usable.filter((r) => r.brandWide), ...usable.filter((r) => !r.brandWide)].map((r) => ({ url: r.real, kind: r.kind, host: hostOf(r.real), excerpt: excerptOf(r.text, r.brandWide ? 3200 : 1700), big: Boolean(r.brandWide), text: r.text })),
+    pages: [...usable.filter((r) => r.brandWide), ...usable.filter((r) => !r.brandWide)].map((r) => ({ url: r.real, kind: r.prodWide ? `${r.kind}, about the producer` : r.kind, host: hostOf(r.real), excerpt: excerptOf(r.text, r.brandWide ? 3200 : 1700), big: Boolean(r.brandWide), text: r.text })),
     barnivoreUrl, pdfUrls,
     // Pages confirmed to be about this wine first (their label photos carry calories and claims), brand wide pages last.
-    labelPages: [...usable.filter((r) => !r.brandWide).map((r) => r.real), ...resolved.filter((r) => !r.brandWide).map((r) => r.real)].filter((u, i, a) => /^https?:\/\//.test(u) && a.indexOf(u) === i).slice(0, 7),
+    labelPages: [...usable.filter((r) => !r.brandWide && !r.prodWide).map((r) => r.real), ...resolved.filter((r) => !r.brandWide && !r.prodWide).map((r) => r.real)].filter((u, i, a) => /^https?:\/\//.test(u) && a.indexOf(u) === i).slice(0, 7),
   };
 }
 
@@ -1963,6 +1991,7 @@ const EVIDENCE_SYSTEM = `You read evidence about ONE wine for the Wine Babe app 
 nutrition: per 5 oz (147.87 ml) figures. If a page gives per 100 ml, multiply by 1.4787; a label per serving of 5 oz is already per 5 oz. Take numbers only from a page about this exact wine (winery, importer or retailer product page). Null for anything not stated. source_url is the page, source_kind its type.
 ingredients: only an explicit ingredient list for this exact wine, in the order listed (found true). "Wine" or "Grapes" alone from a shop is not a list: found false unless two or more items. Contains sulfites alone is not a list.
 claims: one entry per claim a page makes about this wine, with the page address in url and the exact short wording in quote. Claims: ${LABEL_CLAIMS.join(", ")}. no_added_sulfites only for an explicit "no added sulfites / senza solfiti aggiunti" statement. polarity "yes" when the page says it is so, "no" when it says it is not (for example "not vegan", "not certified organic"). this_wine true only when the page is about this exact wine; false for a brand wide statement. source_kind: brand or winery for the producer's own pages, importer or distributor, retailer for shops, certifier for a certifying body. Never infer: "low sugar" is not "no added sugar", "natural" is not "organic", "sustainable" needs a stated practice or certification.
+Pages and results marked "about the producer" (certifier lists, the winery's sustainability page, news of a certification) support the producer wide claims sustainable and organic with this_wine false: a named certification (Certified California Sustainable, SIP, LODI Rules, Equalitas, SQNPI, HVE, Demeter, CCOF...) or a stated practice is sustainable "yes"; "we are not certified organic" is organic "no". Read shop and importer pages for this wine carefully too: "no sugar added", "non GMO", "no flavor additives" printed there are claims with that page as source.
 brand: statements the producer's OWN pages make about ALL its wines (pages marked [brand-wide] or [winery]). sugar_g_per_5oz: only an explicit number the brand states for its wines per serving or glass ("all our still wines have 0 g sugar per serving", "less than 1 g sugar per glass" = 1), else null; "low sugar", "no added sugar" or "dry" is not a number. sugar_applies true only when the statement covers this wine (a statement about still wines does not cover a sparkling wine). sugar_quote the exact wording, sugar_url the page. sulfites_quote: the brand's stated sulfite level for its wines ("less than 100 ppm sulfites") or "" ; sulfites_url the page. Brand wide claims (vegan, organic grapes, no added sugar, non GMO...) also go in claims with this_wine false.
 If the evidence does not say, leave it out.`;
 
@@ -1970,7 +1999,7 @@ async function readEvidence(wine, packet, diag, send, deadline) {
   let text = `Wine: ${wineLine(wine)}\n\nSEARCH RESULTS\n`;
   packet.serp.forEach((r, i) => { text += `- ${r.title} (${r.display}) [${r.kind}]: ${r.snippet.slice(0, 260)}\n`; });
   text += "\nPAGES (excerpts)\n";
-  let budget = 21000;
+  let budget = 30000;
   for (const p of packet.pages) {
     const ex = p.excerpt.slice(0, Math.min(p.big ? 3200 : 1700, budget));
     if (!ex) continue;
@@ -2529,11 +2558,13 @@ This is a second try: you MUST run a web search for the exact wine name first. I
   };
 
   const barnivoreLookup = async () => {
-    const found = await (await viaPacket((e) => ({ url: e.packet.barnivoreUrl || "" }), () => runAgent({ diag,
-      name: "barnivore-find", model: lookupModel(), system: BARNIVORE_FIND_SYSTEM, schema: URL_SCHEMA, send, deadline: deadline - 6000,
+    const bvAgent = () => runAgent({ diag,
+      name: "barnivore-find", model: lookupModel(), system: BARNIVORE_FIND_SYSTEM, schema: URL_SCHEMA, send, deadline: Date.now() + 15000,
       content: ask(`Producer: ${wine.producer}. Country: ${wine.country || "unknown"}.`),
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
-    })));
+    }).catch(() => null);
+    // The code search finds most entries; when it finds none, one small search agent looks (as the old flow did).
+    const found = await (await viaPacket((e) => (e.packet.barnivoreUrl ? { url: e.packet.barnivoreUrl } : bvAgent()), bvAgent));
     if (!found?.url) return null;
     const bv = await readBarnivore(found.url);
     diag.push({ name: "barnivore", outcome: bv.error ? `${bv.error}: ${found.url}` : `${bv.status} (${bv.as_of}): ${found.url}` });
@@ -2724,7 +2755,7 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
       return (feed ? bdFeed(u, feed[1]) : bdText(u)).then((text) => ({ u, text }));
     };
     const capAll = (pr, ms, fb) => Promise.race([pr, new Promise((r) => setTimeout(() => r(fb), ms))]);
-    const texts = await Promise.all(urls.map((u) => capAll(readStore(u), 42000, { u, text: "" })));
+    const texts = await Promise.all(urls.map((u) => capAll(readStore(u), 32000, { u, text: "" })));
     diag.push({ name: "grocer-unlocked", outcome: texts.map((x) => `${x.text.length}c ${/ingredients?\W/i.test(x.text) ? "with ingredients" : "no ingredients"}: ${x.u}`).join(" | ").slice(0, 500) });
     // What the store itself lists under Ingredients, kept even when it is one item
     // (shown as the store's statement; it does not count as a full ingredient list).
@@ -2743,8 +2774,11 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
     }
     return null;
   };
+  // The store lookup starts right away, alongside the rest (waiting for the brand's
+  // own answer first added half a minute); its result is used only when the brand has no list.
+  const grocersEarly = packetOn ? Promise.race([runGrocersCode().catch(() => null), new Promise((r) => setTimeout(() => r(null), 45000))]) : null;
   const grocerIngredientsLookup = viaPacket(
-    () => ingredientsLookup.then((own) => (cleanIngredients(own, wine).ingredients.length ? null : runGrocersCode())).catch(() => null),
+    () => ingredientsLookup.then((own) => (cleanIngredients(own, wine).ingredients.length ? null : grocersEarly)).catch(() => null),
     () => ingredientsLookup.then((own) => (cleanIngredients(own, wine).ingredients.length ? null : runGrocers())).catch(() => null));
 
   // Anything scannable or traceable on the bottle: QR codes (from the shopper's
