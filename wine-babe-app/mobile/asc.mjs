@@ -63,7 +63,7 @@ async function load() {
 function show({ app, ver, detail, build, subs }) {
   const a = detail?.attributes || {};
   console.log(`App: ${app.attributes.name}`);
-  console.log(`Version ${VERSION}: ${ver.attributes.appVersionState || ver.attributes.appStoreState}`);
+  console.log(`Version ${VERSION}: ${ver.attributes.appVersionState || ver.attributes.appStoreState}, release ${ver.attributes.releaseType}${ver.attributes.earliestReleaseDate ? ` not before ${ver.attributes.earliestReleaseDate}` : ""}`);
   console.log(`Build: ${build ? `${build.attributes.version} ${build.attributes.processingState}` : "none attached"}`);
   console.log(`Review contact: ${a.contactFirstName || ""} ${a.contactLastName || ""}, phone ${a.contactPhone ? "set" : "missing"}, email ${a.contactEmail ? "set" : "missing"}`);
   console.log(`Demo account required: ${a.demoAccountRequired}, name: ${a.demoAccountName || "(none)"}, password ${a.demoAccountPassword ? "set" : "missing"}`);
