@@ -1,0 +1,33 @@
+name: Wine Babe App Store review steps
+
+# Runs wine-babe-app/mobile/asc.mjs with the App Store Connect API key secrets
+# (same ones the TestFlight workflow uses). The repo is public: the script
+# prints no ids, no key and no review code.
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: "status, set-review, verify or submit"
+        required: true
+        default: status
+        type: choice
+        options: [status, set-review, verify, submit]
+
+permissions:
+  contents: read
+
+jobs:
+  asc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: ${{ inputs.step }}
+        working-directory: wine-babe-app/mobile
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: node asc.mjs "${{ inputs.step }}"

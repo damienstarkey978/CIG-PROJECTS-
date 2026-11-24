@@ -16,6 +16,8 @@ export const LIMITS = {
 };
 
 
+import { REVIEW_CODE_HASH } from "./review-code.mjs";
+
 const enc = new TextEncoder();
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 export const sha = async (s) => hex(await crypto.subtle.digest("SHA-256", enc.encode(String(s))));
@@ -150,19 +152,27 @@ export async function checkCode(store, email, code, now = Date.now()) {
 // ---------- App Store review sign in ----------
 // Apple's reviewer can't read an inbox, so one demo email (WB_REVIEW_EMAIL)
 // signs in with a fixed code (WB_REVIEW_CODE, at least 8 characters) instead
-// of an emailed one. Both unset = no demo login. The account is made on first
-// sign in, so deleting it during review is fine.
-const reviewEnv = () => ({
+// of an emailed one. The code is WB_REVIEW_CODE (at least 8 characters) or the
+// one whose salted hash is in review-code.mjs. No email or no code = no demo
+// login. The account is made on first sign in, so deleting it during review is fine.
+const reviewEnv = (hashed = REVIEW_CODE_HASH) => ({
   email: normEmail(process.env.WB_REVIEW_EMAIL),
   code: String(process.env.WB_REVIEW_CODE || "").trim(),
+  hashed: hashed && hashed.salt && hashed.hash ? hashed : null,
 });
-export function isReviewEmail(email) {
-  const r = reviewEnv();
-  return Boolean(r.email && r.code.length >= 8 && normEmail(email) === r.email);
+export function isReviewEmail(email, hashed) {
+  const r = reviewEnv(hashed);
+  return Boolean(r.email && (r.code.length >= 8 || r.hashed) && normEmail(email) === r.email);
 }
-export async function reviewSignIn(store, email, code, now = Date.now()) {
-  const r = reviewEnv();
-  if (!isReviewEmail(email) || !same(await sha(String(code || "").trim()), await sha(r.code))) {
+async function reviewCodeOk(r, code) {
+  const c = String(code || "").trim();
+  if (!c) return false;
+  if (r.code.length >= 8 && same(await sha(c), await sha(r.code))) return true;
+  return Boolean(r.hashed && same(await sha(r.hashed.salt + c), r.hashed.hash));
+}
+export async function reviewSignIn(store, email, code, now = Date.now(), hashed) {
+  const r = reviewEnv(hashed);
+  if (!isReviewEmail(email, hashed) || !(await reviewCodeOk(r, code))) {
     throw new AppError(400, "code_wrong", "That code isn't right. Check the email and try again.");
   }
   return (await findByEmail(store, r.email)) || createAccount(store, { name: "App Review", email: r.email }, { now });

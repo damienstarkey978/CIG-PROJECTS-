@@ -69,6 +69,23 @@ test("App Review demo login uses the fixed code and makes the account", async ()
   delete process.env.WB_REVIEW_CODE;
 });
 
+test("App Review demo login also takes the code whose salted hash is committed", async () => {
+  process.env.WB_REVIEW_EMAIL = "review@winebabescanner.com";
+  delete process.env.WB_REVIEW_CODE;
+  const { sha } = await import("../lib/accounts.mjs");
+  const hashed = { salt: "abc123", hash: await sha("abc123" + "K7PQ2MXWRT9CVH") };
+  const store = memoryStore();
+  assert.equal(isReviewEmail("review@winebabescanner.com"), false); // nothing committed yet
+  assert.equal(isReviewEmail("review@winebabescanner.com", hashed), true);
+  await assert.rejects(reviewSignIn(store, "review@winebabescanner.com", "K7PQ2MXWRT9CVX", Date.now(), hashed), /isn't right/);
+  const a = await reviewSignIn(store, "review@winebabescanner.com", " K7PQ2MXWRT9CVH ", Date.now(), hashed);
+  assert.equal(a.name, "App Review");
+  process.env.WB_REVIEW_CODE = "TestCode2026"; // the env code still works beside it
+  assert.equal((await reviewSignIn(store, "review@winebabescanner.com", "TestCode2026", Date.now(), hashed)).id, a.id);
+  delete process.env.WB_REVIEW_EMAIL;
+  delete process.env.WB_REVIEW_CODE;
+});
+
 test("feedback is stored, emailed with the right subject, and scrubbed on delete", async () => {
   const store = memoryStore(), limits = memoryStore();
   const sent = [];
