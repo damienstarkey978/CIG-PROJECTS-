@@ -94,7 +94,9 @@ button { width: 100%; margin-top: 22px; padding: 14px; border: 0; border-radius:
 </form></body></html>`;
 }
 
-const isPublic = (env) => String(env.WB_PUBLIC ?? "").trim() === "true";
+// Open to the public by default (the App Store app); WB_PUBLIC=false puts the
+// whole site back behind the team password.
+const isPublic = (env) => String(env.WB_PUBLIC ?? "").trim().toLowerCase() !== "false";
 export const isAdminPath = (p) => p === "/admin" || p.startsWith("/admin/") || p.startsWith("/api/admin/");
 
 // Shared request handler. Returns a Response to send, or null to let the
@@ -128,9 +130,9 @@ export async function gate(req, secret, env = {}) {
     return new Response(null, { status: 302, headers: { Location: "/", "Cache-Control": "no-store" } });
   }
   if (signedIn) return null;
-  // Public mode (WB_PUBLIC=true, needed for the App Store): anyone can use
-  // the app, with free scan limits. Only the team pages under /admin still
-  // need the password. Unset, the whole site stays behind the password.
+  // Public mode (the default, needed for the App Store): anyone can use the
+  // app, with free scan limits. Only the team pages under /admin still need
+  // the password. WB_PUBLIC=false puts the whole site behind the password.
   if (isPublic(env) && !isAdminPath(p)) return null;
   if (p.startsWith("/api/")) return Response.json({ error: "Please sign in again." }, { status: 401 });
   return new Response(null, { status: 302, headers: { Location: `/login?next=${encodeURIComponent(p + url.search)}`, "Cache-Control": "no-store" } });

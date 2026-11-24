@@ -6,7 +6,7 @@ Build and upload with the "Wine Babe iPhone app (TestFlight)" workflow in GitHub
 ## Before the first upload
 
 1. Netlify (Wine Babe site) environment variables:
-   - `WB_PUBLIC=true` opens the app to the public (free scan limits apply). Unset, everything stays behind the team password. Must be on before TestFlight testers or App Review use it.
+   - The app is open to the public by default (free scan limits apply). `WB_PUBLIC=false` puts everything back behind the team password; never set that while the app is on the App Store.
    - `RESEND_API_KEY`, `EMAIL_FROM` (default `Wine Babe Scanner <hello@winebabescanner.com>`), and the winebabescanner.com domain verified in Resend. Needed for sign in codes and feedback emails.
    - `FEEDBACK_TO`: comma list of addresses that get every Share feedback message. Kept out of the repo because it is public.
    - `AUTH_SECRET`: long random string (signs team and account cookies).
