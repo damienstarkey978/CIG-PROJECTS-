@@ -109,7 +109,7 @@
     const d = sheet("acctSheet", "Enter your code", `
       <p class="sheet__lead">If ${esc(email)} has an account, a code is on its way. Check spam if you don't see it.</p>
       <form class="sheet__form" novalidate>
-        <label>Code<input name="code" autocomplete="one-time-code" inputmode="numeric" required maxlength="40" /></label>
+        <label>Code<input name="code" autocomplete="one-time-code" inputmode="text" autocapitalize="off" autocorrect="off" spellcheck="false" required maxlength="40" /></label>
         ${errLine}
         <button class="btn" type="submit">Sign in</button>
         <p class="sheet__alt"><button type="button" class="linkish" data-back>Use a different email</button></p>
