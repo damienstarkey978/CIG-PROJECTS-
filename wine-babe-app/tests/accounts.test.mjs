@@ -92,16 +92,17 @@ test("feedback is stored, emailed with the right subject, and scrubbed on delete
   await assert.rejects(submitFeedback({ store, limits, who: {}, send, body: { text: "  " } }), /little/);
 });
 
-test("password gate: closed unless WB_PUBLIC=true; admin always closed; privacy open", async () => {
+test("password gate: open by default; WB_PUBLIC=false closes it; admin always closed; privacy open", async () => {
   const req = (p) => new Request(`https://w.test${p}`);
-  assert.equal((await gate(req("/"), "s", {})).status, 302);
-  assert.equal((await gate(req("/api/scan-start"), "s", {})).status, 401);
+  assert.equal(await gate(req("/"), "s", {}), null);
+  assert.equal(await gate(req("/api/account"), "s", {}), null);
   assert.equal(await gate(req("/"), "s", { WB_PUBLIC: "true" }), null);
-  assert.equal(await gate(req("/api/account"), "s", { WB_PUBLIC: "true" }), null);
-  assert.equal((await gate(req("/admin"), "s", { WB_PUBLIC: "true" })).status, 302);
-  assert.equal((await gate(req("/api/admin/x"), "s", { WB_PUBLIC: "true" })).status, 401);
-  assert.equal(await gate(req("/privacy"), "s", {}), null);
-  assert.equal(await gate(req("/api/feedback"), "s", {}), null);
+  assert.equal((await gate(req("/admin"), "s", {})).status, 302);
+  assert.equal((await gate(req("/api/admin/x"), "s", {})).status, 401);
+  assert.equal((await gate(req("/"), "s", { WB_PUBLIC: "false" })).status, 302);
+  assert.equal((await gate(req("/api/scan-start"), "s", { WB_PUBLIC: "false" })).status, 401);
+  assert.equal(await gate(req("/privacy"), "s", { WB_PUBLIC: "false" }), null);
+  assert.equal(await gate(req("/api/feedback"), "s", { WB_PUBLIC: "false" }), null);
 });
 
 test("cost: tokens and web searches priced", () => {
