@@ -64,7 +64,7 @@ test("App Review demo login uses the fixed code and makes the account", async ()
   const again = await reviewSignIn(store, "review@winebabescanner.com", " TestCode2026 ");
   assert.equal(again.id, a.id);
   process.env.WB_REVIEW_CODE = "short";
-  assert.equal(isReviewEmail("review@winebabescanner.com"), false);
+  assert.equal(isReviewEmail("review@winebabescanner.com", null), false);
   delete process.env.WB_REVIEW_EMAIL;
   delete process.env.WB_REVIEW_CODE;
 });
@@ -75,7 +75,7 @@ test("App Review demo login also takes the code whose salted hash is committed",
   const { sha } = await import("../lib/accounts.mjs");
   const hashed = { salt: "abc123", hash: await sha("abc123" + "K7PQ2MXWRT9CVH") };
   const store = memoryStore();
-  assert.equal(isReviewEmail("review@winebabescanner.com"), false); // nothing committed yet
+  assert.equal(isReviewEmail("review@winebabescanner.com", null), false); // no code at all
   assert.equal(isReviewEmail("review@winebabescanner.com", hashed), true);
   await assert.rejects(reviewSignIn(store, "review@winebabescanner.com", "K7PQ2MXWRT9CVX", Date.now(), hashed), /isn't right/);
   const a = await reviewSignIn(store, "review@winebabescanner.com", " K7PQ2MXWRT9CVH ", Date.now(), hashed);
