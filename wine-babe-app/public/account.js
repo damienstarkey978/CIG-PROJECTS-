@@ -75,9 +75,11 @@
     const f = $("form", d);
     f.onsubmit = async (ev) => {
       ev.preventDefault();
+      // Read the fields before they are locked: a locked field is left out of the form data.
+      const fields = Object.fromEntries(new FormData(f));
       err(f); busy(f, true);
       try {
-        state = await api("/api/account/signup", Object.fromEntries(new FormData(f)));
+        state = await api("/api/account/signup", fields);
         paint();
         showAccount("You're all set. Happy scanning!");
       } catch (e) { err(f, e.message); busy(f, false); }
@@ -196,8 +198,8 @@
     const f = $("form", d);
     f.onsubmit = async (ev) => {
       ev.preventDefault();
-      err(f); busy(f, true);
       const body = Object.fromEntries(new FormData(f));
+      err(f); busy(f, true);
       body.appVersion = v.ref || "";
       body.platform = /iPhone|iPad|iPod/.test(navigator.userAgent) ? (window.Capacitor ? "iOS app" : "iOS web") : /Android/.test(navigator.userAgent) ? "Android web" : "Web";
       body.screen = document.querySelector(".screen.is-active")?.id || "";
