@@ -2695,6 +2695,7 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
   // Research packet mode: the grocer pages are found by code (no search agent)
   // and read through Bright Data: Whole Foods first, then Walmart, Total Wine, Target and the rest.
   let storeListed = null;
+  const storePagesRead = [];
   const runGrocersCode = async () => {
     const nm = brandAndName(wine);
     const [a, b, c] = await Promise.all([
@@ -2717,7 +2718,14 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
       if (!cands.includes(u)) cands.push(u);
     }
     const rankS = (u) => (/wholefoodsmarket/.test(u) ? 0 : /walmart/.test(u) ? 1 : /totalwine/.test(u) ? 2 : /target/.test(u) ? 3 : 4);
-    const urls = [...new Map(cands.sort((x, y) => rankS(x) - rankS(y)).map((u) => [hostOf(u), u])).values()].slice(0, 3);
+    // Per store, the page whose address has the fewest words beyond this wine's own name
+    // (so not the Reserve, the alcohol removed version or a category page).
+    const own = new Set(norm(`${wine.producer} ${wine.name} ${wine.grapes || ""} ${wine.region || ""} ${wine.country || ""}`).split(" "));
+    const GENERIC = new Set(["wine", "wines", "red", "white", "rose", "ml", "750ml", "750", "bottle", "abv", "ip", "p", "grocery", "product", "glass", "the", "of", "and", "blush", "sparkling", "champagne", "blend"]);
+    const extras = (u) => { let path = ""; try { path = decodeURIComponent(new URL(u).pathname); } catch {} return norm(path).split(" ").filter((t) => t.length > 2 && !/^\d+$/.test(t) && !own.has(t) && !GENERIC.has(t)).length + (/\/(s|c|search|reviews)\b|\/b\//.test(path) ? 5 : 0); };
+    const best = new Map();
+    for (const u of cands) { const h = hostOf(u).replace(/^business\./, ""); if (!best.has(h) || extras(u) < extras(best.get(h))) best.set(h, u); }
+    const urls = [...best.values()].sort((x, y) => rankS(x) - rankS(y)).slice(0, 3);
     diag.push({ name: "grocer-pages", outcome: urls.join(" , ").slice(0, 400) || "none found" });
     if (!urls.length) return null;
     // Each store is read the way that works for it through Bright Data:
@@ -2783,9 +2791,10 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
     diag.push({ name: "grocer-unlocked", outcome: texts.map((x) => `${x.text.length}c ${/ingredients?\W/i.test(x.text) ? "with ingredients" : "no ingredients"}: ${x.u}`).join(" | ").slice(0, 500) });
     // What the store itself lists under Ingredients, kept even when it is one item
     // (shown as the store's statement; it does not count as a full ingredient list).
+    for (const x of texts) if (x.text.length > 300) storePagesRead.push(x.u);
     for (const x of texts) {
       const m = x.text.match(/^Ingredients:\s*([^\n]{2,200})/im);
-      if (m && !storeListed && !/see (label|package)|not available|n\/a/i.test(m[1])) storeListed = { text: m[1].trim().replace(/\s+/g, " ").slice(0, 200), url: x.u, host: hostOf(x.u) };
+      if (m && !storeListed && m[1].trim().length <= 70 && m[1].trim().split(/\s+/).length <= 9 && !/see (label|package)|not available|n\/a|featuring|vineyard|notes? of|flavou?rs? of|aromas?/i.test(m[1])) storeListed = { text: m[1].trim().replace(/\s+/g, " ").slice(0, 200), url: x.u, host: hostOf(x.u) };
     }
     for (const x of texts) { const m = x.text.match(/[^\n]{0,80}ingredients?[^\n]{0,200}(\n[^\n]{0,200}){0,3}/i); if (m) diag.push({ name: "grocer-snippet", outcome: `${hostOf(x.u)}: ${m[0].replace(/\s+/g, " ").slice(0, 500)}` }); }
     for (const x of texts.filter((t) => /ingredient/i.test(t.text)).sort((p, q) => Number(/ingredients?\s*:/i.test(q.text)) - Number(/ingredients?\s*:/i.test(p.text)))) {
@@ -3631,6 +3640,7 @@ This run follows what is printed on the bottle: the barcode number and the compa
     for (const c of result.checks || []) if ((c.status === "pass" || c.status === "fail") && c.source_url) add(c.source_url, `${(c.origin || "Source").replace(/:.*$/, "")}: ${nice(c.source_url)}`);
     const KIND = { "brand-wide": "Brand website", winery: "Brand website", importer: "Importer", distributor: "Distributor", retailer: "Retailer", certifier: "Certifier" };
     for (const p of e?.packet?.pages || []) add(p.url, `${KIND[p.kind] || "Page read"}: ${nice(p.url)}`);
+    for (const u of storePagesRead) add(u, `Store page read: ${nice(u)}`);
     for (const x of result.sources || []) add(x.url, x.title || nice(x.url));
     result.sources = list.slice(0, 16);
   }
