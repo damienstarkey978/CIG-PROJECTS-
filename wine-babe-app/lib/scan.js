@@ -918,7 +918,7 @@ const HAS_UNLOCKER = Boolean(process.env.BRIGHTDATA_API_KEY);
 const BD_REQUEST_PRICE = 0.0015; // dollars per Bright Data request (estimate; check the Bright Data invoice)
 let unlockerLastError = "";
 let unlockerCalls = 0;
-async function unlockedFetch(url, ms = 20000) {
+async function unlockedFetch(url, ms = 20000, extra = {}) {
   if (!HAS_UNLOCKER) return null;
   unlockerCalls += 1;
   addExtra(usageScope.getStore(), BD_REQUEST_PRICE);
@@ -927,7 +927,7 @@ async function unlockedFetch(url, ms = 20000) {
       method: "POST",
       signal: AbortSignal.timeout(ms),
       headers: { Authorization: `Bearer ${process.env.BRIGHTDATA_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ zone: process.env.BRIGHTDATA_ZONE || "web_unlocker1", url, format: "raw" }),
+      body: JSON.stringify({ zone: process.env.BRIGHTDATA_ZONE || "web_unlocker1", url, format: "raw", ...extra }),
     });
     if (!res.ok) { unlockerLastError = `HTTP ${res.status}: ${(await res.text()).slice(0, 80)}`; console.error(`brightdata ${unlockerLastError}`); return null; }
     return Buffer.from(await res.arrayBuffer());
@@ -947,8 +947,15 @@ async function pageText(url, ms = 7000, max = 12000) {
   try { u = new URL(url); } catch { return ""; }
   if (!/^https?:$/.test(u.protocol) || !isPublicHost(u)) return "";
   if (HAS_UNLOCKER && HARD_SHOPS.test(u.hostname) && !OPEN_SHOPS.test(u.hostname)) {
-    const html = await unlockedHtml(u.href, Math.max(ms, 15000));
-    return html ? htmlToText(html).slice(0, max) : "";
+    // Big stores (Walmart, Total Wine, Target...): asked as a US shopper in text mode, which loads in
+    // seconds where the plain page times out. One more try if the first comes back empty.
+    const clean = u.href.replace(/[?#].*$/, "");
+    for (let i = 0; i < 2; i++) {
+      const buf = await unlockedFetch(clean, Math.max(ms, 14000), { country: "us", data_format: "markdown" });
+      const text = buf ? buf.toString("utf8") : "";
+      if (text.length > 300 && !/robot or human|access denied|verify you are human/i.test(text.slice(0, 600))) return text.slice(0, max);
+    }
+    return "";
   }
   // Blocked (401/403/429/503) or failed fetches are retried through Bright Data.
   const viaUnlocker = async () => { const html = await unlockedHtml(u.href, 10000); return html ? htmlToText(html).slice(0, max) : ""; };
@@ -1860,6 +1867,7 @@ async function gatherEvidence(wine, site, diag) {
     ["farm", `${wine.producer || name} winery certified sustainable OR organic vineyards certification`],
     ["barnivore", `barnivore ${wine.producer || name}`],
     ["label", `${name} back label`],
+    ["stores", `${name} walmart OR "total wine" OR "whole foods" OR target`],
     ...(siteHost ? [["site", `site:${siteHost} ${wine.name}`]] : []),
     ["pdf", `${name} technical sheet filetype:pdf`],
     // The brand's own general pages (FAQ, about, standards): statements that cover all its wines.
@@ -2730,8 +2738,8 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
       } catch { return ""; }
     };
     // Bright Data's store feeds need the Web Scraper product switched on for the account (BRIGHTDATA_FEEDS=on).
-    // On unless BRIGHTDATA_FEEDS=off (the feeds show Ready on the account).
-    const feedsOn = process.env.BRIGHTDATA_FEEDS !== "off";
+    // Bright Data's store feeds answer in minutes, too slow for a scan; the page fetch is used instead (BRIGHTDATA_FEEDS=on to try them).
+    const feedsOn = process.env.BRIGHTDATA_FEEDS === "on";
     const FEEDS = { "totalwine.com": "gd_mpmimloj4233pwoez", "target.com": "gd_ltppk5mx2lp0v1k0vo" };
     const slowOk = Boolean(usageScope.getStore()?.storeTest);
     const bdFeed = async (u, id, ms = 45000) => {
