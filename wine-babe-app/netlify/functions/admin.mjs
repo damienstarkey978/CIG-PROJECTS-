@@ -37,7 +37,17 @@ const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 const COST_COLS = ["at", "wine", "cached", "dollars", "tokenDollars", "searchDollars", "searches", "fetches", "calls", "inputTokens", "outputTokens", "team", "accountId"];
 const costsCsv = (rows) => [COST_COLS.join(","), ...rows.map((r) => COST_COLS.map((c) => csvCell(r[c])).join(","))].join("\n");
 
-function page(feedback, costs) {
+// Everyone who created an account (name, email, phone, sign up date). Kept until the person deletes their account.
+export async function listAccounts(store) {
+  const { blobs } = await store.list({ prefix: "acct/" });
+  const rows = await Promise.all((blobs || []).map((b) => store.get(b.key, { type: "json" })));
+  return rows.filter((a) => a && a.email).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+}
+const USER_COLS = ["createdAt", "name", "email", "phone", "emailVerified", "id"];
+const usersCsv = (rows) => [USER_COLS.join(","), ...rows.map((r) => USER_COLS.map((c) => csvCell(r[c])).join(","))].join("\n");
+
+function page(feedback, costs, users = []) {
+  const us = users.slice(0, 500).map((a) => `<tr><td>${when(a.createdAt)}</td><td>${esc(a.name)}</td><td>${esc(a.email)}</td><td>${esc(a.phone || "")}</td></tr>`).join("");
   const c = costSummary(costs);
   const fb = feedback.slice(0, 300).map((e) => `<tr><td>${when(e.at)}</td><td>${esc(e.type)}</td><td class="t">${esc(e.text)}</td><td>${esc(e.name)}<br>${esc(e.email)}</td><td>${esc(e.appVersion)}<br>${esc(e.platform)}</td><td>${e.emailed?.ok ? "sent" : esc(e.emailed?.reason || "")}</td></tr>`).join("");
   const cs = costs.slice(0, 100).map((r) => `<tr><td>${when(r.at)}</td><td>${esc(r.wine)}</td><td>${r.cached ? "repeat" : "new"}</td><td>${money(r.dollars)}</td><td>${r.searches || 0}</td><td>${r.calls || 0}</td></tr>`).join("");
@@ -63,6 +73,9 @@ a{color:#7a2e3b}
 </div>
 <p><a href="/admin/costs.csv">Download costs CSV</a></p>
 <div class="wrap"><table><tr><th>When (UTC)</th><th>Wine</th><th>Kind</th><th>Cost</th><th>Searches</th><th>AI calls</th></tr>${cs || '<tr><td colspan="6">No scans logged yet.</td></tr>'}</table></div>
+<h2>Users (${users.length})</h2>
+<p><a href="/admin/users.csv">Download users CSV</a></p>
+<div class="wrap"><table><tr><th>Signed up (UTC)</th><th>Name</th><th>Email</th><th>Phone</th></tr>${us || '<tr><td colspan="4">No accounts yet.</td></tr>'}</table></div>
 <h2>Feedback (${feedback.length})</h2>
 <p><a href="/admin/feedback.csv">Download feedback CSV</a></p>
 <div class="wrap"><table><tr><th>When (UTC)</th><th>Type</th><th>Feedback</th><th>From</th><th>App</th><th>Email</th></tr>${fb || '<tr><td colspan="6">No feedback yet.</td></tr>'}</table></div>
@@ -78,8 +91,9 @@ export default async (req) => {
   const csv = (body, name) => new Response(body, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${name}"`, "Cache-Control": "no-store" } });
   if (p === "/admin/feedback.csv") return csv(feedbackCsv(await listFeedback(s.feedback)), "wine-babe-feedback.csv");
   if (p === "/admin/costs.csv") return csv(costsCsv(await listCosts(s.costs, 365)), "wine-babe-scan-costs.csv");
-  const [feedback, costs] = await Promise.all([listFeedback(s.feedback), listCosts(s.costs)]);
-  return new Response(page(feedback, costs), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  if (p === "/admin/users.csv") return csv(usersCsv(await listAccounts(s.accounts)), "wine-babe-users.csv");
+  const [feedback, costs, users] = await Promise.all([listFeedback(s.feedback), listCosts(s.costs), listAccounts(s.accounts).catch(() => [])]);
+  return new Response(page(feedback, costs, users), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 };
 
 export const config = { path: ["/admin", "/admin/*"] };

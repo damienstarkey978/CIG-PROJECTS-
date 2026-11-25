@@ -2733,12 +2733,13 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
     // On unless BRIGHTDATA_FEEDS=off (the feeds show Ready on the account).
     const feedsOn = process.env.BRIGHTDATA_FEEDS !== "off";
     const FEEDS = { "totalwine.com": "gd_mpmimloj4233pwoez", "target.com": "gd_ltppk5mx2lp0v1k0vo" };
-    const bdFeed = async (u, id, ms = 45000) => {
+    const slowOk = Boolean(usageScope.getStore()?.storeTest);
+    const bdFeed = async (u, id, ms = slowOk ? 170000 : 45000) => {
       unlockerCalls += 1; addExtra(usageScope.getStore(), BD_REQUEST_PRICE);
       try {
         const r = await fetch(`https://api.brightdata.com/datasets/v3/scrape?dataset_id=${id}&format=json`, { method: "POST", signal: AbortSignal.timeout(ms), headers: { Authorization: `Bearer ${process.env.BRIGHTDATA_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ input: [{ url: u }] }) });
         const tx = await r.text();
-        diag.push({ name: "grocer-feed", outcome: `${hostOf(u)} HTTP ${r.status} ${tx.length}b: ${tx.slice(0, 500).replace(/\s+/g, " ")}` });
+        diag.push({ name: "grocer-feed", outcome: `${hostOf(u)} HTTP ${r.status} ${tx.length}b: ${tx.slice(0, slowOk ? 2500 : 500).replace(/\s+/g, " ")}` });
         return r.status === 200 ? tx.slice(0, 60000) : "";
       } catch (e) { diag.push({ name: "grocer-feed", outcome: `${hostOf(u)} ${e.name}` }); return ""; }
     };
@@ -2756,7 +2757,7 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
       return (feed ? bdFeed(u, feed[1]).then((t) => t || bdText(u, 20000)) : bdText(u)).then((text) => ({ u, text }));
     };
     const capAll = (pr, ms, fb) => Promise.race([pr, new Promise((r) => setTimeout(() => r(fb), ms))]);
-    const texts = await Promise.all(urls.map((u) => capAll(readStore(u), 32000, { u, text: "" })));
+    const texts = await Promise.all(urls.map((u) => capAll(readStore(u), slowOk ? 175000 : 32000, { u, text: "" })));
     diag.push({ name: "grocer-unlocked", outcome: texts.map((x) => `${x.text.length}c ${/ingredients?\W/i.test(x.text) ? "with ingredients" : "no ingredients"}: ${x.u}`).join(" | ").slice(0, 500) });
     // What the store itself lists under Ingredients, kept even when it is one item
     // (shown as the store's statement; it does not count as a full ingredient list).
@@ -2777,7 +2778,7 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
   };
   // The store lookup starts right away, alongside the rest (waiting for the brand's
   // own answer first added half a minute); its result is used only when the brand has no list.
-  const grocersEarly = packetOn ? Promise.race([runGrocersCode().catch(() => null), new Promise((r) => setTimeout(() => r(null), 45000))]) : null;
+  const grocersEarly = packetOn ? Promise.race([runGrocersCode().catch(() => null), new Promise((r) => setTimeout(() => r(null), usageScope.getStore()?.storeTest ? 180000 : 45000))]) : null;
   const grocerIngredientsLookup = viaPacket(
     () => ingredientsLookup.then((own) => (cleanIngredients(own, wine).ingredients.length ? null : grocersEarly)).catch(() => null),
     () => ingredientsLookup.then((own) => (cleanIngredients(own, wine).ingredients.length ? null : runGrocers())).catch(() => null));
@@ -3790,6 +3791,7 @@ async function runScan(input, send, cache) {
   const usage = createUsage();
   usage.testSonnet = Boolean(input && input.testSonnet);
   usage.noPacket = Boolean(input && input.noPacket);
+  usage.storeTest = Boolean(input && input.storeTest);
   const result = await usageScope.run(usage, () => runScanInner(input, send, cache));
   if (result && typeof result === "object") result.cost = summarizeUsage(usage);
   return result;
