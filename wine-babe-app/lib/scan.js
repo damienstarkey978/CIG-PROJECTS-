@@ -1867,7 +1867,7 @@ async function gatherEvidence(wine, site, diag) {
     ["farm", `${wine.producer || name} winery certified sustainable OR organic vineyards certification`],
     ["barnivore", `barnivore ${wine.producer || name}`],
     ["label", `${name} back label`],
-    ["stores", `${name} walmart OR "total wine" OR "whole foods" OR target`],
+    ["stores", `${name} walmart total wine`],
     ...(siteHost ? [["site", `site:${siteHost} ${wine.name}`]] : []),
     ["pdf", `${name} technical sheet filetype:pdf`],
     // The brand's own general pages (FAQ, about, standards): statements that cover all its wines.
