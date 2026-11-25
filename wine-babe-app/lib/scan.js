@@ -2730,7 +2730,8 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
       } catch { return ""; }
     };
     // Bright Data's store feeds need the Web Scraper product switched on for the account (BRIGHTDATA_FEEDS=on).
-    const feedsOn = process.env.BRIGHTDATA_FEEDS === "on";
+    // On unless BRIGHTDATA_FEEDS=off (the feeds show Ready on the account).
+    const feedsOn = process.env.BRIGHTDATA_FEEDS !== "off";
     const FEEDS = { "totalwine.com": "gd_mpmimloj4233pwoez", "target.com": "gd_ltppk5mx2lp0v1k0vo" };
     const bdFeed = async (u, id, ms = 45000) => {
       unlockerCalls += 1; addExtra(usageScope.getStore(), BD_REQUEST_PRICE);
@@ -2752,7 +2753,7 @@ This run is for big grocers and liquor stores: ${GROCER_NAMES}. Whole Foods and 
       if (/wholefoodsmarket\.com$/.test(h)) return pageText(u, 15000).catch(() => "").then((text) => ({ u, text }));
       if (/walmart\.com$/.test(h)) return bdHtml(u).then((text) => ({ u, text }));
       const feed = feedsOn ? Object.entries(FEEDS).find(([fh]) => h.endsWith(fh)) : null;
-      return (feed ? bdFeed(u, feed[1]) : bdText(u)).then((text) => ({ u, text }));
+      return (feed ? bdFeed(u, feed[1]).then((t) => t || bdText(u, 20000)) : bdText(u)).then((text) => ({ u, text }));
     };
     const capAll = (pr, ms, fb) => Promise.race([pr, new Promise((r) => setTimeout(() => r(fb), ms))]);
     const texts = await Promise.all(urls.map((u) => capAll(readStore(u), 32000, { u, text: "" })));
