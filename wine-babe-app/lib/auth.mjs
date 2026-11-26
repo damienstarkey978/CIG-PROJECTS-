@@ -4,7 +4,7 @@
 // the printed line into USERS.
 
 export const USERS = {
-  mindy: { name: "Mindy", salt: "0f7fca9e8484123efc9fbc2b783f2aef", hash: "8f2608888caec437e5edcaafbecc7c021f18196410029c4066222ae90bc625f4" },
+  mindy: { name: "Mindy", email: "mindystarkey@gmail.com", salt: "0f7fca9e8484123efc9fbc2b783f2aef", hash: "8f2608888caec437e5edcaafbecc7c021f18196410029c4066222ae90bc625f4" },
   // Apple App Review sign in: full app, no /admin pages.
   appreview: { name: "App Review", review: true, salt: "46378cbab885259088783505763520ce", hash: "67d842cba9724cf06a7f90610ce98aec75a3fd561d9a4f7c84a6e83b5f3eab9a" },
   // Team by email: no password. A signed in Wine Babe account with this email

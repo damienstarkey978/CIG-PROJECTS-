@@ -64,3 +64,12 @@ test("other accounts are not team", async () => {
   assert.equal(body.team, false);
   assert.equal((await admin(req("/admin/users", [acct]))).status, 302);
 });
+
+test("Mindy's email account gets team too, and her password still works the same", async () => {
+  assert.equal(teamUserForEmail("mindystarkey@gmail.com"), "mindy");
+  const acct = await seed("d".repeat(24), "mindystarkey@gmail.com", "2026-11-25T17:32:00.000Z");
+  const res = await account(req("/api/account", [acct]));
+  assert.equal((await res.json()).team, true);
+  const team = cookiesOf(res).find((c) => c.startsWith("wb_session="));
+  assert.equal(await sessionUser(team, "test-secret"), "mindy");
+});
