@@ -2,9 +2,12 @@
 //   GET /admin               feedback list + what scans cost
 //   GET /admin/feedback.csv
 //   GET /admin/costs.csv
+//   GET /admin/users         everyone who has signed up
+//   GET /admin/users.csv
 import { listFeedback, feedbackCsv } from "../../lib/feedback.mjs";
 import { stores, whoIs } from "../../lib/who.mjs";
 import { isReviewUser } from "../../lib/auth.mjs";
+import { listUsers, usersCsv } from "../../lib/users.mjs";
 
 const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const money = (n) => `$${(n || 0).toFixed(2)}`;
@@ -52,6 +55,7 @@ td,th{border-bottom:1px solid #eadfd8;padding:8px;text-align:left;vertical-align
 a{color:#7a2e3b}
 </style></head><body>
 <h1>Wine Babe admin</h1>
+<p><a href="/admin/users">Users list</a></p>
 <h2>Scan costs, last 30 days</h2>
 <div class="cards">
 <div class="card"><b>${c.scans}</b>scans</div>
@@ -68,6 +72,51 @@ a{color:#7a2e3b}
 </body></html>`;
 }
 
+// Dates in Damien's time zone (Jacksonville).
+const etDate = (iso, withTime) => {
+  if (!iso) return "";
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00Z` : iso);
+  if (isNaN(d)) return esc(iso);
+  return esc(d.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric", ...(withTime ? { hour: "numeric", minute: "2-digit" } : {}) }));
+};
+
+export function usersPage(users, now = Date.now()) {
+  const weekAgo = new Date(now - 7 * 864e5).toISOString();
+  const newThisWeek = users.filter((u) => u.createdAt >= weekAgo).length;
+  const scanned = users.filter((u) => u.scans > 0).length;
+  const list = users.map((u) => `<li class="u" data-q="${esc(`${u.name} ${u.email} ${u.phone}`.toLowerCase())}">
+<div class="n">${esc(u.name) || "(no name)"}</div>
+<div><a href="mailto:${esc(u.email)}">${esc(u.email)}</a>${u.phone ? ` · <a href="tel:${esc(u.phone)}">${esc(u.phone)}</a>` : ""}</div>
+<div class="m">Signed up ${etDate(u.createdAt, true)} · ${u.scans} scan${u.scans === 1 ? "" : "s"}${u.lastScan ? ` · last scan ${etDate(u.lastScan)}` : ""}</div>
+</li>`).join("");
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wine Babe users</title><style>
+body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#f7f1ec;color:#2b1d1f}
+h1{font-weight:600;margin:8px 0 12px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.card{background:#fffaf6;border:1px solid #eadfd8;border-radius:12px;padding:12px}.card b{display:block;font-size:1.3rem}
+input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #eadfd8;border-radius:12px;font-size:16px;background:#fffaf6;margin:14px 0 4px}
+ul{list-style:none;padding:0;margin:0}
+.u{background:#fffaf6;border:1px solid #eadfd8;border-radius:12px;padding:12px;margin-top:10px;overflow-wrap:anywhere}
+.n{font-weight:600;font-size:1.05rem;margin-bottom:2px}.m{color:#6b5a5c;font-size:14px;margin-top:4px}
+a{color:#7a2e3b}.top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+</style></head><body>
+<div class="top"><a href="/">Back to the app</a><a href="/admin">Feedback and costs</a></div>
+<h1>Users</h1>
+<div class="cards">
+<div class="card"><b>${users.length}</b>signed up</div>
+<div class="card"><b>${newThisWeek}</b>new in 7 days</div>
+<div class="card"><b>${scanned}</b>have scanned</div>
+</div>
+<input id="q" type="search" placeholder="Search name, email or phone" autocomplete="off" aria-label="Search users">
+<p><a href="/admin/users.csv">Download users CSV</a></p>
+<ul id="list">${list || '<li class="u">Nobody has signed up yet.</li>'}</ul>
+<script>
+document.getElementById("q").addEventListener("input",function(){var q=this.value.trim().toLowerCase();document.querySelectorAll("#list .u[data-q]").forEach(function(li){li.hidden=q&&li.dataset.q.indexOf(q)<0;});});
+</script>
+</body></html>`;
+}
+
 export default async (req) => {
   const s = stores();
   const who = await whoIs(req, s);
@@ -77,6 +126,10 @@ export default async (req) => {
   const csv = (body, name) => new Response(body, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${name}"`, "Cache-Control": "no-store" } });
   if (p === "/admin/feedback.csv") return csv(feedbackCsv(await listFeedback(s.feedback)), "wine-babe-feedback.csv");
   if (p === "/admin/costs.csv") return csv(costsCsv(await listCosts(s.costs, 365)), "wine-babe-scan-costs.csv");
+  if (p === "/admin/users.csv") return csv(usersCsv(await listUsers(s.accounts, s.usage)), "wine-babe-users.csv");
+  if (p === "/admin/users" || p === "/admin/users/") {
+    return new Response(usersPage(await listUsers(s.accounts, s.usage)), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  }
   const [feedback, costs] = await Promise.all([listFeedback(s.feedback), listCosts(s.costs)]);
   return new Response(page(feedback, costs), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 };

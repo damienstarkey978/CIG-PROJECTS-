@@ -129,3 +129,25 @@ test("cost: tokens and web searches priced", () => {
   assert.equal(s.searches, 2);
   assert.ok(Math.abs(s.dollars - 0.1) < 1e-9, String(s.dollars));
 });
+
+test("users list: every sign up, newest first, with scan counts", async () => {
+  const { listUsers, usersCsv } = await import("../lib/users.mjs");
+  const { usersPage } = await import("../netlify/functions/admin.mjs");
+  const store = memoryStore(), usage = memoryStore();
+  const a = await createAccount(store, { name: "Ann", email: "ann@example.com", phone: "904 555 1212" }, { now: Date.parse("2026-11-10T15:00:00Z") });
+  const b = await createAccount(store, { name: "Bea <b>", email: "bea@example.com" }, { now: Date.parse("2026-11-25T15:00:00Z") });
+  await issueCode(store, "ann@example.com"); // code/ keys aren't users
+  await recordScan(usage, { accountId: a.id }, Date.parse("2026-11-21T15:00:00Z"));
+  await recordScan(usage, { accountId: a.id }, Date.parse("2026-11-24T15:00:00Z"));
+  await recordScan(usage, { accountId: a.id }, Date.parse("2026-11-24T16:00:00Z"));
+  const users = await listUsers(store, usage);
+  assert.deepEqual(users.map((u) => u.email), ["bea@example.com", "ann@example.com"]);
+  assert.equal(users[1].scans, 3);
+  assert.equal(users[1].lastScan, "2026-11-24");
+  assert.equal(users[0].scans, 0);
+  assert.match(usersCsv(users), /"ann@example.com"/);
+  const html = usersPage(users, Date.parse("2026-11-26T15:00:00Z"));
+  assert.match(html, /<b>2<\/b>signed up/);
+  assert.match(html, /<b>1<\/b>new in 7 days/);
+  assert.ok(!html.includes("Bea <b>"), "names are escaped");
+});

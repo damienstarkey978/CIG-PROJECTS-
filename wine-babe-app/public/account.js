@@ -170,7 +170,7 @@
 
   function teamSheet() {
     sheet("acctSheet", "Team login", `<p class="sheet__lead">You're signed in with the team password, so scans aren't limited.</p>
-      <div class="sheet__form"><a class="btn ghost" href="/admin">Feedback and costs</a><a class="btn ghost" href="/logout">Sign out of team</a></div>`);
+      <div class="sheet__form"><a class="btn ghost" href="/admin/users">Users</a><a class="btn ghost" href="/admin">Feedback and costs</a><a class="btn ghost" href="/logout">Sign out of team</a></div>`);
   }
 
   // ---------- Share feedback ----------
