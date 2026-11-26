@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       step:
-        description: "status, set-review, verify or submit"
+        description: "status, set-review, verify, submit, prep or builds"
         required: true
         default: status
         type: choice
-        options: [status, set-review, verify, submit]
+        options: [status, set-review, verify, submit, prep, builds]
 
 permissions:
   contents: read
