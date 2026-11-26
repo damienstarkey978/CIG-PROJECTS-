@@ -1,8 +1,8 @@
 // Works out who is making a request: a team member (password session), a
 // signed in account, or an anonymous device. Shared by the Netlify functions.
 import { getStore } from "@netlify/blobs";
-import { sessionUser } from "./auth.mjs";
-import { signingKey, sessionAccountId, getAccount, deviceId, newDeviceCookie, memoryStore } from "./accounts.mjs";
+import { sessionUser, makeCookie, clearCookie, isEmailTeamUser } from "./auth.mjs";
+import { signingKey, sessionAccountId, getAccount, deviceId, newDeviceCookie, memoryStore, teamUserForAccount } from "./accounts.mjs";
 import { ipHashOf } from "./feedback.mjs";
 
 const env = (k) => (globalThis.Netlify?.env?.get?.(k) ?? process.env[k] ?? "") || undefined;
@@ -24,9 +24,12 @@ export function stores() {
 export async function whoIs(req, s = stores()) {
   const cookie = req.headers.get("cookie");
   const key = await signingKey(s.config);
-  const team = await sessionUser(cookie, env("AUTH_SECRET"));
+  const teamCookie = await sessionUser(cookie, env("AUTH_SECRET"));
   const accountId = await sessionAccountId(key, cookie);
   const account = accountId ? await getAccount(s.accounts, accountId) : null;
+  // A team member signed in with their own email account is team too.
+  // An email team cookie only counts while its account is still signed in.
+  const team = (teamCookie && !isEmailTeamUser(teamCookie) ? teamCookie : null) || teamUserForAccount(account);
   const setCookies = [];
   let dev = deviceId(cookie);
   if (!dev) {
@@ -36,6 +39,7 @@ export async function whoIs(req, s = stores()) {
   }
   return {
     team,
+    teamCookie,
     account,
     accountId: account ? account.id : null,
     deviceId: dev,
@@ -44,6 +48,16 @@ export async function whoIs(req, s = stores()) {
     key,
     setCookies,
   };
+}
+
+// Cookies that keep the team session in step with the email account:
+// a team email account gets the team cookie (so the /admin gate lets it in),
+// and signing that account out drops it.
+export async function teamCookieFor(account, teamCookie) {
+  const user = teamUserForAccount(account);
+  if (user && teamCookie !== user) return [await makeCookie(user, env("AUTH_SECRET"))];
+  if (!user && teamCookie && isEmailTeamUser(teamCookie)) return [clearCookie()];
+  return [];
 }
 
 // JSON response with any cookies to set.

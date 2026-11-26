@@ -7,7 +7,19 @@ export const USERS = {
   mindy: { name: "Mindy", salt: "0f7fca9e8484123efc9fbc2b783f2aef", hash: "8f2608888caec437e5edcaafbecc7c021f18196410029c4066222ae90bc625f4" },
   // Apple App Review sign in: full app, no /admin pages.
   appreview: { name: "App Review", review: true, salt: "46378cbab885259088783505763520ce", hash: "67d842cba9724cf06a7f90610ce98aec75a3fd561d9a4f7c84a6e83b5f3eab9a" },
+  // Team by email: no password. A signed in Wine Babe account with this email
+  // gets team access (see teamUserForAccount in accounts.mjs).
+  damien: { name: "Damien", email: "damienstarkey978@gmail.com" },
 };
+
+// The team user whose email this is, if any (never a review login).
+export function teamUserForEmail(email) {
+  const e = String(email || "").trim().toLowerCase();
+  if (!e) return null;
+  return Object.keys(USERS).find((k) => !USERS[k].review && USERS[k].email && USERS[k].email.toLowerCase() === e) || null;
+}
+// A team user that signs in by email account (no password of its own).
+export const isEmailTeamUser = (user) => Boolean(user && USERS[user]?.email && !USERS[user]?.hash);
 
 // Review logins use the app but never see the team pages under /admin.
 export const isReviewUser = (user) => Boolean(user && USERS[user]?.review);
@@ -34,7 +46,7 @@ function same(a, b) {
 async function secretKey(secret) {
   // AUTH_SECRET env var if set; otherwise derived from the stored hashes.
   // Review logins are left out so adding one never signs the team out.
-  const base = secret || `wb|${Object.values(USERS).filter((u) => !u.review).map((u) => u.hash).join("|")}`;
+  const base = secret || `wb|${Object.values(USERS).filter((u) => !u.review && u.hash).map((u) => u.hash).join("|")}`;
   return crypto.subtle.importKey("raw", enc.encode(base), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
 }
 
@@ -44,7 +56,7 @@ async function sign(value, secret) {
 
 export async function checkLogin(username, password) {
   const u = USERS[String(username || "").trim().toLowerCase()];
-  if (!u) { await hashPassword(String(password || ""), "00"); return null; }
+  if (!u || !u.hash) { await hashPassword(String(password || ""), "00"); return null; }
   return same(await hashPassword(String(password || "").trim(), u.salt), u.hash) ? String(username).trim().toLowerCase() : null;
 }
 

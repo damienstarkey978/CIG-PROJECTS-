@@ -96,6 +96,7 @@
         ${errLine}
         <button class="btn" type="submit">Email Me a Code</button>
         <p class="sheet__alt">New here? <button type="button" class="linkish" data-open="signup">Create a Free Account</button></p>
+        <p class="sheet__alt">Team member? <a class="linkish" href="/login?next=/">Sign In With the Team Password</a></p>
       </form>`);
     const f = $("form", d);
     f.onsubmit = async (ev) => {
@@ -140,8 +141,10 @@
       ${flash ? `<p class="sheet__ok">${esc(flash)}</p>` : ""}
       <dl class="sheet__dl"><dt>Name</dt><dd>${esc(a.name)}</dd><dt>Email</dt><dd>${esc(a.email)}</dd>${a.phone ? `<dt>Phone</dt><dd>${esc(a.phone)}</dd>` : ""}
       ${al.dailyLimit ? `<dt>Scans today</dt><dd>${al.usedToday || 0} of ${al.dailyLimit}</dd>` : ""}</dl>
+      ${state.team ? '<p class="sheet__lead">Team access is on, so scans aren\'t limited.</p>' : ""}
       <div class="sheet__form">
         ${errLine}
+        ${state.team ? '<a class="btn ghost" href="/admin/users">Users</a><a class="btn ghost" href="/admin">Feedback and Costs</a>' : ""}
         <button class="btn ghost" type="button" data-signout>Sign Out</button>
         <button class="btn danger-link" type="button" data-delete>Delete My Account</button>
       </div>`);
@@ -175,7 +178,7 @@
 
   function teamSheet() {
     sheet("acctSheet", "Team Login", `<p class="sheet__lead">You're signed in with the team password, so scans aren't limited.</p>
-      <div class="sheet__form"><a class="btn ghost" href="/admin">Feedback and Costs</a><a class="btn ghost" href="/logout">Sign Out of Team</a></div>`);
+      <div class="sheet__form"><a class="btn ghost" href="/admin/users">Users</a><a class="btn ghost" href="/admin">Feedback and Costs</a><a class="btn ghost" href="/logout">Sign Out of Team</a></div>`);
   }
 
   // ---------- Share feedback ----------

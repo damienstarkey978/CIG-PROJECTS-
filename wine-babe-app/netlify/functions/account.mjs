@@ -7,12 +7,13 @@
 //   POST /api/account/signout
 //   POST /api/account/delete
 import {
-  AppError, createAccount, deleteAccount, publicAccount, accountCookie, clearAccountCookie,
+  AppError, createAccount, teamUserForAccount, markEmailVerified, deleteAccount, publicAccount, accountCookie, clearAccountCookie,
   scanAllowance, normEmail, validEmail, findByEmail, issueCode, checkCode, isReviewEmail, reviewSignIn,
 } from "../../lib/accounts.mjs";
 import { scrubAccountFeedback } from "../../lib/feedback.mjs";
 import { sendEmail, emailConfigured } from "../../lib/email.mjs";
-import { stores, whoIs, json } from "../../lib/who.mjs";
+import { stores, whoIs, json, teamCookieFor } from "../../lib/who.mjs";
+import { isEmailTeamUser } from "../../lib/auth.mjs";
 
 export default async (req) => {
   const s = stores();
@@ -20,11 +21,19 @@ export default async (req) => {
   const cookies = [...who.setCookies];
   const action = new URL(req.url).pathname.replace(/^\/api\/account\/?/, "");
   const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
-  const state = async (account) => ({
-    account: publicAccount(account),
-    team: Boolean(who.team),
-    allowance: await scanAllowance(s.usage, { team: who.team, accountId: account?.id || null, deviceId: who.deviceId, ipHash: who.ipHash }),
-  });
+  // Team = the team password session, or a team member's own email account.
+  // A password team session stays on when an account signs out; an
+  // email team session goes with its account.
+  const state = async (account) => {
+    const pw = who.teamCookie && !isEmailTeamUser(who.teamCookie) ? who.teamCookie : null;
+    const team = pw || teamUserForAccount(account);
+    cookies.push(...(await teamCookieFor(account, who.teamCookie)).filter(() => !pw));
+    return {
+      account: publicAccount(account),
+      team: Boolean(team),
+      allowance: await scanAllowance(s.usage, { team, accountId: account?.id || null, deviceId: who.deviceId, ipHash: who.ipHash }),
+    };
+  };
 
   try {
     if (req.method === "GET" && action === "") return json(await state(who.account), { cookies });
@@ -61,7 +70,7 @@ export default async (req) => {
         return json(await state(account), { cookies });
       }
       await checkCode(s.accounts, email, body.code);
-      const account = await findByEmail(s.accounts, email);
+      const account = await markEmailVerified(s.accounts, await findByEmail(s.accounts, email));
       if (!account) throw new AppError(400, "code_wrong", "That code isn't right. Check the email and try again.");
       cookies.push(await accountCookie(who.key, account.id));
       return json(await state(account), { cookies });

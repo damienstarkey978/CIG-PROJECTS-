@@ -17,6 +17,25 @@ export const LIMITS = {
 
 
 import { REVIEW_CODE_HASH } from "./review-code.mjs";
+import { teamUserForEmail } from "./auth.mjs";
+
+// Team access by email (Damien, Nov 26: the downloaded app should know him).
+// The email has to be proven: signed in with an emailed code, or the team
+// account that already existed before this went live (sign up doesn't check
+// email, so a newer unproven sign up with a team email gets nothing).
+const TEAM_EMAIL_TRUSTED_BEFORE = "2026-11-26T22:00:00.000Z";
+export function teamUserForAccount(account) {
+  if (!account) return null;
+  const user = teamUserForEmail(account.email);
+  if (!user) return null;
+  return account.emailVerified || String(account.createdAt || "9") < TEAM_EMAIL_TRUSTED_BEFORE ? user : null;
+}
+export async function markEmailVerified(store, account) {
+  if (!account || account.emailVerified) return account;
+  const next = { ...account, emailVerified: true };
+  await store.setJSON(`acct/${account.id}`, next);
+  return next;
+}
 
 const enc = new TextEncoder();
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
